@@ -139,7 +139,7 @@ Documentation-first; build pending. The table below is the source of truth.
 |-----------|--------|
 | Canonical book/trade model (integer ticks, no float) | Done — tested |
 | Per-venue normalization to the canonical model | Planned (with adapters) |
-| Order-book engine (snapshot + delta, gap detect, resync, invariants) | Planned |
+| Order-book engine (snapshot + delta, gap detect, resync, invariants) | Done — tested |
 | Transport port + deterministic synthetic source (seeded, fault-injecting) | Done — tested |
 | Recorded source (replay captured feeds) | Planned (with adapters) |
 | Live exchange adapters (2–3 venues) | Planned |
