@@ -18,6 +18,12 @@ import (
 	"github.com/klimavojtech2002/tickerplant/internal/source"
 )
 
+type config struct {
+	depth int
+	every int
+	pace  time.Duration
+}
+
 func main() {
 	seed := flag.Int64("seed", 1, "synthetic source seed")
 	steps := flag.Int("steps", 5000, "number of source steps to run")
@@ -31,7 +37,20 @@ func main() {
 	defer stop()
 
 	src := source.New(source.Config{Venue: "synthetic", Symbol: "DEMO", Seed: *seed, Steps: *steps})
-	eng := book.New(src, *depth)
+	_, stats, err := run(ctx, log, src, config{depth: *depth, every: *every, pace: *pace})
+	if err != nil {
+		log.Error("engine stopped", "err", err)
+		os.Exit(1)
+	}
+	log.Info("done", "delivered", stats.Delivered, "dropped", stats.Dropped)
+}
+
+// run wires the pipeline (source -> engine -> fan-out), drives it to completion or
+// cancellation, and returns the final view and fan-out stats. It takes the Source as
+// a parameter so it is source-agnostic (synthetic now, a live adapter later) and
+// testable end to end with a scripted source.
+func run(ctx context.Context, log *slog.Logger, src source.Source, cfg config) (*book.View, delivery.Stats, error) {
+	eng := book.New(src, cfg.depth)
 	hub := delivery.New(256, 1024)
 
 	_, ch := hub.Subscribe()
@@ -40,19 +59,21 @@ func main() {
 		defer close(done)
 		n := 0
 		for v := range ch {
-			if n++; n%*every == 0 {
-				logTop(log, v)
+			if cfg.every > 0 {
+				if n++; n%cfg.every == 0 {
+					logTop(log, v)
+				}
 			}
 		}
 	}()
+	defer func() { hub.Close(); <-done }()
 
 	if err := eng.Bootstrap(ctx); err != nil {
-		log.Error("bootstrap failed", "err", err)
-		os.Exit(1)
+		return nil, hub.Stats(), err
 	}
 
-	// Publish only when the view actually advanced, so dropped/stale steps don't
-	// re-broadcast an identical view.
+	// Publish only when the view advances, so dropped/stale steps don't re-broadcast
+	// an identical view.
 	var lastSeq market.Sequence
 	publish := func() {
 		if v := eng.View(); v != nil && v.LastSeq != lastSeq {
@@ -62,29 +83,18 @@ func main() {
 	}
 	publish()
 
-	failed := false
 	for {
 		ok, err := eng.Step(ctx)
 		if err != nil {
-			log.Error("engine stopped", "err", err)
-			failed = true
-			break
+			return eng.View(), hub.Stats(), err
 		}
 		if !ok {
-			break
+			return eng.View(), hub.Stats(), nil
 		}
 		publish()
-		if *pace > 0 {
-			time.Sleep(*pace)
+		if cfg.pace > 0 {
+			time.Sleep(cfg.pace)
 		}
-	}
-
-	hub.Close()
-	<-done
-	s := hub.Stats()
-	log.Info("done", "resyncs", eng.Resyncs(), "delivered", s.Delivered, "dropped", s.Dropped)
-	if failed {
-		os.Exit(1)
 	}
 }
 
