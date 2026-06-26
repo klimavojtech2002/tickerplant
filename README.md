@@ -66,15 +66,15 @@ subject of my `seedloop` project.)
 ```
    exchanges (live)              tickerplant                          consumers
  ┌──────────────────┐      ┌────────────────────────┐
- │ venue A (WS)     │─────►│ ingestion adapters      │
- ├──────────────────┤      │   (transport port)      │
- │ venue B (WS)     │─────►│        │                │      ┌────────────────┐
- ├──────────────────┤      │   normalizer            │─────►│ stream consumers│
- │ recorded / synth │─────►│        │                │      ├────────────────┤
- │ (tests, same     │      │   order-book engine     │─────►│ live dashboard  │
- │  port)           │      │   (invariant-checked)   │      └────────────────┘
- └──────────────────┘      │        │                │
-                           │   fan-out (broker)      │
+ │ venue A (WS)     │─────►│ ingestion adapters     │
+ ├──────────────────┤      │   (transport port)     │
+ │ venue B (WS)     │─────►│        │               │      ┌────────────────┐
+ ├──────────────────┤      │   normalizer           │─────►│stream consumers│
+ │ recorded / synth │─────►│        │               │      ├────────────────┤
+ │ (tests, same     │      │   order-book engine    │─────►│live dashboard  │
+ │  port)           │      │   (invariant-checked)  │      └────────────────┘
+ └──────────────────┘      │        │               │
+                           │   fan-out (broker)     │
                            └────────────────────────┘
 ```
 
