@@ -1,0 +1,26 @@
+# Binaries and build output
+/bin/
+*.exe
+*.test
+*.out
+
+# Test / coverage
+*.cov
+coverage.*
+/tmp/
+
+# Environment and local config
+.env
+.env.*
+*.local
+
+# Node / Next.js (dashboard)
+node_modules/
+.next/
+dist/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
