@@ -242,12 +242,32 @@ weaker), and its sequenced feed needs an account.
   implementation time. Accepted; that tracking is the senior skill being demonstrated — borne out when
   OKX deprecated its book checksum on 2026-06-23, leaving it sequence-only, caught by re-verification.
 
+## ADR-0012 — A pull-based transport port, not a channel
+
+**Status:** Accepted
+
+**Context.** The engine reads source events and, on bootstrap or resync, requests a snapshot. The thesis
+is deterministic simulation: a run must reproduce bit-for-bit from a seed. A channel-based port adds a
+producer goroutine whose interleaving with the consumer is scheduler-dependent — nondeterminism exactly
+where the proof needs none. Live venue feeds, by contrast, are push (a socket).
+
+**Decision.** The port is pull-based: `Next(ctx) (Event, bool)` plus `Snapshot(ctx)`. The synthetic
+source steps a seeded generator single-threaded, so a run is reproducible. Live adapters (slice 0004)
+satisfy the same port by buffering their push socket behind `Next`.
+
+**Consequences.**
+- The engine's event loop is single-threaded and deterministic under test; no scheduler entropy can
+  reach the correctness proof.
+- The push→pull buffering lives in the live adapter, at the edge where nondeterminism belongs.
+- Trade-off: a live adapter does a little more work (an internal buffer) than consuming a channel
+  directly. Accepted; determinism of the core is worth more than a few lines at the edge.
+
 ## Verified against
 
 - Go language specification — `internal` package import rule (ADR-0002).
 - IEEE-754 binary floating point and decimal representation (ADR-0003).
 - Each venue's published order-book maintenance procedure, re-verified against the live documentation at
   the time each adapter is implemented (ADR-0011, slice 0004): Binance Spot WebSocket streams
-  (<https://developers.binance.com/docs/binance-spot-api-docs/web-socket-streams>) and Kraken WebSocket v2
-  `book` (<https://docs.kraken.com/api/docs/websocket-v2/book/>); the third venue per ADR-0011. See also
-  [correctness.md](correctness.md) "Verified against".
+  (<https://developers.binance.com/docs/binance-spot-api-docs/web-socket-streams>), Kraken WebSocket v2
+  `book` (<https://docs.kraken.com/api/docs/websocket-v2/book/>), and OKX WebSocket `books`
+  (<https://www.okx.com/docs-v5/en/>). See also [correctness.md](correctness.md) "Verified against".

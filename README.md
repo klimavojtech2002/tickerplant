@@ -79,9 +79,9 @@ subject of my `seedloop` project.)
 ```
 
 The fan-out layer is the standard-library SSE/streaming broker first built for
-`arbitrage-engine` (`internal/broker`) — pooling, fan-out, reconnect,
-resumption. Each project vendors its own copy of that foundation (Go forbids importing another module's
-`internal/` package); the two lead with different hard problems:
+`arbitrage-engine` — pooling, fan-out, reconnect, resumption. tickerplant will vendor its own copy of
+that foundation (Go forbids importing another module's `internal/` package); the two lead with different
+hard problems:
 arbitrage-engine is about cross-venue detection and exact-money correctness on a synthetic feed;
 tickerplant is about **order-book reconstruction correctness on real, live data**.
 
@@ -140,7 +140,8 @@ Documentation-first; build pending. The table below is the source of truth.
 | Canonical book/trade model (integer ticks, no float) | Done — tested |
 | Per-venue normalization to the canonical model | Planned (with adapters) |
 | Order-book engine (snapshot + delta, gap detect, resync, invariants) | Planned |
-| Transport port + recorded/synthetic source (deterministic tests) | Planned |
+| Transport port + deterministic synthetic source (seeded, fault-injecting) | Done — tested |
+| Recorded source (replay captured feeds) | Planned (with adapters) |
 | Live exchange adapters (2–3 venues) | Planned |
 | Fan-out broker (`internal/broker`, vendored from arbitrage-engine) | Planned — vendor a copy (proven in arbitrage-engine) |
 | Dashboard (Next.js) | Planned |
