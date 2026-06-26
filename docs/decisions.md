@@ -32,7 +32,7 @@ delivery adapters sit on the output side.
 
 ## ADR-0002 — Vendor the fan-out broker, do not share `internal/` across modules
 
-**Status:** Accepted
+**Status:** Superseded by ADR-0013 (the in-process fan-out is purpose-built, not vendored)
 
 **Context.** The fan-out layer is the standard-library SSE broker already built and tested in the
 sibling `arbitrage-engine` (`internal/broker`). Reuse is desirable. But Go forbids importing another
@@ -261,6 +261,30 @@ satisfy the same port by buffering their push socket behind `Next`.
 - The push→pull buffering lives in the live adapter, at the edge where nondeterminism belongs.
 - Trade-off: a live adapter does a little more work (an internal buffer) than consuming a channel
   directly. Accepted; determinism of the core is worth more than a few lines at the edge.
+
+## ADR-0013 — An in-process fan-out, not a vendored SSE broker (supersedes ADR-0002)
+
+**Status:** Accepted
+
+**Context.** ADR-0002 planned to vendor the standard-library SSE broker from arbitrage-engine as the
+fan-out. Building the engine made the misfit clear: that broker pools *outbound* SSE-URL connections and
+parses an SSE wire, but tickerplant's source of truth is the local engine, not a remote URL — the pooling
+and HTTP plumbing have no in-process use. Adapting it would mean adding an upstream seam it lacks and
+fixing latent defects (channels not closed on Close, a subscribe/teardown race, no slow-consumer
+disconnect): more code and risk for no benefit. Meanwhile the engine already publishes self-contained,
+immutable top-N views (ADR-0008), so the consumer fan-out is a simple bounded, non-blocking broadcast.
+
+**Decision.** Build a small purpose-fit in-process fan-out (`internal/delivery.Hub`): bounded per-consumer
+channels, non-blocking broadcast, drops counted, a persistently-slow consumer disconnected (ADR-0006). Do
+not vendor the SSE broker; arbitrage-engine remains lineage (the same backpressure discipline), not code.
+
+**Consequences.**
+- The fan-out is small, single-purpose, and fully tested, with no SSE-URL machinery in-process delivery
+  never uses.
+- Drop-on-full is correct because each view is a complete snapshot, not a delta — a dropped view is
+  superseded by the next.
+- Trade-off: the "shared broker with arbitrage-engine" narrative is dropped. The two share a discipline,
+  not a package. An HTTP/SSE delivery edge for the dashboard is a thin adapter over the Hub, added later.
 
 ## Verified against
 
