@@ -201,5 +201,5 @@ Primary sources, re-verified against the live documentation when each adapter is
 0004):
 - Binance Spot — managing a local order book: <https://developers.binance.com/docs/binance-spot-api-docs/web-socket-streams>
 - Kraken — WebSocket v2 `book` channel and CRC32 checksum: <https://docs.kraken.com/api/docs/websocket-v2/book/>
-- The third venue's documented procedure (ADR-0011).
+- OKX — WebSocket `books` channel (`seqId`/`prevSeqId`; CRC32 checksum deprecated 2026-06-23): <https://www.okx.com/docs-v5/en/>
 - IEEE-754 binary floating point versus decimal representation (§2).
