@@ -74,16 +74,17 @@ subject of my `seedloop` project.)
  │ (tests, same     │      │   order-book engine    │─────►│live dashboard  │
  │  port)           │      │   (invariant-checked)  │      └────────────────┘
  └──────────────────┘      │        │               │
-                           │   fan-out (broker)     │
+                           │   fan-out (in-process) │
                            └────────────────────────┘
 ```
 
-The fan-out layer is the standard-library SSE/streaming broker first built for
-`arbitrage-engine` — pooling, fan-out, reconnect, resumption. tickerplant will vendor its own copy of
-that foundation (Go forbids importing another module's `internal/` package); the two lead with different
-hard problems:
-arbitrage-engine is about cross-venue detection and exact-money correctness on a synthetic feed;
-tickerplant is about **order-book reconstruction correctness on real, live data**.
+The fan-out layer is a small in-process broadcaster: the engine publishes a complete, immutable top-of-book
+view, and the fan-out delivers it to every consumer over a bounded channel — dropping (and past a bound
+disconnecting) a consumer that can't keep up, so one slow reader never stalls the engine. It shares the
+backpressure discipline of the sibling `arbitrage-engine` streaming broker but, since the source here is
+the local engine rather than a remote feed, it is purpose-built, not that broker. The two projects lead
+with different hard problems: arbitrage-engine is cross-venue detection and exact-money correctness on a
+synthetic feed; tickerplant is **order-book reconstruction correctness on real, live data**.
 
 ## On latency
 
@@ -128,8 +129,8 @@ system does not persist across crashes.
 Go, for its concurrency model and standard-library networking. The core ships as a **reusable
 library** — the transport port, the normalizer, and the invariant-checked order-book engine — with a
 thin service and a Next.js/TypeScript dashboard on top. Docker and docker-compose run the whole
-system with one command; GitHub Actions runs CI. The streaming broker is written against the Go
-standard library alone.
+system with one command; GitHub Actions runs CI. The core — model, transport port, engine, and fan-out —
+is written against the Go standard library alone.
 
 ## Status
 
@@ -143,7 +144,8 @@ Documentation-first; build pending. The table below is the source of truth.
 | Transport port + deterministic synthetic source (seeded, fault-injecting) | Done — tested |
 | Recorded source (replay captured feeds) | Planned (with adapters) |
 | Live exchange adapters (2–3 venues) | Planned |
-| Fan-out broker (`internal/broker`, vendored from arbitrage-engine) | Planned — vendor a copy (proven in arbitrage-engine) |
+| Fan-out delivery (`internal/delivery`, in-process, bounded backpressure) | Done — tested |
+| Runnable demo (`cmd/tickerplant`: source → engine → fan-out) | Done |
 | Dashboard (Next.js) | Planned |
 | Metrics and benchmark harness | Planned |
 | Docker, docker-compose, CI | Planned |
