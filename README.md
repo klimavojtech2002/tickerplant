@@ -134,7 +134,7 @@ is written against the Go standard library alone.
 
 ## Status
 
-Documentation-first; build pending. The table below is the source of truth.
+The table below is the source of truth: the core is built and tested; live data and the dashboard are next.
 
 | Component | Status |
 |-----------|--------|

@@ -3,9 +3,9 @@
 Architecture decision records. Each is a choice that shapes the system and is not obvious from the code
 alone. Format: context, decision, consequences, with the trade-off stated, not hidden.
 
-The build is pending (see the README status table), so these are design-time decisions: the
-"Consequences" are the expected outcomes the implementation is steered toward, revised against reality as
-each slice lands, not yet a record of lived experience.
+The core is built and tested (see the README status table). Some of these now record lived experience —
+ADR-0013, for instance, was taken after building the engine showed the vendored-broker plan did not fit —
+while those for pending slices remain design-time intent, revised against reality as each slice lands.
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) for how these fit together and [correctness.md](correctness.md)
 for the invariants they protect.

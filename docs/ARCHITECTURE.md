@@ -17,9 +17,9 @@ transport port; delivery adapters sit on the output side.
  ┌────────────────────┐        ┌──────────────────────────┐
  │ Binance  (WS)      │──┐     │  normalizer              │
  │ OKX      (WS)      │──┼────►│      │                   │      ┌─────────────────┐
- │ Kraken   (WS)      │──┘     │  order-book engine       │─────►│ fan-out broker  │──► stream consumers
- ├────────────────────┤        │   (invariant-checked,    │      │ (bounded,       │──► live dashboard
- │ synthetic source   │──────► │    single-writer)        │      │  non-blocking)  │──► metrics
+ │ Kraken   (WS)      │──┘     │  order-book engine       │─────►│ in-process      │──► stream consumers
+ ├────────────────────┤        │   (invariant-checked,    │      │ fan-out         │──► live dashboard
+ │ synthetic source   │──────► │    single-writer)        │      │ (bounded, drop) │──► metrics
  │ (tests, same port) │        │      │                   │      └─────────────────┘
  └────────────────────┘        │  canonical model         │
         transport port ───────►└──────────────────────────┘
@@ -38,7 +38,7 @@ size are integers in the venue's smallest increment, with no `float64` on the bo
 
 A raw venue message enters an ingestion adapter, which normalizes it into a canonical snapshot or delta
 and hands it to the engine through the port. The engine applies it to the venue's book, checking the
-invariants on every update (§5). The resulting normalized update is published to the fan-out broker,
+invariants on every update (§5). The resulting normalized update is published to the in-process fan-out,
 which delivers it to every consumer over a bounded, non-blocking channel. A sequence gap or checksum
 mismatch short-circuits this flow into a resync (§6) instead of producing a wrong book.
 
@@ -77,16 +77,18 @@ silent drift (ADR-0004).
 
 ## 7. Fan-out and backpressure
 
-The normalized stream is delivered through the vendored standard-library SSE broker (`internal/broker`,
-ADR-0002): identical upstream subscriptions are pooled, and each event is fanned out to every consumer
-over a bounded channel. The send is non-blocking: a full consumer buffer drops the event and counts the
-loss, and a consumer that stays behind past a bound is disconnected, so one slow consumer cannot stall
-the engine or the others. The reasoning for dropping over blocking is in ADR-0006.
+The normalized stream is delivered through a small in-process fan-out (`internal/delivery`, ADR-0013):
+the engine publishes a complete top-N view, and each is broadcast to every consumer over a bounded
+channel. The send is non-blocking: a full consumer buffer drops the view and counts the loss — safe
+because each view is a complete, latest-wins snapshot, so a dropped one is superseded by the next — and a
+consumer that stays behind past a bound is disconnected, so one slow consumer cannot stall the engine or
+the others. The reasoning for dropping over blocking is in ADR-0006; for an in-process fan-out rather
+than vendoring an SSE broker, ADR-0013.
 
 ## 8. Concurrency model
 
 One documented owner per resource: one writer per venue book (§5), one connection manager per venue, the
-broker owning its consumer set. Communication is over channels with bounded buffers; shared counters are
+fan-out owning its consumer set. Communication is over channels with bounded buffers; shared counters are
 atomic. There is no shared mutable state without a single owner, and no lock on the book's read path. The
 race detector is on for every test run, and a clean `-race` is part of the definition of done, not an
 occasional check.
@@ -116,6 +118,7 @@ The full correctness model and proof method are in [correctness.md](correctness.
 
 ## 11. What is built
 
-Documentation-first; the build is sliced and audit-gated. The README status table is the source of truth
-for what is implemented. The build order is broker → canonical model → transport port and synthetic
-source → order-book engine → live adapters → delivery wiring → metrics → dashboard → packaging and CI.
+The build is sliced and audit-gated; the README status table is the source of truth for what is
+implemented. The core is built and tested — canonical model, transport port and synthetic source,
+order-book engine, and the in-process fan-out with a runnable demo (`cmd/tickerplant`). Remaining:
+live adapters → metrics → dashboard → packaging and CI.

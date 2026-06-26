@@ -9,9 +9,9 @@ proven rather than asserted.
 The decisions behind these rules are in [decisions.md](decisions.md); how the pieces fit is in
 [ARCHITECTURE.md](ARCHITECTURE.md); the boundaries are in [scope.md](scope.md).
 
-> **Status: design, build pending** (see the README status table). This document is the specification
-> the implementation is held to. Where it states a property as enforced or proven, that is the design
-> intent the tests must establish, not a claim about already-running code; the proof method is §10.
+> **Status: the order-book core is built and proven** (model, engine, synthetic source, fan-out — see
+> the README status table). The invariants in §4–§6 are enforced and proven by the tests (§10); the
+> venue-specific procedures (§7–§8) remain the spec the pending live adapters are held to.
 
 ## 1. The canonical model
 
