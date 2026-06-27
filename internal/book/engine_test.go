@@ -134,6 +134,28 @@ func TestRunHandlesTradeAndDisconnect(t *testing.T) {
 	}
 }
 
+// The metric counters must match injected truth: one gap per scheduled gap fault, one
+// disconnect per scheduled disconnect fault (observability that doesn't lie).
+func TestEngineMetricCounters(t *testing.T) {
+	faults := map[int]source.Fault{
+		10: source.FaultGap, 25: source.FaultGap, 40: source.FaultGap,
+		15: source.FaultDisconnect, 50: source.FaultDisconnect,
+	}
+	eng := New(source.New(source.Config{Venue: "v", Symbol: "s", Seed: 5, Steps: 70, Faults: faults}), 5)
+	if err := eng.Run(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if eng.Gaps() != 3 {
+		t.Errorf("Gaps() = %d, want 3 (one per injected gap fault)", eng.Gaps())
+	}
+	if eng.Disconnects() != 2 {
+		t.Errorf("Disconnects() = %d, want 2 (one per injected disconnect fault)", eng.Disconnects())
+	}
+	if eng.Resyncs() < 5 {
+		t.Errorf("Resyncs() = %d, want >= 5 (each gap and disconnect resyncs)", eng.Resyncs())
+	}
+}
+
 // staleSource returns a mock whose snapshot is permanently behind the stream, so each
 // of n deltas is an unbridgeable gap — a no-progress resync.
 func staleSource(n int) *mockSource {
