@@ -147,7 +147,8 @@ Documentation-first; build pending. The table below is the source of truth.
 | Fan-out delivery (`internal/delivery`, in-process, bounded backpressure) | Done — tested |
 | Runnable demo (`cmd/tickerplant`: source → engine → fan-out) | Done |
 | Dashboard (Next.js) | Planned |
-| Metrics and benchmark harness | Planned |
+| Metrics: engine counters (gaps/resyncs/disconnects) + latency histogram | Done — tested |
+| Benchmark harness (open-loop, coordinated-omission-aware) | Done — tested |
 | Docker, docker-compose, CI | Planned |
 
 ## Limitations
