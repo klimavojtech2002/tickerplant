@@ -28,7 +28,14 @@ jobs:
 
       - name: no floating point on the book path
         run: |
-          if grep -rnE --include='*.go' 'float64|float32|ParseFloat' internal/; then
+          # ADR-0003: no float on the book path — the model, engine, delivery, and the
+          # adapter normalization (venue subpackages). Latency stats (internal/metrics)
+          # and the WebSocket transport timing (internal/venue/*.go) may use float.
+          paths="internal/book internal/market internal/source internal/delivery"
+          for d in internal/venue/*/; do [ -d "$d" ] && paths="$paths $d"; done
+          scan=""
+          for p in $paths; do [ -e "$p" ] && scan="$scan $p"; done
+          if [ -n "$scan" ] && grep -rnE --include='*.go' 'float64|float32|ParseFloat' $scan; then
             echo "floating point is forbidden on the book path (ADR-0003)"; exit 1
           fi
 
