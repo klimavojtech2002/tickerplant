@@ -80,6 +80,14 @@ func TestTopNFreshCopy(t *testing.T) {
 	if b.bids[0].Size == 999 {
 		t.Fatal("topN returned an aliased slice; the book was mutated through the view")
 	}
+	// a depth deeper than the book returns every level, not one fewer (clip clamp)
+	allBids, allAsks := b.topN(50)
+	if len(allBids) != 10 || len(allAsks) != 10 {
+		t.Fatalf("topN(50) on a 10-level book = %d/%d levels, want 10 each", len(allBids), len(allAsks))
+	}
+	if allBids[9].Price != 100 || allAsks[9].Price != 209 {
+		t.Fatalf("deepest level dropped: bids[9]=%v asks[9]=%v", allBids[9], allAsks[9])
+	}
 }
 
 // buildFrom resolves a repeated price last-writer-wins (the duplicate-price rule).

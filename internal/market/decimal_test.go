@@ -23,6 +23,8 @@ func TestParseScaled(t *testing.T) {
 		{"zero", "0", 2, 0, false},
 		{"max precision at scale", "9.99999999", 8, 999999999, false},
 		{"int64 max accepted", "9223372036854775807", 0, 9223372036854775807, false},
+		{"int64 boundary +1 overflows", "9223372036854775808", 0, 0, true}, // MaxInt64+1: must error, never wrap (ADR-0003)
+		{"max scale 18 accepted", "1.5", 18, 1500000000000000000, false},
 		{"trailing dot rejected", "5.", 2, 0, true},
 		{"over precision rejected", "1.50001", 4, 0, true},
 		{"double dot rejected", "1.2.3", 4, 0, true},
@@ -66,6 +68,8 @@ func TestFormatScaled(t *testing.T) {
 		{15000, 4, "1.5000"},
 		{5, 4, "0.0005"},
 		{0, 2, "0.00"},
+		{50, 2, "0.50"}, // canonical leading zero, not ".50"
+		{5, 1, "0.5"},   // scale 1
 		{123, 0, "123"},
 		{999999999, 8, "9.99999999"},
 		{-5, 2, "-0.05"}, // defensive: not a book value, but must not be garbage
@@ -88,6 +92,7 @@ func TestScaledRoundTrip(t *testing.T) {
 		{"1.5000", 4},
 		{"0.0005", 4},
 		{"0.00", 2},
+		{"0.50", 2}, // pins the canonical leading-zero form
 		{"123", 0},
 	}
 	for _, c := range cases {
