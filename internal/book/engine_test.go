@@ -218,7 +218,10 @@ func TestViewCrossesEdgeCases(t *testing.T) {
 		t.Error("nil view must not cross")
 	}
 	if (&View{Bids: []market.Level{{Price: 100, Size: 1}}}).Crosses() {
-		t.Error("one-sided view must not cross")
+		t.Error("one-sided view (bids only) must not cross")
+	}
+	if (&View{Asks: []market.Level{{Price: 100, Size: 1}}}).Crosses() {
+		t.Error("one-sided view (asks only) must not cross")
 	}
 }
 

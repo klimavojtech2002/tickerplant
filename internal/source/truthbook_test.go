@@ -27,15 +27,16 @@ func TestTruthBookApplyAndDelete(t *testing.T) {
 func TestTruthBookSnapshotSorted(t *testing.T) {
 	b := newTruthBook()
 	b.apply(market.Delta{
-		Bids: []market.Level{{Price: 98, Size: 1}, {Price: 100, Size: 1}, {Price: 99, Size: 1}},
-		Asks: []market.Level{{Price: 103, Size: 1}, {Price: 101, Size: 1}, {Price: 102, Size: 1}},
+		Bids: []market.Level{{Price: 98, Size: 1}, {Price: 100, Size: 7}, {Price: 99, Size: 3}},
+		Asks: []market.Level{{Price: 103, Size: 6}, {Price: 101, Size: 2}, {Price: 102, Size: 4}},
 	})
 	snap := b.snapshot("V", "S", 7)
-	if snap.Bids[0].Price != 100 || snap.Bids[2].Price != 98 {
-		t.Fatalf("bids not high-to-low: %+v", snap.Bids)
+	// assert full levels (price AND size), so the oracle's size serialization is pinned
+	if snap.Bids[0] != (market.Level{Price: 100, Size: 7}) || snap.Bids[2] != (market.Level{Price: 98, Size: 1}) {
+		t.Fatalf("bids not high-to-low with correct sizes: %+v", snap.Bids)
 	}
-	if snap.Asks[0].Price != 101 || snap.Asks[2].Price != 103 {
-		t.Fatalf("asks not low-to-high: %+v", snap.Asks)
+	if snap.Asks[0] != (market.Level{Price: 101, Size: 2}) || snap.Asks[2] != (market.Level{Price: 103, Size: 6}) {
+		t.Fatalf("asks not low-to-high with correct sizes: %+v", snap.Asks)
 	}
 	if snap.LastUpdateID != 7 {
 		t.Fatalf("LastUpdateID = %d, want 7", snap.LastUpdateID)

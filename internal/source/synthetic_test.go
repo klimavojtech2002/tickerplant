@@ -229,6 +229,34 @@ func TestStaleSnapshotThenFresh(t *testing.T) {
 	}
 }
 
+// The seeded initial book has the documented composition (correctness.md §3): bids
+// 850..900 and asks 1100..1150 at depth 6, populated and uncrossed. This pins
+// seedInitialBook's prices — the book the engine binds its first snapshot to.
+func TestSeededInitialBook(t *testing.T) {
+	snap, err := New(cfg(1, 0)).Snapshot(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(snap.Bids) != 6 || len(snap.Asks) != 6 {
+		t.Fatalf("depth = %d bids / %d asks, want 6 each", len(snap.Bids), len(snap.Asks))
+	}
+	wantBids := []market.Price{900, 890, 880, 870, 860, 850}
+	wantAsks := []market.Price{1100, 1110, 1120, 1130, 1140, 1150}
+	for i, p := range wantBids {
+		if snap.Bids[i].Price != p || snap.Bids[i].Size < 1 {
+			t.Errorf("bid %d = %+v, want price %d and a populated size", i, snap.Bids[i], p)
+		}
+	}
+	for i, p := range wantAsks {
+		if snap.Asks[i].Price != p || snap.Asks[i].Size < 1 {
+			t.Errorf("ask %d = %+v, want price %d and a populated size", i, snap.Asks[i], p)
+		}
+	}
+	if snap.LastUpdateID != 1000 {
+		t.Errorf("LastUpdateID = %d, want 1000", snap.LastUpdateID)
+	}
+}
+
 func TestClosedSourceStops(t *testing.T) {
 	s := New(cfg(1, 50))
 	if err := s.Close(); err != nil {

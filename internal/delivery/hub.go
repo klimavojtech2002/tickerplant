@@ -6,7 +6,6 @@ package delivery
 
 import (
 	"sync"
-	"sync/atomic"
 
 	"github.com/klimavojtech2002/tickerplant/internal/book"
 )
@@ -23,8 +22,8 @@ type Hub struct {
 	nextID uint64
 	closed bool
 
-	delivered atomic.Uint64
-	dropped   atomic.Uint64
+	delivered uint64 // guarded by mu
+	dropped   uint64 // guarded by mu
 }
 
 type sub struct {
@@ -86,10 +85,10 @@ func (h *Hub) Publish(v *book.View) {
 		select {
 		case s.ch <- v:
 			s.drops = 0
-			h.delivered.Add(1)
+			h.delivered++
 		default:
 			s.drops++
-			h.dropped.Add(1)
+			h.dropped++
 			if s.drops >= h.maxLag {
 				close(s.ch)
 				delete(h.subs, id)
@@ -105,8 +104,8 @@ func (h *Hub) Stats() Stats {
 	defer h.mu.Unlock()
 	return Stats{
 		Consumers: len(h.subs),
-		Delivered: h.delivered.Load(),
-		Dropped:   h.dropped.Load(),
+		Delivered: h.delivered,
+		Dropped:   h.dropped,
 	}
 }
 
