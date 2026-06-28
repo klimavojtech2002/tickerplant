@@ -156,8 +156,8 @@ func TestLiveEndToEndLocal(t *testing.T) {
 		case strings.Contains(r.URL.Path, "exchangeInfo"):
 			_, _ = w.Write([]byte(`{"symbols":[{"symbol":"BTCUSDT","filters":[` +
 				`{"filterType":"PRICE_FILTER","tickSize":"0.01"},{"filterType":"LOT_SIZE","stepSize":"0.001"}]}]}`))
-		default: // /api/v3/depth
-			_, _ = w.Write([]byte(`{"lastUpdateId":100,"bids":[["100.00","1.000"]],"asks":[["101.00","1.000"]]}`))
+		default: // /api/v3/depth — real Binance pads decimals to 8 places
+			_, _ = w.Write([]byte(`{"lastUpdateId":100,"bids":[["100.00000000","1.00000000"]],"asks":[["101.00000000","1.00000000"]]}`))
 		}
 	}))
 	defer rest.Close()
@@ -174,8 +174,8 @@ func TestLiveEndToEndLocal(t *testing.T) {
 			return
 		}
 		defer c.CloseNow()
-		_ = c.Write(r.Context(), websocket.MessageText, depthFrame(101, 101, [][]string{{"100.00", "2.000"}}, nil))
-		_ = c.Write(r.Context(), websocket.MessageText, depthFrame(102, 102, nil, [][]string{{"102.00", "3.000"}}))
+		_ = c.Write(r.Context(), websocket.MessageText, depthFrame(101, 101, [][]string{{"100.00000000", "2.00000000"}}, nil))
+		_ = c.Write(r.Context(), websocket.MessageText, depthFrame(102, 102, nil, [][]string{{"102.00000000", "3.00000000"}}))
 		_, _, _ = c.Read(r.Context()) // returns when the client disconnects
 		close(disconnected)
 	}))
