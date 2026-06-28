@@ -35,11 +35,12 @@ type Config struct {
 // Source is the Binance transport-port adapter. It implements source.Source so the
 // engine consumes it identically to the synthetic source.
 type Source struct {
-	cfg    Config
-	scales scales
-	client *http.Client
-	done   chan struct{}
-	once   sync.Once
+	cfg     Config
+	scales  scales
+	client  *http.Client
+	done    chan struct{}
+	once    sync.Once
+	onClose func() // optional teardown (e.g. closing the live WebSocket), set by Live
 }
 
 // New builds a Binance adapter from cfg.
@@ -110,6 +111,11 @@ func (s *Source) Snapshot(ctx context.Context) (market.Snapshot, error) {
 // Close releases the source; further Next calls return false. Safe to call once; the
 // WebSocket layer (added with the live transport) owns the underlying connection.
 func (s *Source) Close() error {
-	s.once.Do(func() { close(s.done) })
+	s.once.Do(func() {
+		close(s.done)
+		if s.onClose != nil {
+			s.onClose()
+		}
+	})
 	return nil
 }

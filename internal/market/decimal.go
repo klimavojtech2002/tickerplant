@@ -11,9 +11,10 @@ import (
 // 10^scale, with no floating point on the path: "1.5" at scale 4 is 15000.
 //
 // Reconstruction correctness depends on exact representation, so the parser is
-// strict. A value with more fractional digits than the scale, a malformed number,
-// a negative, or one that overflows int64 is a loud error (ErrMalformed), never a
-// silent round or wrap (ADR-0003, docs/correctness.md §2).
+// strict. Trailing-zero padding ("1.5000" at scale 2, "60220.02000000" at scale 2) is
+// lossless and accepted, but more *significant* fractional digits than the scale, a
+// malformed number, a negative, or a value that overflows int64 is a loud error
+// (ErrMalformed), never a silent round or wrap (ADR-0003, docs/correctness.md §2).
 func ParseScaled(s string, scale int) (int64, error) {
 	if scale < 0 || scale > 18 {
 		return 0, fmt.Errorf("scale %d out of range [0,18]: %w", scale, ErrMalformed)
@@ -25,8 +26,12 @@ func ParseScaled(s string, scale int) (int64, error) {
 	if hasDot && fracPart == "" { // a bare "." or a trailing dot like "5." is not canonical
 		return 0, fmt.Errorf("invalid decimal %q: %w", s, ErrMalformed)
 	}
+	// Trailing zeros are lossless padding — venues format to a fixed width (e.g. Binance
+	// sends "60220.02000000" for a 2-tick price). Strip them so padding is accepted while
+	// genuine over-precision (e.g. "1.234" at scale 2) is still a loud error.
+	fracPart = strings.TrimRight(fracPart, "0")
 	if len(fracPart) > scale {
-		return 0, fmt.Errorf("decimal %q has more than %d fractional digits: %w", s, scale, ErrMalformed)
+		return 0, fmt.Errorf("decimal %q has more than %d significant fractional digits: %w", s, scale, ErrMalformed)
 	}
 	// The integer digits followed by the fractional digits, padded out to the
 	// scale, are the value in scaled units.

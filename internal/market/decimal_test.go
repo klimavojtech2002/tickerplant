@@ -15,6 +15,8 @@ func TestParseScaled(t *testing.T) {
 	}{
 		{"exact", "123.45", 2, 12345, false},
 		{"trailing zeros kept", "1.5000", 4, 15000, false},
+		{"binance-padded price at low scale", "60220.02000000", 2, 6022002, false}, // 8-decimal wire, 2-tick price
+		{"all-trailing-zero fraction", "5.000", 2, 500, false},
 		{"fewer frac digits padded", "1.5", 4, 15000, false},
 		{"integer only, scale 0", "123", 0, 123, false},
 		{"integer with scale", "123", 2, 12300, false},

@@ -143,7 +143,8 @@ The table below is the source of truth: the core is built and tested; live data 
 | Order-book engine (snapshot + delta, gap detect, resync, invariants) | Done — tested |
 | Transport port + deterministic synthetic source (seeded, fault-injecting) | Done — tested |
 | Recorded source (replay captured feeds) | Planned (with adapters) |
-| Live exchange adapters (2–3 venues) | Planned |
+| Binance live adapter (WebSocket diff-depth + REST snapshot) | Done — tested (`-live`) |
+| Kraken / OKX live adapters | Planned |
 | Fan-out delivery (`internal/delivery`, in-process, bounded backpressure) | Done — tested |
 | Runnable demo (`cmd/tickerplant`: source → engine → fan-out) | Done |
 | Dashboard (Next.js) | Planned |
