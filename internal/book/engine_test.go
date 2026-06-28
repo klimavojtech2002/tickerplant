@@ -156,6 +156,94 @@ func TestEngineMetricCounters(t *testing.T) {
 	}
 }
 
+// sumChecksum is a deterministic stand-in for a venue checksum (the real CRC32 lives in
+// the adapter): it sums the level prices, so a test can predict the expected value and
+// the engine's drift check is exercised over the actual reconstructed book.
+func sumChecksum(bids, asks []market.Level) uint32 {
+	var s uint32
+	for _, l := range bids {
+		s += uint32(l.Price)
+	}
+	for _, l := range asks {
+		s += uint32(l.Price)
+	}
+	return s
+}
+
+// A matching checksum on every snapshot and delta must apply cleanly with no resync.
+func TestChecksumMatchApplies(t *testing.T) {
+	m := &mockSource{
+		snap: market.Snapshot{LastUpdateID: 10, Bids: []market.Level{{Price: 100, Size: 1}}, Asks: []market.Level{{Price: 101, Size: 1}}, Checksum: 201},
+		events: []source.Event{
+			{Kind: source.EventDelta, Delta: market.Delta{FirstSeq: 11, LastSeq: 11, Bids: []market.Level{{Price: 99, Size: 1}}, Checksum: 300}}, // 100+99+101
+		},
+	}
+	e := New(m, 5).WithChecksum(sumChecksum)
+	if err := e.Run(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if e.ChecksumMismatches() != 0 || e.Resyncs() != 0 {
+		t.Fatalf("matching checksums must not resync: mismatches=%d resyncs=%d", e.ChecksumMismatches(), e.Resyncs())
+	}
+	if v := e.View(); v.Crosses() || v.LastSeq != 11 {
+		t.Fatalf("view = %+v, want uncrossed at seq 11", v)
+	}
+}
+
+// A wrong checksum on a delta is drift: the engine must detect it and resync.
+func TestChecksumMismatchResyncs(t *testing.T) {
+	m := &mockSource{
+		snap: market.Snapshot{LastUpdateID: 10, Bids: []market.Level{{Price: 100, Size: 1}}, Asks: []market.Level{{Price: 101, Size: 1}}, Checksum: 201},
+		events: []source.Event{
+			{Kind: source.EventDelta, Delta: market.Delta{FirstSeq: 11, LastSeq: 11, Bids: []market.Level{{Price: 99, Size: 1}}, Checksum: 999}}, // wrong
+		},
+	}
+	e := New(m, 5).WithChecksum(sumChecksum)
+	if err := e.Run(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if e.ChecksumMismatches() != 1 {
+		t.Fatalf("ChecksumMismatches() = %d, want 1 (drift detected)", e.ChecksumMismatches())
+	}
+	if e.Resyncs() == 0 {
+		t.Fatal("checksum drift must trigger a resync")
+	}
+}
+
+// A snapshot whose checksum never matches is unusable: bootstrap must fail loudly with
+// the checksum sentinel (not the crossed one), counting each rejected attempt.
+func TestBootstrapChecksumMismatchFailsLoud(t *testing.T) {
+	m := &mockSource{
+		snap: market.Snapshot{LastUpdateID: 10, Bids: []market.Level{{Price: 100, Size: 1}}, Asks: []market.Level{{Price: 101, Size: 1}}, Checksum: 999}, // never matches 201
+	}
+	e := New(m, 5).WithChecksum(sumChecksum)
+	err := e.Bootstrap(context.Background())
+	if err == nil || !errors.Is(err, market.ErrChecksumMismatch) {
+		t.Fatalf("a checksum-mismatched snapshot must fail with ErrChecksumMismatch, got %v", err)
+	}
+	if e.ChecksumMismatches() != maxBindAttempts {
+		t.Fatalf("ChecksumMismatches() = %d, want %d (one per rejected attempt)", e.ChecksumMismatches(), maxBindAttempts)
+	}
+}
+
+// The checksum covers exactly the top 10 levels per side (Kraken), independent of the
+// published depth: a book deeper than 10 binds when its top-10 checksum matches.
+func TestChecksumCoversTopTen(t *testing.T) {
+	var bids, asks []market.Level
+	for i := range 12 { // 12 levels per side; checksum is over the top 10 only
+		bids = append(bids, market.Level{Price: market.Price(100 - i), Size: 1})
+		asks = append(asks, market.Level{Price: market.Price(200 + i), Size: 1})
+	}
+	var want uint32
+	for i := range 10 { // literal 10 (not the constant under test): top-10 bids 100..91, asks 200..209
+		want += uint32(100-i) + uint32(200+i)
+	}
+	m := &mockSource{snap: market.Snapshot{LastUpdateID: 10, Bids: bids, Asks: asks, Checksum: want}}
+	if err := New(m, 5).WithChecksum(sumChecksum).Bootstrap(context.Background()); err != nil {
+		t.Fatalf("a top-10 checksum must bind a deeper book (depth-independent), got %v", err)
+	}
+}
+
 // staleSource returns a mock whose snapshot is permanently behind the stream, so each
 // of n deltas is an unbridgeable gap — a no-progress resync.
 func staleSource(n int) *mockSource {

@@ -17,6 +17,15 @@ const maxBindAttempts = 8
 // stays behind the stream), so a pathological feed fails loudly rather than livelocking.
 const maxConsecutiveResyncs = 16
 
+// checksumDepth is how many levels per side a checksum covers (Kraken uses the top 10).
+const checksumDepth = 10
+
+// Checksummer renders the top of book to a venue's integrity checksum (e.g. Kraken's
+// CRC32, ADR-0007). The engine compares it against the value the venue published, to
+// catch drift the never-crosses check cannot — a level wrong deep in the book leaves
+// best bid below best ask yet no longer matches the venue (correctness.md §6).
+type Checksummer func(bids, asks []market.Level) uint32
+
 // View is an immutable top-N snapshot of the book, published atomically for readers.
 type View struct {
 	LastSeq market.Sequence
@@ -44,12 +53,22 @@ type Engine struct {
 	resyncs            atomic.Int64 // metrics; read lock-free from any goroutine (ADR-0008, slice 0006)
 	gaps               atomic.Int64 // sequence gaps detected
 	disconnects        atomic.Int64 // disconnect events seen
+	checksumMismatches atomic.Int64 // checksum drifts detected (checksum venues)
 	consecutiveResyncs int          // writer-goroutine only; reset on progress to bound a livelock
+	checksum           Checksummer  // nil on sequence venues; set via WithChecksum for checksum venues
 }
 
 // New creates an Engine publishing a top-N view of the given depth.
 func New(src source.Source, depth int) *Engine {
 	return &Engine{src: src, depth: depth}
+}
+
+// WithChecksum makes the engine verify each snapshot and applied delta against the
+// venue's checksum (for checksum venues like Kraken, ADR-0007); a mismatch is drift and
+// triggers a resync. Call before Bootstrap/Run. Returns the engine for chaining.
+func (e *Engine) WithChecksum(fn Checksummer) *Engine {
+	e.checksum = fn
+	return e
 }
 
 // View returns the latest published view, or nil before the first bootstrap. Safe to
@@ -65,6 +84,9 @@ func (e *Engine) Gaps() int { return int(e.gaps.Load()) }
 // Disconnects returns how many disconnect events the engine has seen (a metric).
 func (e *Engine) Disconnects() int { return int(e.disconnects.Load()) }
 
+// ChecksumMismatches returns how many checksum drifts the engine has detected (a metric).
+func (e *Engine) ChecksumMismatches() int { return int(e.checksumMismatches.Load()) }
+
 func (e *Engine) publish() {
 	bids, asks := e.book.topN(e.depth)
 	e.view.Store(&View{LastSeq: e.lastSeq, Bids: bids, Asks: asks})
@@ -73,6 +95,7 @@ func (e *Engine) publish() {
 // Bootstrap binds the book from a fresh snapshot, retrying a bounded number of times
 // if the snapshot is crossed; it surfaces a loud error rather than wedging.
 func (e *Engine) Bootstrap(ctx context.Context) error {
+	lastReason := market.ErrCrossed // why the most recent attempt was rejected
 	for range maxBindAttempts {
 		snap, err := e.src.Snapshot(ctx)
 		if err != nil {
@@ -80,14 +103,24 @@ func (e *Engine) Bootstrap(ctx context.Context) error {
 		}
 		if crossesSnapshot(snap) {
 			e.resyncs.Add(1)
+			lastReason = market.ErrCrossed
 			continue
 		}
 		e.book = buildFrom(snap)
 		e.lastSeq = snap.LastUpdateID
+		if e.checksum != nil {
+			bids, asks := e.book.topN(checksumDepth)
+			if e.checksum(bids, asks) != snap.Checksum {
+				e.checksumMismatches.Add(1)
+				e.resyncs.Add(1)
+				lastReason = market.ErrChecksumMismatch
+				continue // a snapshot we cannot reproduce: refetch a fresh one
+			}
+		}
 		e.publish()
 		return nil
 	}
-	return fmt.Errorf("bootstrap failed after %d crossed snapshots: %w", maxBindAttempts, market.ErrCrossed)
+	return fmt.Errorf("bootstrap failed after %d unusable snapshots: %w", maxBindAttempts, lastReason)
 }
 
 type outcome uint8
@@ -117,6 +150,13 @@ func (e *Engine) applyDelta(d market.Delta) outcome {
 	e.lastSeq = d.LastSeq
 	if e.book.crosses() {
 		return needResync // never serve a crossed book
+	}
+	if e.checksum != nil {
+		bids, asks := e.book.topN(checksumDepth)
+		if e.checksum(bids, asks) != d.Checksum {
+			e.checksumMismatches.Add(1)
+			return needResync // checksum drift: the book no longer matches the venue
+		}
 	}
 	return applied
 }

@@ -76,6 +76,10 @@ type Snapshot struct {
 	LastUpdateID Sequence
 	Bids         []Level
 	Asks         []Level
+	// Checksum is the venue's integrity checksum over the book, where it publishes one
+	// (Kraken, ADR-0007); zero on venues that order by sequence instead. The engine
+	// verifies it only when a checksum function is configured.
+	Checksum uint32
 }
 
 // Delta is an incremental book update covering sequence ids [FirstSeq, LastSeq].
@@ -88,6 +92,10 @@ type Delta struct {
 	LastSeq  Sequence
 	Bids     []Level
 	Asks     []Level
+	// Checksum is the venue's integrity checksum over the book after this update, where
+	// it publishes one (Kraken, ADR-0007); zero on sequence-ordered venues. The engine
+	// verifies it only when a checksum function is configured.
+	Checksum uint32
 }
 
 // Trade is an executed fill. Side is the aggressor (taker) side — the side that
