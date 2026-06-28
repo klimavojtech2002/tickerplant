@@ -147,10 +147,13 @@ crosses, but a book can be wrong without crossing: a level off by one lot deep i
 bid below best ask yet does not match the venue. Some venues publish a periodic checksum over the top
 levels precisely to catch this.
 
-**Decision.** Where a venue provides a checksum (Kraken's CRC32 over the top levels), the adapter
-computes the same checksum over its local book after applying each update and compares. A mismatch is
-treated as drift and triggers resync (ADR-0004), the same as a sequence gap. Where a venue provides no
-checksum (Binance, OKX), the sequence and never-crosses checks stand as the available guards.
+**Decision.** Where a venue provides a checksum (Kraken's CRC32 over the top 10 levels), the venue
+adapter supplies the checksum *function* (the venue's exact format) and the engine computes it over its
+reconstructed top 10 levels after each applied update and on bootstrap, comparing against the venue's
+published value. A mismatch is treated as drift and triggers resync (ADR-0004), the same as a sequence
+gap. The split keeps the engine venue-neutral — it owns when and what to check, the adapter owns the
+format. Where a venue provides no checksum (Binance, OKX), the sequence and never-crosses checks stand as
+the available guards.
 
 **Consequences.**
 - Silent drift is caught on venues that allow it to be caught, not assumed absent.
