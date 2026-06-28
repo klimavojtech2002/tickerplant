@@ -46,7 +46,15 @@ func main() {
 		os.Exit(1)
 	}
 
-	_, stats, err := run(ctx, log, src, config{depth: *depth, every: *every, pace: pacing})
+	// A live feed trickles (~1/s) where the synthetic source floods (thousands/s), so
+	// the default "every 500th" cadence would leave a live run silent for minutes. When
+	// it is left at the default, log every live update instead.
+	logEvery := *every
+	if *live && logEvery == 500 {
+		logEvery = 1
+	}
+
+	_, stats, err := run(ctx, log, src, config{depth: *depth, every: logEvery, pace: pacing})
 	if err != nil {
 		log.Error("engine stopped", "err", err)
 		os.Exit(1)
