@@ -286,6 +286,38 @@ not vendor the SSE broker; arbitrage-engine remains lineage (the same backpressu
 - Trade-off: the "shared broker with arbitrage-engine" narrative is dropped. The two share a discipline,
   not a package. An HTTP/SSE delivery edge for the dashboard is a thin adapter over the Hub, added later.
 
+## ADR-0014 — A vetted WebSocket client (`coder/websocket`), the one third-party dependency
+
+**Status:** Accepted
+
+**Context.** The live venue adapters (slice 0004) need a WebSocket client. The Go standard library has
+none (`net/http` does HTTP and the server side of the upgrade, not a client), so the stdlib-first stance
+(ADR-0010) needs a deliberate exception here. The options: a vetted third-party library, or hand-rolling
+RFC 6455 (framing, masking, fragmentation, the close handshake, ping/pong). Hand-rolling is a few hundred
+lines of fiddly protocol code to write, test, and defend — disproportionate to a project whose thesis is
+order-book reconstruction, not transport framing, and riskier than a widely-used library.
+
+**Decision.** Take a single dependency: `github.com/coder/websocket` (pinned). It was chosen over
+`gorilla/websocket` because: it has **zero transitive dependencies** (the whole module graph stays
+auditable, the cleanest possible deviation from stdlib-first); its API is `context.Context`-native, which
+composes directly with the engine's already ctx-threaded `Next`/`Snapshot` instead of manual read
+deadlines; concurrent writes are safe (gorilla panics on them, a known footgun); and it is actively
+maintained (gorilla was archived, then revived but is openly seeking maintainers). The dependency is
+isolated behind a thin `internal/venue.Stream`: the adapters consume a `<-chan []byte` of frames, so the
+library is swappable without touching adapter or engine code.
+
+**Consequences.**
+- One module enters `go.mod`, with no transitive deps; everything else stays standard-library-only.
+- The reconnect, backoff, and liveness policy is the project's (`internal/venue`), not the library's, so
+  the recovery behaviour is ours to test and defend. A dead-but-open connection is caught by a read
+  deadline (a silent socket past the deadline is dropped and reconnected), with a dial timeout bounding
+  the handshake; an explicit ping/pong is a possible later refinement, not needed while venues send
+  frequent updates or server heartbeats.
+- The WebSocket path is integration-tested, never part of the deterministic suite (ADR-0005); its logic
+  is unit-tested against a local in-process server.
+- Trade-off: a dependency to track for security and version updates. Accepted: it is small, zero-dep, vetted, and
+  isolated; the alternative (hand-rolled RFC 6455) is more code and more risk for no real gain.
+
 ## Verified against
 
 - Go language specification — `internal` package import rule (ADR-0002).
