@@ -61,16 +61,21 @@ func TestPercentileClampsP(t *testing.T) {
 	if got, want := h.Percentile(-1.0), h.Percentile(0.0); got != want {
 		t.Fatalf("p<0 must clamp to p=0.0: got %v, want %v", got, want)
 	}
+	// p=0 returns the minimum sample, not the bottom bucket — pins the rank>=1 guard
+	if got := h.Percentile(0.0); !withinRel(got, 1*time.Microsecond, 0.03) {
+		t.Fatalf("p0 = %v, want ~1µs (the minimum recorded sample)", got)
+	}
 }
 
-// rank uses ceil: for {10,20,30}µs, p50 = ceil(0.5*3)=2nd sample = 20µs (floor gives 10µs).
+// rank uses ceil: for {10,20,30}µs at p=0.4, ceil(1.2)=rank 2 = 20µs, while round(1.2)
+// or floor(1.2) = rank 1 = 10µs — so this pins ceil specifically, not just not-floor.
 func TestPercentileRankIsCeil(t *testing.T) {
 	h := NewHistogram()
 	for _, d := range []time.Duration{10 * time.Microsecond, 20 * time.Microsecond, 30 * time.Microsecond} {
 		h.Record(d)
 	}
-	if got := h.Percentile(0.5); !withinRel(got, 20*time.Microsecond, 0.02) {
-		t.Fatalf("p50 of {10,20,30}µs = %v, want ~20µs (rank must use ceil, not floor)", got)
+	if got := h.Percentile(0.4); !withinRel(got, 20*time.Microsecond, 0.02) {
+		t.Fatalf("p40 of {10,20,30}µs = %v, want ~20µs (rank must use ceil)", got)
 	}
 }
 
