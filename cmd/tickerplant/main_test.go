@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/klimavojtech2002/tickerplant/internal/book"
 	"github.com/klimavojtech2002/tickerplant/internal/market"
@@ -14,6 +15,44 @@ import (
 )
 
 func quietLog() *slog.Logger { return slog.New(slog.NewTextHandler(io.Discard, nil)) }
+
+func TestNewSourceSynthetic(t *testing.T) {
+	src, pace, err := newSource(context.Background(), false, "", "", 1, 10, 5*time.Millisecond)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer src.Close()
+	if pace != 5*time.Millisecond {
+		t.Fatalf("synthetic pace = %v, want it preserved (5ms)", pace)
+	}
+	if _, ok := src.Next(context.Background()); !ok {
+		t.Fatal("synthetic source must yield events")
+	}
+}
+
+func TestNewSourceUnknownVenue(t *testing.T) {
+	if _, _, err := newSource(context.Background(), true, "kraken", "X", 1, 10, 0); err == nil {
+		t.Fatal("an unknown live venue must error")
+	}
+}
+
+type closeTracker struct {
+	source.Source
+	closed bool
+}
+
+func (c *closeTracker) Close() error { c.closed = true; return c.Source.Close() }
+
+// run must release the source on exit (so a live WebSocket is not leaked).
+func TestRunClosesSource(t *testing.T) {
+	ct := &closeTracker{Source: synthetic(1, 5)}
+	if _, _, err := run(context.Background(), quietLog(), ct, config{depth: 5}); err != nil {
+		t.Fatal(err)
+	}
+	if !ct.closed {
+		t.Fatal("run must Close the source on exit")
+	}
+}
 
 // scriptSource feeds a fixed snapshot and event sequence, for testing run's wiring.
 type scriptSource struct {
