@@ -46,15 +46,14 @@ func main() {
 		os.Exit(1)
 	}
 
-	// A live feed trickles (~1/s) where the synthetic source floods (thousands/s), so
-	// the default "every 500th" cadence would leave a live run silent for minutes. When
-	// it is left at the default, log every live update instead.
-	logEvery := *every
-	if *live && logEvery == 500 {
-		logEvery = 1
-	}
+	everySet := false
+	flag.Visit(func(f *flag.Flag) {
+		if f.Name == "every" {
+			everySet = true
+		}
+	})
 
-	_, stats, err := run(ctx, log, src, config{depth: *depth, every: logEvery, pace: pacing})
+	_, stats, err := run(ctx, log, src, config{depth: *depth, every: liveCadence(*every, everySet, *live), pace: pacing})
 	if err != nil {
 		log.Error("engine stopped", "err", err)
 		os.Exit(1)
@@ -132,6 +131,16 @@ func run(ctx context.Context, log *slog.Logger, src source.Source, cfg config) (
 			time.Sleep(cfg.pace)
 		}
 	}
+}
+
+// liveCadence picks the top-of-book log cadence. A live feed trickles (~1/s) where the
+// synthetic source floods (thousands/s), so when -every is left at its default a live
+// run logs every update rather than every 500th. An explicit -every is always honoured.
+func liveCadence(every int, everySet, live bool) int {
+	if live && !everySet {
+		return 1
+	}
+	return every
 }
 
 func logTop(log *slog.Logger, v *book.View) {

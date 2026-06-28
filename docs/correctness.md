@@ -40,8 +40,11 @@ decimals exactly, so on a float book two equal prices may not compare equal, a d
 zero, and rounding error accumulates into silent drift — the failure this project exists to prevent.
 
 The book path uses integers in the venue's smallest increment (ticks for price, lot units for size),
-parsed directly from the wire decimal string. No `float64` touches the book path. Level identity, the
-zero-size delete, the never-crosses comparison, and the checksum are all exact integer operations.
+parsed directly from the wire decimal string. Venues format decimals to a fixed width (Binance sends
+`60220.02000000` for a two-decimal-tick price), so the parser accepts trailing-zero padding as lossless
+but rejects any *significant* digit finer than the scale — over-precision is a loud error, padding is
+not. No `float64` touches the book path. Level identity, the zero-size delete, the never-crosses
+comparison, and the checksum are all exact integer operations.
 
 The book path stores price and size separately and never multiplies them, so int64 holds the values for
 the chosen venues (the per-venue maximum price-in-ticks and size-in-lots are stated in each adapter and

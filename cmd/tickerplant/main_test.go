@@ -16,6 +16,25 @@ import (
 
 func quietLog() *slog.Logger { return slog.New(slog.NewTextHandler(io.Discard, nil)) }
 
+func TestLiveCadence(t *testing.T) {
+	cases := []struct {
+		every          int
+		everySet, live bool
+		want           int
+	}{
+		{500, false, false, 500}, // synthetic, default cadence preserved
+		{500, false, true, 1},    // live, default -> log every update
+		{500, true, true, 500},   // live, explicit -every 500 -> honoured, not overridden
+		{7, true, false, 7},      // synthetic, explicit
+		{7, true, true, 7},       // live, explicit
+	}
+	for _, c := range cases {
+		if got := liveCadence(c.every, c.everySet, c.live); got != c.want {
+			t.Errorf("liveCadence(%d, set=%v, live=%v) = %d, want %d", c.every, c.everySet, c.live, got, c.want)
+		}
+	}
+}
+
 func TestNewSourceSynthetic(t *testing.T) {
 	src, pace, err := newSource(context.Background(), false, "", "", 1, 10, 5*time.Millisecond)
 	if err != nil {
