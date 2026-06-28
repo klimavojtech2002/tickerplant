@@ -41,7 +41,9 @@ type Engine struct {
 	book               *book
 	lastSeq            market.Sequence
 	view               atomic.Pointer[View]
-	resyncs            atomic.Int64 // a metric; read lock-free from any goroutine (ADR-0008)
+	resyncs            atomic.Int64 // metrics; read lock-free from any goroutine (ADR-0008, slice 0006)
+	gaps               atomic.Int64 // sequence gaps detected
+	disconnects        atomic.Int64 // disconnect events seen
 	consecutiveResyncs int          // writer-goroutine only; reset on progress to bound a livelock
 }
 
@@ -56,6 +58,12 @@ func (e *Engine) View() *View { return e.view.Load() }
 
 // Resyncs returns how many times the engine has resynced (a metric, slice 0006).
 func (e *Engine) Resyncs() int { return int(e.resyncs.Load()) }
+
+// Gaps returns how many sequence gaps the engine has detected (a metric).
+func (e *Engine) Gaps() int { return int(e.gaps.Load()) }
+
+// Disconnects returns how many disconnect events the engine has seen (a metric).
+func (e *Engine) Disconnects() int { return int(e.disconnects.Load()) }
 
 func (e *Engine) publish() {
 	bids, asks := e.book.topN(e.depth)
@@ -97,6 +105,7 @@ func (e *Engine) applyDelta(d market.Delta) outcome {
 		return dropped // already applied (stale or duplicate) — idempotent
 	}
 	if d.FirstSeq > e.lastSeq+1 {
+		e.gaps.Add(1)
 		return needResync // a real forward gap; the missing deltas are unknown
 	}
 	for _, lvl := range d.Bids {
@@ -133,6 +142,7 @@ func (e *Engine) Step(ctx context.Context) (bool, error) {
 			}
 		}
 	case source.EventDisconnected:
+		e.disconnects.Add(1)
 		if err := e.resync(ctx); err != nil {
 			return false, err
 		}
