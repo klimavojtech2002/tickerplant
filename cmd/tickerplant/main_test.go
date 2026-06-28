@@ -1,9 +1,11 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"io"
 	"log/slog"
+	"strings"
 	"testing"
 
 	"github.com/klimavojtech2002/tickerplant/internal/book"
@@ -12,6 +14,56 @@ import (
 )
 
 func quietLog() *slog.Logger { return slog.New(slog.NewTextHandler(io.Discard, nil)) }
+
+// scriptSource feeds a fixed snapshot and event sequence, for testing run's wiring.
+type scriptSource struct {
+	snap   market.Snapshot
+	events []source.Event
+	i      int
+}
+
+func (s *scriptSource) Next(context.Context) (source.Event, bool) {
+	if s.i >= len(s.events) {
+		return source.Event{}, false
+	}
+	e := s.events[s.i]
+	s.i++
+	return e, true
+}
+func (s *scriptSource) Snapshot(context.Context) (market.Snapshot, error) { return s.snap, nil }
+func (s *scriptSource) Close() error                                      { return nil }
+
+// run must publish only when the view advances: a stale duplicate (dropped by the
+// engine) must not be re-broadcast.
+func TestRunPublishesOnlyOnAdvance(t *testing.T) {
+	src := &scriptSource{
+		snap: market.Snapshot{LastUpdateID: 10, Bids: []market.Level{{Price: 100, Size: 1}}, Asks: []market.Level{{Price: 101, Size: 1}}},
+		events: []source.Event{
+			{Kind: source.EventDelta, Delta: market.Delta{FirstSeq: 11, LastSeq: 11, Bids: []market.Level{{Price: 100, Size: 2}}}}, // advances
+			{Kind: source.EventDelta, Delta: market.Delta{FirstSeq: 11, LastSeq: 11, Bids: []market.Level{{Price: 100, Size: 2}}}}, // duplicate: engine drops, no advance
+			{Kind: source.EventDelta, Delta: market.Delta{FirstSeq: 12, LastSeq: 12, Asks: []market.Level{{Price: 102, Size: 3}}}}, // advances
+		},
+	}
+	_, stats, err := run(context.Background(), quietLog(), src, config{depth: 5})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stats.Delivered != 3 { // bootstrap(10) + seq 11 + seq 12; the duplicate must not re-publish
+		t.Fatalf("Delivered = %d, want 3 (a stale duplicate must not be re-broadcast)", stats.Delivered)
+	}
+}
+
+func TestLogTopRendersBidAndAsk(t *testing.T) {
+	var buf bytes.Buffer
+	logTop(slog.New(slog.NewTextHandler(&buf, nil)), &book.View{
+		LastSeq: 5,
+		Bids:    []market.Level{{Price: 100, Size: 2}},
+		Asks:    []market.Level{{Price: 101, Size: 3}},
+	})
+	if out := buf.String(); !strings.Contains(out, "100 x 2") || !strings.Contains(out, "101 x 3") {
+		t.Fatalf("logTop output %q is missing the rendered bid/ask", out)
+	}
+}
 
 func synthetic(seed int64, steps int) source.Source {
 	return source.New(source.Config{Venue: "synthetic", Symbol: "DEMO", Seed: seed, Steps: steps})

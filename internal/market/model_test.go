@@ -31,6 +31,9 @@ func TestLevelIsDelete(t *testing.T) {
 	if (Level{Price: 100, Size: 5}).IsDelete() {
 		t.Error("nonzero size must not be a delete")
 	}
+	if (Level{Price: 100, Size: -1}).IsDelete() { // only exactly zero deletes, not "<= 0"
+		t.Error("a negative size must not be classified as a delete")
+	}
 }
 
 func TestParsePriceAndSize(t *testing.T) {
