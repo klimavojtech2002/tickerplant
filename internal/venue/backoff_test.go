@@ -38,3 +38,15 @@ func TestFullJitterBounds(t *testing.T) {
 		t.Fatal("FullJitter of a non-positive duration must be 0")
 	}
 }
+
+// The upper bound d must be reachable (full jitter is [0,d] inclusive); an off-by-one
+// that made it [0,d-1] would never return d.
+func TestFullJitterReachesUpperBound(t *testing.T) {
+	const d = 2 * time.Nanosecond // tiny, so d is hit within a few draws
+	for range 10000 {
+		if FullJitter(d) == d {
+			return
+		}
+	}
+	t.Fatalf("FullJitter(%v) never returned its upper bound in 10000 draws", d)
+}

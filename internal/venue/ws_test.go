@@ -228,6 +228,50 @@ func TestStreamCancelDuringBackoffWait(t *testing.T) {
 	}
 }
 
+// Consecutive dial failures must escalate the backoff (a failed session must not reset
+// it). The Jitter records each capped delay; a dial error wrongly counted as productive
+// would keep the delay at Min.
+func TestBackoffEscalatesAcrossDialErrors(t *testing.T) {
+	delays := make(chan time.Duration, 16)
+	bo := Backoff{Min: 10 * time.Millisecond, Max: time.Second, Factor: 2,
+		Jitter: func(d time.Duration) time.Duration { delays <- d; return time.Millisecond }}
+	d := func(context.Context, string) (conn, error) { return nil, errors.New("refused") }
+	s := Dial(context.Background(), StreamConfig{Backoff: bo, dial: d})
+	defer s.Close()
+	d1 := <-delays
+	d2 := <-delays
+	d3 := <-delays
+	if !(d1 < d2 && d2 < d3) {
+		t.Fatalf("backoff must escalate across consecutive dial errors: %v, %v, %v", d1, d2, d3)
+	}
+}
+
+// A productive session (one that delivered a frame) must reset the backoff to Min.
+func TestBackoffResetsAfterProductiveSession(t *testing.T) {
+	delays := make(chan time.Duration, 16)
+	bo := Backoff{Min: 10 * time.Millisecond, Max: time.Second, Factor: 2,
+		Jitter: func(d time.Duration) time.Duration { delays <- d; return time.Millisecond }}
+	c1 := newFakeConn()
+	c1.feed <- readResult{data: []byte("x")}
+	c1.feed <- readResult{err: errors.New("dropped")}
+	var n atomic.Int32
+	d := func(context.Context, string) (conn, error) {
+		if n.Add(1) == 3 { // first two dials fail, the third delivers
+			return c1, nil
+		}
+		return nil, errors.New("refused")
+	}
+	s := Dial(context.Background(), StreamConfig{Backoff: bo, dial: d})
+	defer s.Close()
+	<-s.Frames() // "x": the third session was productive
+	d1 := <-delays
+	d2 := <-delays
+	d3 := <-delays
+	if d1 != 10*time.Millisecond || d2 != 20*time.Millisecond || d3 != 10*time.Millisecond {
+		t.Fatalf("delays = %v, %v, %v; want Min, Min*2, then Min again (reset after the productive session)", d1, d2, d3)
+	}
+}
+
 // --- one real-server sanity test exercises realDial/wsConn against the library ---
 
 func TestRealDialReceivesFrames(t *testing.T) {
