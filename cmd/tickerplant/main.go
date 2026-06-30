@@ -53,12 +53,14 @@ func main() {
 		}
 	})
 
-	_, stats, err := run(ctx, log, src, config{depth: *depth, every: liveCadence(*every, everySet, *live), pace: pacing})
+	res, err := run(ctx, log, src, config{depth: *depth, every: liveCadence(*every, everySet, *live), pace: pacing})
 	if err != nil {
 		log.Error("engine stopped", "err", err)
 		os.Exit(1)
 	}
-	log.Info("done", "delivered", stats.Delivered, "dropped", stats.Dropped)
+	log.Info("done",
+		"delivered", res.stats.Delivered, "dropped", res.stats.Dropped,
+		"resyncs", res.resyncs, "gaps", res.gaps, "disconnects", res.disconnects)
 }
 
 // newSource builds the synthetic source, or a live venue adapter when -live is set. A
@@ -79,11 +81,35 @@ func newSource(ctx context.Context, live bool, venueName, symbol string, seed in
 	}
 }
 
+// runResult is the read-only outcome of a finished pipeline run: the final published
+// view, the fan-out delivery stats, and the engine's resync/gap/disconnect counters. It
+// is a value snapshot taken at return, so a caller gets exactly what it needs to report
+// and cannot accidentally drive the engine further — by then the source is already closed.
+type runResult struct {
+	view        *book.View
+	stats       delivery.Stats
+	resyncs     int
+	gaps        int
+	disconnects int
+}
+
+// resultOf snapshots the finished engine and hub into a runResult.
+func resultOf(eng *book.Engine, hub *delivery.Hub) runResult {
+	return runResult{
+		view:        eng.View(),
+		stats:       hub.Stats(),
+		resyncs:     eng.Resyncs(),
+		gaps:        eng.Gaps(),
+		disconnects: eng.Disconnects(),
+	}
+}
+
 // run wires the pipeline (source -> engine -> fan-out), drives it to completion or
-// cancellation, and returns the final view and fan-out stats. It takes the Source as
-// a parameter so it is source-agnostic (synthetic now, a live adapter later) and
-// testable end to end with a scripted source.
-func run(ctx context.Context, log *slog.Logger, src source.Source, cfg config) (*book.View, delivery.Stats, error) {
+// cancellation, and returns a runResult: the final view, the fan-out stats, and the
+// resync/gap/disconnect counters. It takes the Source as a parameter so it is
+// source-agnostic (synthetic now, a live adapter later) and testable end to end with a
+// scripted source.
+func run(ctx context.Context, log *slog.Logger, src source.Source, cfg config) (runResult, error) {
 	defer src.Close() // release the source (e.g. a live WebSocket) on exit
 	eng := book.New(src, cfg.depth)
 	hub := delivery.New(256, 1024)
@@ -104,7 +130,7 @@ func run(ctx context.Context, log *slog.Logger, src source.Source, cfg config) (
 	defer func() { hub.Close(); <-done }()
 
 	if err := eng.Bootstrap(ctx); err != nil {
-		return nil, hub.Stats(), err
+		return resultOf(eng, hub), err
 	}
 
 	// Publish only when the view advances, so dropped/stale steps don't re-broadcast
@@ -121,10 +147,10 @@ func run(ctx context.Context, log *slog.Logger, src source.Source, cfg config) (
 	for {
 		ok, err := eng.Step(ctx)
 		if err != nil {
-			return eng.View(), hub.Stats(), err
+			return resultOf(eng, hub), err
 		}
 		if !ok {
-			return eng.View(), hub.Stats(), nil
+			return resultOf(eng, hub), nil
 		}
 		publish()
 		if cfg.pace > 0 {
