@@ -65,7 +65,7 @@ func (c *closeTracker) Close() error { c.closed = true; return c.Source.Close() 
 // run must release the source on exit (so a live WebSocket is not leaked).
 func TestRunClosesSource(t *testing.T) {
 	ct := &closeTracker{Source: synthetic(1, 5)}
-	if _, _, err := run(context.Background(), quietLog(), ct, config{depth: 5}); err != nil {
+	if _, err := run(context.Background(), quietLog(), ct, config{depth: 5}); err != nil {
 		t.Fatal(err)
 	}
 	if !ct.closed {
@@ -102,12 +102,12 @@ func TestRunPublishesOnlyOnAdvance(t *testing.T) {
 			{Kind: source.EventDelta, Delta: market.Delta{FirstSeq: 12, LastSeq: 12, Asks: []market.Level{{Price: 102, Size: 3}}}}, // advances
 		},
 	}
-	_, stats, err := run(context.Background(), quietLog(), src, config{depth: 5})
+	res, err := run(context.Background(), quietLog(), src, config{depth: 5})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if stats.Delivered != 3 { // bootstrap(10) + seq 11 + seq 12; the duplicate must not re-publish
-		t.Fatalf("Delivered = %d, want 3 (a stale duplicate must not be re-broadcast)", stats.Delivered)
+	if res.stats.Delivered != 3 { // bootstrap(10) + seq 11 + seq 12; the duplicate must not re-publish
+		t.Fatalf("Delivered = %d, want 3 (a stale duplicate must not be re-broadcast)", res.stats.Delivered)
 	}
 }
 
@@ -127,32 +127,64 @@ func synthetic(seed int64, steps int) source.Source {
 	return source.New(source.Config{Venue: "synthetic", Symbol: "DEMO", Seed: seed, Steps: steps})
 }
 
+// faultedSynthetic injects a gap, reorder, duplicate, and disconnect mid-stream (well
+// before the end so the engine can converge), so a run over it genuinely drives the
+// wired pipeline through resyncs rather than a clean stream.
+func faultedSynthetic(seed int64, steps int) source.Source {
+	return source.New(source.Config{
+		Venue: "synthetic", Symbol: "DEMO", Seed: seed, Steps: steps,
+		Faults: map[int]source.Fault{
+			50:  source.FaultGap,
+			120: source.FaultReorder,
+			200: source.FaultDuplicate,
+			260: source.FaultDisconnect,
+		},
+	})
+}
+
 // The whole pipeline (source -> engine -> fan-out) reconstructs an uncrossed book and
 // delivers it.
 func TestRunReconstructsUncrossedBook(t *testing.T) {
-	v, stats, err := run(context.Background(), quietLog(), synthetic(7, 400), config{depth: 10})
+	res, err := run(context.Background(), quietLog(), synthetic(7, 400), config{depth: 10})
 	if err != nil {
 		t.Fatalf("run: %v", err)
 	}
-	if v == nil {
+	if res.view == nil {
 		t.Fatal("run must return a final view")
 	}
-	if v.Crosses() {
-		t.Fatalf("final view crosses: %v >= %v", v.Bids[0], v.Asks[0])
+	if res.view.Crosses() {
+		t.Fatalf("final view crosses: %v >= %v", res.view.Bids[0], res.view.Asks[0])
 	}
-	if stats.Delivered == 0 {
+	if res.stats.Delivered == 0 {
 		t.Fatal("expected the consumer to receive views")
 	}
 }
 
-// A faulted run still converges to an uncrossed book (the engine resyncs).
+// A faulted run (gap, reorder, duplicate, disconnect injected mid-stream) still ends
+// with an uncrossed book, and the engine is observed to have actually resynced through
+// the faults — the gap and reorder each surface as a sequence gap, the disconnect as a
+// disconnect, and all three force a resync. This proves the wired pipeline recovers end
+// to end, not merely that a clean stream finishes.
 func TestRunWithFaultsStaysUncrossed(t *testing.T) {
-	v, _, err := run(context.Background(), quietLog(), synthetic(3, 600), config{depth: 10})
+	res, err := run(context.Background(), quietLog(), faultedSynthetic(3, 600), config{depth: 10})
 	if err != nil {
 		t.Fatalf("run: %v", err)
 	}
-	if v == nil || v.Crosses() {
+	if res.view == nil || res.view.Crosses() {
 		t.Fatal("faulted run must still end uncrossed")
+	}
+	// Exact counts (deterministic, seed-independent): the gap and reorder each surface as
+	// one forward sequence gap; the duplicate is dropped idempotently (no gap, no resync);
+	// the disconnect is one disconnect. So 2 gaps + 1 disconnect = 3 resyncs, no more — a
+	// stricter "==" also guards against the duplicate wrongly triggering a fourth resync.
+	if res.gaps != 2 {
+		t.Fatalf("expected exactly 2 sequence gaps (gap + reorder faults), got %d", res.gaps)
+	}
+	if res.disconnects != 1 {
+		t.Fatalf("expected exactly 1 disconnect from the injected fault, got %d", res.disconnects)
+	}
+	if res.resyncs != 3 {
+		t.Fatalf("expected exactly 3 resyncs (gap, reorder, disconnect; duplicate is dropped), got %d", res.resyncs)
 	}
 }
 
@@ -160,18 +192,18 @@ func TestRunWithFaultsStaysUncrossed(t *testing.T) {
 func TestRunContextCancelled(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	if _, _, err := run(ctx, quietLog(), synthetic(1, 400), config{depth: 10}); err == nil {
+	if _, err := run(ctx, quietLog(), synthetic(1, 400), config{depth: 10}); err == nil {
 		t.Fatal("a cancelled context must surface an error")
 	}
 }
 
 // Exercise the paced + per-update logging paths (and logTop on a populated view).
 func TestRunPacedWithLogging(t *testing.T) {
-	v, _, err := run(context.Background(), quietLog(), synthetic(7, 50), config{depth: 5, every: 1, pace: 1})
+	res, err := run(context.Background(), quietLog(), synthetic(7, 50), config{depth: 5, every: 1, pace: 1})
 	if err != nil {
 		t.Fatalf("run: %v", err)
 	}
-	if v == nil || v.Crosses() {
+	if res.view == nil || res.view.Crosses() {
 		t.Fatal("paced run must end uncrossed")
 	}
 }
@@ -194,16 +226,16 @@ func (s *staleSource) Snapshot(context.Context) (market.Snapshot, error) {
 func (s *staleSource) Close() error { return nil }
 
 func TestRunStepErrorPropagates(t *testing.T) {
-	if _, _, err := run(context.Background(), quietLog(), &staleSource{}, config{depth: 5}); err == nil {
+	if _, err := run(context.Background(), quietLog(), &staleSource{}, config{depth: 5}); err == nil {
 		t.Fatal("a livelocking source must surface an error from run")
 	}
 }
 
-func TestLogTopHandlesEmptyAndPopulated(t *testing.T) {
-	logTop(quietLog(), &book.View{}) // empty sides render "-", not a panic
-	logTop(quietLog(), &book.View{
-		LastSeq: 5,
-		Bids:    []market.Level{{Price: 100, Size: 1}},
-		Asks:    []market.Level{{Price: 101, Size: 2}},
-	})
+// An empty book (no bids or asks) renders each side as "-", not a panic or a zero level.
+func TestLogTopRendersEmptySides(t *testing.T) {
+	var buf bytes.Buffer
+	logTop(slog.New(slog.NewTextHandler(&buf, nil)), &book.View{})
+	if out := buf.String(); !strings.Contains(out, "bid=-") || !strings.Contains(out, "ask=-") {
+		t.Fatalf("empty view must render bid=- and ask=-, got %q", out)
+	}
 }
