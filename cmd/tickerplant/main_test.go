@@ -106,8 +106,11 @@ func TestRunPublishesOnlyOnAdvance(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if res.stats.Delivered != 3 { // bootstrap(10) + seq 11 + seq 12; the duplicate must not re-publish
-		t.Fatalf("Delivered = %d, want 3 (a stale duplicate must not be re-broadcast)", res.stats.Delivered)
+	// Under latest-wins conflation each hub.Publish is either delivered or superseded, so
+	// Delivered+Dropped counts the Publish calls: bootstrap(10) + seq 11 + seq 12 = 3. The
+	// stale duplicate does not advance the view, so run never Publishes it (not 4).
+	if pubs := res.stats.Delivered + res.stats.Dropped; pubs != 3 {
+		t.Fatalf("hub.Publish calls = %d, want 3 (a stale duplicate must not be re-broadcast)", pubs)
 	}
 }
 

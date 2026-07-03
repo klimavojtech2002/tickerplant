@@ -115,14 +115,18 @@ func resultOf(eng *book.Engine, hub *delivery.Hub) runResult {
 func run(ctx context.Context, log *slog.Logger, src source.Source, cfg config) (runResult, error) {
 	defer src.Close() // release the source (e.g. a live WebSocket) on exit
 	eng := book.New(src, cfg.depth)
-	hub := delivery.New(256, 1024)
+	hub := delivery.New(1024)
 
-	_, ch := hub.Subscribe()
+	c := hub.Subscribe()
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
 		n := 0
-		for v := range ch {
+		for range c.Ready() {
+			v := c.Take()
+			if v == nil {
+				continue
+			}
 			if cfg.every > 0 {
 				if n++; n%cfg.every == 0 {
 					logTop(log, v)
