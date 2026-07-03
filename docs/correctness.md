@@ -178,12 +178,14 @@ None of the above is to be trusted because a comment claims it. It will be estab
 and its harness are built (slices 0002–0003) — by deterministic simulation, by this method (ADR-0005):
 
 - The engine runs against a seeded synthetic source behind the transport port, which emits arbitrary
-  **legal and illegal** sequences: gaps, reorders, duplicates, crossing snapshots, mid-stream
-  disconnects. The same seed reproduces the same run bit-for-bit, so any failure becomes a fixed,
-  replayable test case.
+  **legal and illegal** sequences: gaps, reorders, duplicates, crossing snapshots, an illegal crossing
+  *delta* injected on the stream (the truth oracle stays legal), and mid-stream disconnects. The same
+  seed reproduces the same run bit-for-bit, so any failure becomes a fixed, replayable test case.
 - Tests are property/simulation tests, not happy-path checks: across generated sequences, the book either
   stays correct (§5, §6) or resyncs correctly (§4, §8), asserted continuously over the run against an
-  independent truth book, not once at the end.
+  independent truth book, not once at the end. The never-crosses guard (§5) is *driven*, not just
+  watched: the simulation injects a crossing delta so the engine must apply, detect, reject, and resync
+  it — counted exactly (`WouldCrosses`) so a regression that stopped rejecting crosses fails loudly.
 - The race detector (`go test -race`) is always on; the book has one documented writer and lock-free
   reads (ADR-0008), and the absence of data races is verified, not assumed.
 - Latency claims are measured with the clock source and span stated, under a defined load harness, and
