@@ -60,6 +60,9 @@ func TestApplyDeltaWouldCrossResync(t *testing.T) {
 	if o != needResync {
 		t.Fatalf("a delta that crosses the book must needResync, got %v", o)
 	}
+	if e.WouldCrosses() != 1 {
+		t.Fatalf("a would-cross rejection must be counted: WouldCrosses() = %d, want 1", e.WouldCrosses())
+	}
 }
 
 func TestApplyDeltaIsAbsoluteNotIncrement(t *testing.T) {
@@ -367,6 +370,7 @@ func TestConcurrentReaders(t *testing.T) {
 						t.Error("reader observed a crossed view")
 					}
 					_ = e.Resyncs()
+					_ = e.WouldCrosses()
 				}
 			}
 		})

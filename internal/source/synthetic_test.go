@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"hash/fnv"
+	"slices"
 	"testing"
 
 	"github.com/klimavojtech2002/tickerplant/internal/market"
@@ -87,6 +88,18 @@ func TestGoldenHashFaulted(t *testing.T) {
 	}
 }
 
+// A third golden locks the FaultCross stream: the crossing delta's fixed shape (one bid
+// at crossBidPrice) and its placement must not drift silently, just like the other faults.
+func TestGoldenHashCrossStream(t *testing.T) {
+	c := cfg(2, 200)
+	c.Faults = map[int]Fault{15: FaultGap, 40: FaultReorder, 75: FaultDuplicate, 110: FaultCross}
+	const want = uint64(0x94082b767239db15)
+	got := hashEvents(drain(New(c)))
+	if got != want {
+		t.Fatalf("cross-stream golden hash = %#x (set want to this on a deliberate generator change)", got)
+	}
+}
+
 // The clean stream only ever drives the truth through legal, uncrossed states.
 func TestCleanRunNeverCrosses(t *testing.T) {
 	s := New(cfg(7, 1000))
@@ -106,10 +119,11 @@ func TestCleanRunNeverCrosses(t *testing.T) {
 }
 
 // Faults perturb the emitted stream, never the truth oracle: even under a mix of
-// faults the truth book stays legal (uncrossed) throughout.
+// faults — including the illegal crossing delta — the truth book stays legal
+// (uncrossed) throughout.
 func TestTruthStaysLegalUnderFaults(t *testing.T) {
 	c := cfg(11, 300)
-	c.Faults = map[int]Fault{30: FaultGap, 60: FaultReorder, 90: FaultDuplicate, 120: FaultDisconnect}
+	c.Faults = map[int]Fault{30: FaultGap, 60: FaultReorder, 90: FaultDuplicate, 120: FaultDisconnect, 150: FaultCross}
 	s := New(c)
 	ctx := context.Background()
 	for {
@@ -123,6 +137,40 @@ func TestTruthStaysLegalUnderFaults(t *testing.T) {
 		if crossedSnap(snap) {
 			t.Fatal("a fault corrupted the truth oracle: it crossed")
 		}
+	}
+}
+
+// FaultCross injects one illegal crossing delta on the emitted stream only: the emitted
+// delta is a bid above the whole ask band (applying it would cross), while the truth
+// oracle and its sequence are left untouched, so the engine can resync back to a legal
+// book. This proves the injection is stream-only — the property the simulation relies on.
+func TestFaultCrossEmitsCrossingDelta(t *testing.T) {
+	c := cfg(5, 50)
+	c.Faults = map[int]Fault{0: FaultCross}
+	s := New(c)
+	ctx := context.Background()
+
+	before, err := s.Snapshot(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ev, ok := s.Next(ctx)
+	if !ok || ev.Kind != EventDelta {
+		t.Fatalf("FaultCross must emit a delta event, got kind %d ok=%v", ev.Kind, ok)
+	}
+	if len(ev.Delta.Asks) != 0 || len(ev.Delta.Bids) != 1 || ev.Delta.Bids[0].Price != crossBidPrice {
+		t.Fatalf("cross delta must be exactly one bid at %d, got %+v", crossBidPrice, ev.Delta)
+	}
+	// Stream-only: the truth's content and its sequence are unchanged across the fault.
+	after, err := s.Snapshot(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.LastUpdateID != before.LastUpdateID {
+		t.Fatalf("FaultCross must not advance the truth sequence: before %d, after %d", before.LastUpdateID, after.LastUpdateID)
+	}
+	if !slices.Equal(before.Bids, after.Bids) || !slices.Equal(before.Asks, after.Asks) {
+		t.Fatal("FaultCross must not mutate the truth oracle")
 	}
 }
 

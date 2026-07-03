@@ -60,7 +60,8 @@ func main() {
 	}
 	log.Info("done",
 		"delivered", res.stats.Delivered, "dropped", res.stats.Dropped,
-		"resyncs", res.resyncs, "gaps", res.gaps, "disconnects", res.disconnects)
+		"resyncs", res.resyncs, "gaps", res.gaps, "disconnects", res.disconnects,
+		"would-cross", res.wouldCrosses)
 }
 
 // newSource builds the synthetic source, or a live venue adapter when -live is set. A
@@ -86,21 +87,23 @@ func newSource(ctx context.Context, live bool, venueName, symbol string, seed in
 // is a value snapshot taken at return, so a caller gets exactly what it needs to report
 // and cannot accidentally drive the engine further — by then the source is already closed.
 type runResult struct {
-	view        *book.View
-	stats       delivery.Stats
-	resyncs     int
-	gaps        int
-	disconnects int
+	view         *book.View
+	stats        delivery.Stats
+	resyncs      int
+	gaps         int
+	disconnects  int
+	wouldCrosses int
 }
 
 // resultOf snapshots the finished engine and hub into a runResult.
 func resultOf(eng *book.Engine, hub *delivery.Hub) runResult {
 	return runResult{
-		view:        eng.View(),
-		stats:       hub.Stats(),
-		resyncs:     eng.Resyncs(),
-		gaps:        eng.Gaps(),
-		disconnects: eng.Disconnects(),
+		view:         eng.View(),
+		stats:        hub.Stats(),
+		resyncs:      eng.Resyncs(),
+		gaps:         eng.Gaps(),
+		disconnects:  eng.Disconnects(),
+		wouldCrosses: eng.WouldCrosses(),
 	}
 }
 

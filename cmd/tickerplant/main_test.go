@@ -186,6 +186,9 @@ func TestRunWithFaultsStaysUncrossed(t *testing.T) {
 	if res.resyncs != 3 {
 		t.Fatalf("expected exactly 3 resyncs (gap, reorder, disconnect; duplicate is dropped), got %d", res.resyncs)
 	}
+	if res.wouldCrosses != 0 {
+		t.Fatalf("this faulted run injects no crossing delta, so WouldCrosses must be 0, got %d", res.wouldCrosses)
+	}
 }
 
 // A cancelled context stops the pipeline cleanly, surfacing the error (no hang/leak).

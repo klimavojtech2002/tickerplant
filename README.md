@@ -59,7 +59,7 @@ The reconstruction and fan-out logic is written against an **abstract transport*
 of sockets or any specific exchange. Live exchange connections exist only at the edge, as adapters
 implementing that transport. This is deliberate: it lets the entire correctness story be tested
 **deterministically** — the core runs against recorded and synthetically generated feeds, where every
-gap, reorder, and disconnect can be reproduced exactly — while live data is an integration concern,
+gap, reorder, cross, and disconnect can be reproduced exactly — while live data is an integration concern,
 never a dependency of the tests. (The same single-threaded, sans-I/O testing discipline is the
 subject of my `seedloop` project.)
 

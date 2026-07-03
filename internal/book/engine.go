@@ -54,6 +54,7 @@ type Engine struct {
 	gaps               atomic.Int64 // sequence gaps detected
 	disconnects        atomic.Int64 // disconnect events seen
 	checksumMismatches atomic.Int64 // checksum drifts detected (checksum venues)
+	wouldCrosses       atomic.Int64 // deltas rejected because applying them would cross the book (ADR-0004)
 	consecutiveResyncs int          // writer-goroutine only; reset on progress to bound a livelock
 	checksum           Checksummer  // nil on sequence venues; set via WithChecksum for checksum venues
 }
@@ -86,6 +87,10 @@ func (e *Engine) Disconnects() int { return int(e.disconnects.Load()) }
 
 // ChecksumMismatches returns how many checksum drifts the engine has detected (a metric).
 func (e *Engine) ChecksumMismatches() int { return int(e.checksumMismatches.Load()) }
+
+// WouldCrosses returns how many deltas the engine rejected because applying them would
+// have crossed the book — the never-crosses invariant firing on a bad update (ADR-0004).
+func (e *Engine) WouldCrosses() int { return int(e.wouldCrosses.Load()) }
 
 func (e *Engine) publish() {
 	bids, asks := e.book.topN(e.depth)
@@ -149,6 +154,7 @@ func (e *Engine) applyDelta(d market.Delta) outcome {
 	}
 	e.lastSeq = d.LastSeq
 	if e.book.crosses() {
+		e.wouldCrosses.Add(1)
 		return needResync // never serve a crossed book
 	}
 	if e.checksum != nil {

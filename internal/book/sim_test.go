@@ -11,8 +11,12 @@ import (
 const simDepth = 20
 
 // scenarioForSeed deterministically derives a fault schedule from the seed: some
-// runs are clean, others inject a gap, a reorder, a duplicate, and sometimes a
-// disconnect, all well before the stream ends so the engine can converge.
+// runs are clean, others inject a gap, a reorder, a duplicate, one illegal crossing
+// delta, and sometimes a disconnect, all well before the stream ends so the engine can
+// converge. The cross sits at 330+seed%30 -> [330,359], disjoint from the gap [50,79],
+// reorder [120,150], duplicate [200,229], and disconnect [260,289] windows and before
+// Steps (400), so at the cross step the engine is provably caught up (e.lastSeq==s.seq):
+// the cross is applied and rejected, never degraded into a gap.
 func scenarioForSeed(seed int64) map[int]source.Fault {
 	if seed%5 == 0 {
 		return nil
@@ -21,6 +25,7 @@ func scenarioForSeed(seed int64) map[int]source.Fault {
 		50 + int(seed%30):  source.FaultGap,
 		120 + int(seed%30): source.FaultReorder,
 		200 + int(seed%30): source.FaultDuplicate,
+		330 + int(seed%30): source.FaultCross,
 	}
 	if seed%3 == 0 {
 		f[260+int(seed%30)] = source.FaultDisconnect
@@ -31,10 +36,12 @@ func scenarioForSeed(seed int64) map[int]source.Fault {
 // TestSimulation drives the engine over many seeds and fault scenarios against the
 // source's independent truth oracle, asserting continuously that the published view
 // never crosses and, at the quiescent end, that the engine has converged exactly to
-// the truth. It exercises gap, reorder, duplicate, and disconnect recovery. The
-// apply-path never-crosses check and the exact bind boundary are pinned by the
-// white-box tests in engine_test.go, since the legal-by-construction source cannot
-// emit a crossing delta.
+// the truth. It exercises gap, reorder, duplicate, disconnect, and crossing-delta
+// recovery. The crossing delta (FaultCross) drives the apply-path never-crosses check
+// itself: the engine must apply the bad update, detect the cross, reject it, and resync
+// without ever publishing the crossed state — proven here, not merely asserted, by the
+// exact per-seed WouldCrosses count below. The exact bind boundary stays pinned by the
+// white-box tests in engine_test.go.
 func TestSimulation(t *testing.T) {
 	ctx := context.Background()
 	faultedSeeds, faultedWithResync := 0, 0
@@ -62,6 +69,17 @@ func TestSimulation(t *testing.T) {
 			t.Fatalf("seed %d: truth snapshot: %v", seed, err)
 		}
 		assertConverged(t, e, truth, seed)
+		// Every faulted seed schedules exactly one crossing delta; a clean seed schedules
+		// none. The engine must apply, reject, and count each cross exactly once. A cross
+		// that silently degraded into a gap (engine not caught up) would read 0 here and
+		// fail loudly — this exact count is the anti-fake-green guard for the cross path.
+		wantCross := 0
+		if len(faults) > 0 {
+			wantCross = 1
+		}
+		if got := e.WouldCrosses(); got != wantCross {
+			t.Fatalf("seed %d: WouldCrosses() = %d, want %d", seed, got, wantCross)
+		}
 		if len(faults) > 0 {
 			faultedSeeds++
 			if e.Resyncs() > 0 {

@@ -24,7 +24,13 @@ const (
 	FaultReorder          // emit two adjacent deltas out of order
 	FaultDuplicate        // emit one delta twice
 	FaultDisconnect       // emit an EventDisconnected
+	FaultCross            // emit one illegal delta that would cross the book (stream only; truth stays legal)
 )
+
+// crossBidPrice is a bid price above the entire ask band (asks live in [1001,2000] —
+// see seedInitialBook and genDelta), so a bid here always makes best bid >= best ask: a
+// deterministic cross with no dependency on the current book. Used only by FaultCross.
+const crossBidPrice market.Price = 2001
 
 // Config drives a Synthetic source. Given the same Config, every run is identical:
 // the only entropy is the seeded PRNG, and no wall clock, global rand, or map
@@ -154,6 +160,17 @@ func (s *Synthetic) Next(ctx context.Context) (Event, bool) {
 			}
 			s.pending = append(s.pending, Event{Kind: EventDelta, Delta: d1})
 			return next, true
+		case FaultCross:
+			// Emit one illegal delta — a bid above the whole ask band — without advancing
+			// the truth or the sequence. When the engine is caught up this is contiguous, so
+			// the engine applies it, sees the book cross, and resyncs from the still-legal
+			// truth; the crossed state is never published. This is the venue-sent lie of
+			// ADR-0004, made observable so the simulation proves never-crosses.
+			return Event{Kind: EventDelta, Delta: market.Delta{
+				Venue: s.cfg.Venue, Symbol: s.cfg.Symbol,
+				FirstSeq: s.seq + 1, LastSeq: s.seq + 1,
+				Bids: []market.Level{{Price: crossBidPrice, Size: 1}},
+			}}, true
 		default: // FaultNone
 			return Event{Kind: EventDelta, Delta: s.genDelta()}, true
 		}
