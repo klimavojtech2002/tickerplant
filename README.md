@@ -1,13 +1,14 @@
 # tickerplant
 
-A real-time service that reconstructs live order books from multiple crypto exchanges, normalizes
-them into one canonical stream, and fans that stream out to consumers — with correctness guarantees
-that hold under reconnects, sequence gaps, and slow consumers.
+A real-time service that reconstructs live order books from crypto-exchange feeds, normalizes them
+into one canonical stream, and fans that stream out to consumers — with correctness guarantees that
+hold under reconnects, sequence gaps, and slow consumers. It is built for multiple venues behind one
+canonical model; Binance is wired live today (see Status).
 
-In plain terms: it connects to several exchanges at once, rebuilds each one's live book of buy and
-sell orders from a snapshot plus a flood of incremental updates, and serves a single clean,
-ordered, gap-free view to anyone downstream — and it can prove the book it serves stays correct: no
-silent loss, duplication, or reordering across reconnects and gaps.
+In plain terms: it connects to an exchange, rebuilds its live book of buy and sell orders from a
+snapshot plus a flood of incremental updates, and serves a single clean, ordered, gap-free view to
+anyone downstream — and it can prove the book it serves stays correct: no silent loss, duplication,
+or reordering across reconnects and gaps.
 
 [![CI](https://github.com/klimavojtech2002/tickerplant/actions/workflows/ci.yml/badge.svg)](https://github.com/klimavojtech2002/tickerplant/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
@@ -30,11 +31,11 @@ bugs, and it is the centerpiece of this project.
 
 ## What it does
 
-- Ingests live order-book and trade feeds from several crypto exchanges over WebSocket.
-- Reconstructs each venue's L2 order book from snapshot plus incremental deltas, detecting sequence
+- Ingests a live order-book feed over WebSocket (Binance today; the transport port takes any venue).
+- Reconstructs the venue's L2 order book from snapshot plus incremental deltas, detecting sequence
   gaps and resynchronizing from a fresh snapshot when one is found.
-- Normalizes every venue's heterogeneous format into a single canonical book and trade model.
-- Fans the normalized stream out to consumers and a live dashboard with backpressure handling.
+- Normalizes the venue's heterogeneous format into a single canonical book and trade model.
+- Fans the normalized stream out to consumers with backpressure handling.
 
 ## The order book is the thesis
 
@@ -129,13 +130,14 @@ system does not persist across crashes.
 
 Go, for its concurrency model and standard-library networking. The core ships as a **reusable
 library** — the transport port, the normalizer, and the invariant-checked order-book engine — with a
-thin service and a Next.js/TypeScript dashboard on top. Docker and docker-compose run the whole
-system with one command; GitHub Actions runs CI. The core — model, transport port, engine, and fan-out —
-is written against the Go standard library alone.
+thin service on top; a Next.js/TypeScript dashboard and Docker/docker-compose packaging are planned.
+GitHub Actions runs CI. The core — model, transport port, engine, and fan-out — is written against the
+Go standard library alone.
 
 ## Status
 
-The table below is the source of truth: the core is built and tested; live data and the dashboard are next.
+The table below is the source of truth: the core and the first live venue (Binance) are built and tested;
+more venues, the dashboard, and packaging are next.
 
 | Component | Status |
 |-----------|--------|
@@ -151,7 +153,8 @@ The table below is the source of truth: the core is built and tested; live data 
 | Dashboard (Next.js) | Planned |
 | Metrics: engine counters (gaps/resyncs/disconnects) + latency histogram | Done — tested |
 | Benchmark harness (open-loop, coordinated-omission-aware) | Done — tested |
-| Docker, docker-compose, CI | Planned |
+| CI (`.github/workflows/ci.yml`: gofmt / vet / staticcheck / build / `-race`) | Done |
+| Docker, docker-compose | Planned |
 
 ## Limitations
 

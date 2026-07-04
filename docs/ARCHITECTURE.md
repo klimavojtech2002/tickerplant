@@ -26,7 +26,9 @@ transport port; delivery adapters sit on the output side.
 ```
 
 The synthetic source and a live socket implement the same transport port, so the engine cannot tell
-them apart — the basis of deterministic testing (ADR-0005).
+them apart — the basis of deterministic testing (ADR-0005). The diagram is the target architecture:
+Binance is wired live today; OKX, Kraken, and the dashboard are planned (see §11 and the README status
+table).
 
 ## 2. Canonical model
 
@@ -98,8 +100,9 @@ occasional check.
 
 ## 9. Observability and latency measurement
 
-The system exports per-venue lag, gap and reconnect counts, and dropped-event counts, plus internal
-processing latency as a distribution (p50/p99/p99.9/max). "Internal" is exact: from a raw message
+The engine exposes per-venue lag, gap and reconnect counts, and dropped-event counts (read by the demo
+today; a `/metrics` endpoint is planned), plus internal processing latency as a distribution
+(p50/p99/p99.9/max). "Internal" is exact: from a raw message
 arriving at an adapter to the normalized update leaving the fan-out, with the clock source and span
 stated, under a defined open-loop, coordinated-omission-aware load harness on documented hardware.
 End-to-end latency from the exchange is dominated by network round-trip, which this system does not
@@ -113,8 +116,8 @@ control and does not claim to optimise (ADR-0009).
 - **Property / simulation tests** assert the invariants continuously over generated runs — book stays
   correct or resyncs correctly — rather than checking a happy path.
 - **Race detection** (`go test -race`) is always on; book ownership is verified, not assumed.
-- **Integration tests** run the live adapters against the real venues, behind the port, separate from
-  the deterministic suite.
+- **Integration tests** run the live Binance adapter against the real venue, behind the port, separate
+  from the deterministic suite (Kraken/OKX adapters land later).
 - **Benchmarks** measure internal latency under the load harness (§9).
 
 The full correctness model and proof method are in [correctness.md](correctness.md) §10.
@@ -123,5 +126,6 @@ The full correctness model and proof method are in [correctness.md](correctness.
 
 The build is sliced and audit-gated; the README status table is the source of truth for what is
 implemented. The core is built and tested — canonical model, transport port and synthetic source,
-order-book engine, and the in-process fan-out with a runnable demo (`cmd/tickerplant`). Remaining:
-live adapters → metrics → dashboard → packaging and CI.
+order-book engine, the in-process fan-out with a runnable demo (`cmd/tickerplant`), the metrics and
+benchmark harness, the Binance live adapter, and CI. Remaining: more live venues (Kraken, OKX) →
+dashboard → docker packaging.
