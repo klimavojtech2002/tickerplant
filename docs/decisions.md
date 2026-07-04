@@ -121,7 +121,8 @@ dependency of the engine's tests.
 
 ## ADR-0006 — Bounded, non-blocking fan-out; a slow consumer is dropped, not allowed to stall
 
-**Status:** Accepted
+**Status:** Accepted (the drop-not-block policy stands; the specific channel-buffer mechanism below was
+refined to a latest-value slot by ADR-0015)
 
 **Context.** Many consumers read the normalized stream at different speeds. An unbounded per-consumer
 buffer grows without limit under a spike; a blocking send lets the slowest consumer stall the entire
@@ -267,7 +268,8 @@ satisfy the same port by buffering their push socket behind `Next`.
 
 ## ADR-0013 — An in-process fan-out, not a vendored SSE broker (supersedes ADR-0002)
 
-**Status:** Accepted
+**Status:** Accepted (delivery mechanism refined by ADR-0015 — a per-consumer latest-value slot replaces
+the bounded FIFO channel; the "not a vendored broker" decision stands)
 
 **Context.** ADR-0002 planned to vendor the standard-library SSE broker from arbitrage-engine as the
 fan-out. Building the engine made the misfit clear: that broker pools *outbound* SSE-URL connections and
@@ -288,6 +290,10 @@ not vendor the SSE broker; arbitrage-engine remains lineage (the same backpressu
   superseded by the next.
 - Trade-off: the "shared broker with arbitrage-engine" narrative is dropped. The two share a discipline,
   not a package. An HTTP/SSE delivery edge for the dashboard is a thin adapter over the Hub, added later.
+- Refined by ADR-0015: the as-built delivery replaced the bounded FIFO per-consumer channel with a
+  latest-value slot, which makes the "superseded by the next" property above the actual delivery
+  semantic (the newest view wins, not the oldest-in-buffer). The bound and the disconnect-then-resync are
+  unchanged.
 
 ## ADR-0014 — A vetted WebSocket client (`coder/websocket`), the one third-party dependency
 
@@ -320,6 +326,36 @@ library is swappable without touching adapter or engine code.
   is unit-tested against a local in-process server.
 - Trade-off: a dependency to track for security and version updates. Accepted: it is small, zero-dep, vetted, and
   isolated; the alternative (hand-rolled RFC 6455) is more code and more risk for no real gain.
+
+## ADR-0015 — Latest-wins conflation in the fan-out (refines ADR-0006)
+
+**Status:** Accepted
+
+**Context.** ADR-0006 chose a bounded, non-blocking fan-out that drops under backpressure. As first built
+(ADR-0013), each consumer had a bounded FIFO channel, so a full buffer dropped the *newest* view and the
+consumer drained *older* ones. But every published view is a complete top-N book, so a lagging consumer
+that receives stale views while the freshest is discarded is getting the opposite of what it needs — and
+the code's own comment already claimed "latest-wins", which the FIFO buffer did not deliver.
+
+**Decision.** Give each consumer a size-1 latest-value slot instead of a FIFO buffer: a mutex-guarded
+`latest *View` plus a size-1 doorbell channel. `Publish` stores the newest view (so the freshest always
+wins) and rings the doorbell without blocking; the consumer waits on the doorbell and `Take`s the latest.
+A consumer that has not taken its previous view has it superseded; past `maxLag` consecutive supersedes it
+is disconnected and must resync (ADR-0006, unchanged). The `buffer` size knob is removed — a conflating
+slot is size-1 by definition.
+
+**Consequences.**
+- A lagging consumer always jumps to the freshest book; a stale view is never delivered after a newer one.
+- `Publish` stays O(consumers) and non-blocking, so the engine is never stalled.
+- The delivery pattern is the idiomatic Go "latest value": the payload lives in the slot, the doorbell is
+  a pure wake-and-recheck, so coalesced wakeups are safe and no wakeup is lost. Every branch is
+  deterministically reachable — no defensive dead arm, unlike a channel-of-views drain whose empty-slot
+  path is reachable only under a race.
+- `Delivered` counts views published into an empty slot and `Dropped` counts *superseded* views, so
+  `Delivered + Dropped` is the number of publishes and `Dropped` the number of lag events; the consumer
+  API is a handle (`Ready()` / `Take()`) rather than a bare receive channel.
+- Trade-off: intermediate views are not retained. For a complete-snapshot feed that is the point; a
+  consumer needing every delta would use a different, delta-level stream (out of scope).
 
 ## Verified against
 

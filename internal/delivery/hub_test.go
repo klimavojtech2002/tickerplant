@@ -17,92 +17,154 @@ func view(seq market.Sequence) *book.View {
 }
 
 func TestSubscribeReceive(t *testing.T) {
-	h := New(4, 8)
-	_, ch := h.Subscribe()
+	h := New(8)
+	c := h.Subscribe()
 	h.Publish(view(1))
-	if got := <-ch; got.LastSeq != 1 {
-		t.Fatalf("received LastSeq %d, want 1", got.LastSeq)
+	<-c.Ready()
+	if got := c.Take(); got == nil || got.LastSeq != 1 {
+		t.Fatalf("received %v, want LastSeq 1", got)
 	}
 }
 
 func TestFanOut(t *testing.T) {
-	h := New(4, 8)
-	_, a := h.Subscribe()
-	_, b := h.Subscribe()
+	h := New(8)
+	a := h.Subscribe()
+	b := h.Subscribe()
 	h.Publish(view(7))
-	if (<-a).LastSeq != 7 || (<-b).LastSeq != 7 {
-		t.Fatal("both consumers must receive the view")
+	<-a.Ready()
+	<-b.Ready()
+	if va, vb := a.Take(), b.Take(); va == nil || va.LastSeq != 7 || vb == nil || vb.LastSeq != 7 {
+		t.Fatalf("both consumers must receive the view, got %v and %v", va, vb)
 	}
 	if s := h.Stats(); s.Consumers != 2 || s.Delivered != 2 {
 		t.Fatalf("stats = %+v, want 2 consumers, 2 delivered", s)
 	}
 }
 
-func TestSlowConsumerDropsThenDisconnects(t *testing.T) {
-	h := New(1, 2) // buffer 1; disconnect after 2 consecutive drops
-	_, slow := h.Subscribe()
-	_, fast := h.Subscribe()
-
-	h.Publish(view(1)) // slow buffer 1/1; fast 1/1
-	<-fast
-	h.Publish(view(2)) // slow full -> drop #1; fast ok
-	<-fast
-	h.Publish(view(3)) // slow full -> drop #2 -> disconnect; fast ok
-	<-fast
-
-	// Assert the disconnect via Stats first (non-blocking), so "never disconnect" fails
-	// here rather than hanging on the channel read below.
-	if s := h.Stats(); s.Consumers != 1 || s.Dropped < 2 {
-		t.Fatalf("a persistently slow consumer must be disconnected: stats = %+v, want 1 consumer, >=2 dropped", s)
+// A consumer that has not taken v1 when v2 arrives receives v2 (the latest), never the
+// stale v1 — the defining property of the fan-out.
+func TestLatestWinsSupersedes(t *testing.T) {
+	h := New(8)
+	c := h.Subscribe()
+	h.Publish(view(1)) // slot: v1
+	h.Publish(view(2)) // v1 unread -> superseded by v2
+	<-c.Ready()
+	if got := c.Take(); got == nil || got.LastSeq != 2 {
+		t.Fatalf("latest-wins: got %v, want the freshest LastSeq 2, never the stale 1", got)
 	}
-	if got := <-slow; got.LastSeq != 1 { // the view buffered before it fell behind
-		t.Fatalf("slow buffered LastSeq %d, want 1", got.LastSeq)
-	}
-	if _, ok := <-slow; ok {
-		t.Fatal("disconnected consumer's channel must be closed")
+	if s := h.Stats(); s.Delivered != 1 || s.Dropped != 1 {
+		t.Fatalf("stats = %+v, want 1 delivered, 1 dropped (the superseded view)", s)
 	}
 }
 
-func TestSlowConsumerResetsOnCatchUp(t *testing.T) {
-	h := New(1, 2)
-	_, ch := h.Subscribe()
-	h.Publish(view(1)) // buffered
-	<-ch
-	h.Publish(view(2)) // full? no — drained -> delivered, drops stay 0
-	<-ch
-	// one drop, then catch up, then another drop: must NOT disconnect (streak reset)
-	h.Publish(view(3)) // buffered
-	h.Publish(view(4)) // full -> drop #1
-	<-ch               // drain (catch up) -> next send resets the streak
-	h.Publish(view(5)) // delivered -> drops reset to 0
-	<-ch
-	h.Publish(view(6)) // buffered
-	h.Publish(view(7)) // full -> drop #1 again (not #2)
+// A consumer that never reads must not block Publish — the engine is never stalled.
+func TestPublishNeverBlocks(t *testing.T) {
+	h := New(1 << 20) // high maxLag so the never-reading consumer stays subscribed through the burst
+	_ = h.Subscribe() // never reads
+	for i := range 1000 {
+		h.Publish(view(market.Sequence(i))) // hangs the test (via timeout) if Publish ever blocks
+	}
+	if s := h.Stats(); s.Consumers != 1 || s.Delivered != 1 {
+		t.Fatalf("stats = %+v, want 1 consumer still subscribed, 1 delivered (rest superseded)", s)
+	}
+}
+
+// Delivered counts clean hand-offs; Dropped counts superseded views; both are exact.
+func TestStatsExactAfterSupersede(t *testing.T) {
+	h := New(8)
+	c := h.Subscribe()
+	h.Publish(view(1)) // delivered = 1
+	h.Publish(view(2)) // dropped = 1
+	h.Publish(view(3)) // dropped = 2
+	<-c.Ready()
+	if got := c.Take(); got == nil || got.LastSeq != 3 {
+		t.Fatalf("Take = %v, want the latest LastSeq 3", got)
+	}
+	h.Publish(view(4)) // slot empty again -> delivered = 2
+	if s := h.Stats(); s.Delivered != 2 || s.Dropped != 2 || s.Consumers != 1 {
+		t.Fatalf("stats = %+v, want delivered 2, dropped 2, consumers 1", s)
+	}
+}
+
+func TestDisconnectAfterMaxLagSupersedes(t *testing.T) {
+	h := New(2) // disconnect after 2 consecutive supersedes
+	c := h.Subscribe()
+	h.Publish(view(1)) // delivered
+	h.Publish(view(2)) // supersede #1 (streak 1 < 2)
+	h.Publish(view(3)) // supersede #2 (streak 2 >= 2) -> disconnect
+	if s := h.Stats(); s.Consumers != 0 || s.Dropped != 2 {
+		t.Fatalf("a persistently slow consumer must be disconnected: stats = %+v, want 0 consumers, 2 dropped", s)
+	}
+	// The doorbell is closed (the range terminates); any wakeup still buffered from before
+	// the disconnect yields nil via Take, never a stale view.
+	for range c.Ready() {
+		if v := c.Take(); v != nil {
+			t.Fatalf("disconnected consumer must Take nil, got LastSeq %d", v.LastSeq)
+		}
+	}
+}
+
+func TestStreakResetsOnCatchUp(t *testing.T) {
+	h := New(2)
+	c := h.Subscribe()
+	h.Publish(view(1)) // delivered
+	h.Publish(view(2)) // supersede #1
+	<-c.Ready()
+	_ = c.Take()       // catch up -> the next publish finds the slot empty and resets the streak
+	h.Publish(view(3)) // delivered, streak reset to 0
+	h.Publish(view(4)) // supersede #1 again (not #2), so no disconnect
 	if s := h.Stats(); s.Consumers != 1 {
 		t.Fatalf("consumer disconnected too early: %+v", s)
 	}
 }
 
-func TestUnsubscribeIdempotent(t *testing.T) {
-	h := New(4, 8)
-	id, ch := h.Subscribe()
-	h.Unsubscribe(id)
-	if _, ok := <-ch; ok {
-		t.Fatal("unsubscribe must close the channel")
+// maxLag 0 means zero tolerance: the first supersede disconnects the consumer.
+func TestZeroMaxLagDisconnectsOnFirstSupersede(t *testing.T) {
+	h := New(0)
+	c := h.Subscribe()
+	h.Publish(view(1)) // delivered (slot was empty)
+	h.Publish(view(2)) // first supersede -> streak(1) >= maxLag(0) -> disconnect
+	if s := h.Stats(); s.Consumers != 0 {
+		t.Fatalf("maxLag 0 must disconnect on the first supersede: %+v", s)
 	}
-	h.Unsubscribe(id)  // again: no panic
-	h.Unsubscribe(999) // unknown id: no panic
+	for range c.Ready() { // closed; drains any buffered wakeup then terminates
+		if v := c.Take(); v != nil {
+			t.Fatalf("disconnected consumer must Take nil, got LastSeq %d", v.LastSeq)
+		}
+	}
+}
+
+// A disconnected consumer gets no stale final view: Take returns nil, so it must resync.
+func TestDisconnectGivesNoFinalView(t *testing.T) {
+	h := New(0)
+	c := h.Subscribe()
+	h.Publish(view(1)) // delivered, slot holds v1
+	h.Publish(view(2)) // first supersede -> disconnect, record deleted
+	if v := c.Take(); v != nil {
+		t.Fatalf("a disconnected consumer must Take nil, got LastSeq %d", v.LastSeq)
+	}
+}
+
+func TestUnsubscribeIdempotent(t *testing.T) {
+	h := New(8)
+	c := h.Subscribe()
+	h.Unsubscribe(c.ID())
+	if _, ok := <-c.Ready(); ok {
+		t.Fatal("unsubscribe must close the doorbell")
+	}
+	h.Unsubscribe(c.ID()) // again: no panic
+	h.Unsubscribe(999)    // unknown id: no panic
 }
 
 func TestCloseDisconnectsAll(t *testing.T) {
-	h := New(4, 8)
-	_, a := h.Subscribe()
-	_, b := h.Subscribe()
+	h := New(8)
+	a := h.Subscribe()
+	b := h.Subscribe()
 	h.Close()
-	if _, ok := <-a; ok {
+	if _, ok := <-a.Ready(); ok {
 		t.Fatal("close must close consumer a")
 	}
-	if _, ok := <-b; ok {
+	if _, ok := <-b.Ready(); ok {
 		t.Fatal("close must close consumer b")
 	}
 	h.Close() // idempotent
@@ -112,40 +174,40 @@ func TestCloseDisconnectsAll(t *testing.T) {
 }
 
 func TestSubscribeOnClosedHub(t *testing.T) {
-	h := New(4, 8)
+	h := New(8)
 	h.Close()
-	_, ch := h.Subscribe()
-	if _, ok := <-ch; ok {
-		t.Fatal("subscribing to a closed hub must return an already-closed channel")
+	c := h.Subscribe()
+	if _, ok := <-c.Ready(); ok {
+		t.Fatal("subscribing to a closed hub must return an already-closed doorbell")
+	}
+	if v := c.Take(); v != nil {
+		t.Fatal("a closed-hub consumer must Take nil")
 	}
 }
 
-func TestNewClampsBuffer(t *testing.T) {
-	h := New(0, 8) // buffer clamped to 1
-	_, ch := h.Subscribe()
-	h.Publish(view(1)) // buffer 1 -> fits
-	if got := <-ch; got.LastSeq != 1 {
-		t.Fatal("clamped buffer must still deliver one view")
-	}
+// Close racing Publish with a live reader must be race-free and shut down cleanly
+// (run under -race in CI).
+func TestConcurrentCloseVsPublish(t *testing.T) {
+	h := New(100)
+	c := h.Subscribe()
+	var wg sync.WaitGroup
+	wg.Go(func() {
+		for range c.Ready() {
+			_ = c.Take()
+		}
+	})
+	wg.Go(func() {
+		for i := range 2000 {
+			h.Publish(view(market.Sequence(i)))
+		}
+	})
+	wg.Go(h.Close)
+	wg.Wait()
 }
 
-// maxLag 0 means zero tolerance: the first drop disconnects the consumer.
-func TestZeroMaxLagDisconnectsOnFirstDrop(t *testing.T) {
-	h := New(1, 0)
-	_, ch := h.Subscribe()
-	h.Publish(view(1)) // buffered (buffer 1)
-	h.Publish(view(2)) // full -> drop #1 -> drops(1) >= maxLag(0) -> disconnect
-	if got := <-ch; got.LastSeq != 1 {
-		t.Fatalf("buffered view LastSeq %d, want 1", got.LastSeq)
-	}
-	if _, ok := <-ch; ok {
-		t.Fatal("maxLag 0 must disconnect on the first drop")
-	}
-}
-
-// Concurrent publish + subscribe/unsubscribe must be race-free (run under -race in CI).
+// Concurrent publish + subscribe/unsubscribe churn must be race-free (run under -race).
 func TestConcurrentPublishSubscribe(t *testing.T) {
-	h := New(8, 100)
+	h := New(100)
 	var wg sync.WaitGroup
 	wg.Go(func() {
 		for i := range 2000 {
@@ -155,12 +217,13 @@ func TestConcurrentPublishSubscribe(t *testing.T) {
 	for range 4 {
 		wg.Go(func() {
 			for range 300 {
-				id, ch := h.Subscribe()
+				c := h.Subscribe()
 				select {
-				case <-ch:
+				case <-c.Ready():
+					_ = c.Take()
 				default:
 				}
-				h.Unsubscribe(id)
+				h.Unsubscribe(c.ID())
 			}
 		})
 	}

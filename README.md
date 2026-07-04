@@ -79,8 +79,9 @@ subject of my `seedloop` project.)
 ```
 
 The fan-out layer is a small in-process broadcaster: the engine publishes a complete, immutable top-of-book
-view, and the fan-out delivers it to every consumer over a bounded channel — dropping (and past a bound
-disconnecting) a consumer that can't keep up, so one slow reader never stalls the engine. It shares the
+view, and each consumer holds a size-1 latest slot — a lagging consumer's unread view is superseded by the
+freshest, so it always jumps to the current book rather than replaying stale ones (latest-wins), and past a
+bound a consumer that still can't keep up is disconnected, so one slow reader never stalls the engine. It shares the
 backpressure discipline of the sibling `arbitrage-engine` streaming broker but, since the source here is
 the local engine rather than a remote feed, it is purpose-built, not that broker. The two projects lead
 with different hard problems: arbitrage-engine is cross-venue detection and exact-money correctness on a

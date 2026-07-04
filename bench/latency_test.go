@@ -23,11 +23,15 @@ func drive(tb testing.TB, n int, interval, stall time.Duration, stallAt int) (na
 	tb.Helper()
 	ctx := context.Background()
 	eng := book.New(source.New(source.Config{Venue: "v", Symbol: "s", Seed: 1, Steps: n + 1}), 10)
-	hub := delivery.New(1<<16, 1<<30) // huge buffer/bound: the drain keeps up, so no drops perturb timing
+	// Latency is recorded at the publisher (done.Sub(send) below), and conflation keeps
+	// Publish O(consumers) and non-blocking, so the drain never perturbs the measurement;
+	// the huge maxLag only keeps a momentarily-behind drain from being disconnected.
+	hub := delivery.New(1 << 30)
 	defer hub.Close()
-	_, ch := hub.Subscribe()
+	c := hub.Subscribe()
 	go func() {
-		for range ch { //nolint:revive // intentional drain
+		for range c.Ready() { //nolint:revive // intentional drain
+			c.Take()
 		}
 	}()
 	if err := eng.Bootstrap(ctx); err != nil {

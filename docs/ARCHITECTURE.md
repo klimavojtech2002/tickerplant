@@ -19,7 +19,7 @@ transport port; delivery adapters sit on the output side.
  │ OKX      (WS)      │──┼────►│      │                   │      ┌─────────────────┐
  │ Kraken   (WS)      │──┘     │  order-book engine       │─────►│ in-process      │──► stream consumers
  ├────────────────────┤        │   (invariant-checked,    │      │ fan-out         │──► live dashboard
- │ synthetic source   │──────► │    single-writer)        │      │ (bounded, drop) │──► metrics
+ │ synthetic source   │──────► │    single-writer)        │      │ (latest-wins)   │──► metrics
  │ (tests, same port) │        │      │                   │      └─────────────────┘
  └────────────────────┘        │  canonical model         │
         transport port ───────►└──────────────────────────┘
@@ -39,8 +39,9 @@ size are integers in the venue's smallest increment, with no `float64` on the bo
 A raw venue message enters an ingestion adapter, which normalizes it into a canonical snapshot or delta
 and hands it to the engine through the port. The engine applies it to the venue's book, checking the
 invariants on every update (§5). The resulting normalized update is published to the in-process fan-out,
-which delivers it to every consumer over a bounded, non-blocking channel. A sequence gap or checksum
-mismatch short-circuits this flow into a resync (§6) instead of producing a wrong book.
+which delivers the latest to every consumer without blocking (a per-consumer conflating slot, §7). A
+sequence gap or checksum mismatch short-circuits this flow into a resync (§6) instead of producing a
+wrong book.
 
 ## 4. The sans-I/O core and the transport port
 
@@ -78,18 +79,20 @@ silent drift (ADR-0004).
 ## 7. Fan-out and backpressure
 
 The normalized stream is delivered through a small in-process fan-out (`internal/delivery`, ADR-0013):
-the engine publishes a complete top-N view, and each is broadcast to every consumer over a bounded
-channel. The send is non-blocking: a full consumer buffer drops the view and counts the loss — safe
-because each view is a complete, latest-wins snapshot, so a dropped one is superseded by the next — and a
-consumer that stays behind past a bound is disconnected, so one slow consumer cannot stall the engine or
-the others. The reasoning for dropping over blocking is in ADR-0006; for an in-process fan-out rather
-than vendoring an SSE broker, ADR-0013.
+the engine publishes a complete top-N view, and each consumer holds a size-1 latest slot. Delivery is
+non-blocking and latest-wins: if a consumer has not taken its previous view, the newer one supersedes it,
+so a lagging consumer always jumps to the freshest book rather than replaying stale ones (ADR-0015). A
+consumer that stays behind past a bound is disconnected and must resync, so one slow consumer cannot
+stall the engine or the others. The reasoning for dropping over blocking is in ADR-0006; for latest-wins
+conflation over a FIFO buffer, ADR-0015; for an in-process fan-out rather than vendoring an SSE broker,
+ADR-0013.
 
 ## 8. Concurrency model
 
 One documented owner per resource: one writer per venue book (§5), one connection manager per venue, the
-fan-out owning its consumer set. Communication is over channels with bounded buffers; shared counters are
-atomic. There is no shared mutable state without a single owner, and no lock on the book's read path. The
+fan-out owning its consumer set. Communication is over channels and per-consumer latest-value slots;
+the fan-out's shared state is guarded by a mutex and the engine's counters are atomic. There is no shared
+mutable state without a single owner, and no lock on the book's read path. The
 race detector is on for every test run, and a clean `-race` is part of the definition of done, not an
 occasional check.
 

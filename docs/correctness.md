@@ -163,10 +163,11 @@ fresh snapshot, rebind. Resuming from the pre-disconnect sequence is the same er
 The reconstruction guarantee is paired with a delivery guarantee. For as long as the process stays live,
 normalized updates are fanned out to consumers in order and without duplication, across reconnects and
 sequence gaps. A gap is a documented resync, not a dropped update. Slow consumers are the one exception
-to no-loss: a consumer's buffer is bounded, a full buffer drops and counts the loss, and past a sustained
-bound the consumer is disconnected rather than allowed to stall the fan-out (ADR-0006). The newest state
-matters more than a backlog of stale updates, so for live market data this is the correct trade-off; a
-consumer that must not lose data needs a durable queue, which is out of scope ([scope.md](scope.md)).
+to no-loss: each consumer holds a size-1 latest slot, so an unread view is superseded by the freshest and
+the supersede is counted (latest-wins conflation, ADR-0015); past a sustained bound the consumer is
+disconnected rather than allowed to stall the fan-out (ADR-0006). The newest state matters more than a
+backlog of stale updates, so for live market data this is the correct trade-off; a consumer that must not
+lose data needs a durable queue, which is out of scope ([scope.md](scope.md)).
 
 > **Liveness — a correct update is delivered in bounded time.** A legal update sequence produces, in
 > bounded time, a correct book and a delivered normalized update; an illegal sequence produces a resync,
