@@ -175,8 +175,8 @@ lose data needs a durable queue, which is out of scope ([scope.md](scope.md)).
 
 ## 10. Proving it, not asserting it
 
-None of the above is to be trusted because a comment claims it. It will be established — once the engine
-and its harness are built (slices 0002–0003) — by deterministic simulation, by this method (ADR-0005):
+None of the above is to be trusted because a comment claims it. It is established — the engine and its
+harness are built (slices 0002–0003) — by deterministic simulation, by this method (ADR-0005):
 
 - The engine runs against a seeded synthetic source behind the transport port, which emits arbitrary
   **legal and illegal** sequences: gaps, reorders, duplicates, crossing snapshots, an illegal crossing
