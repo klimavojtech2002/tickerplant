@@ -145,12 +145,18 @@ fixed at 0), so the sequence is the live integrity guard — a concrete reason t
 re-verified against the docs at implementation time, not taken from memory. The mechanism the adapter
 must get right is in-band sequence continuity, distinct from Binance's two-stream binding.
 
-**Kraken — CRC32 checksum over the top levels.** The book feed sends an initial snapshot and then
-updates; Kraken's integrity guard is a CRC32 checksum over the top 10 levels in its documented string
-format, not a per-update sequence. After applying an update the adapter computes the same checksum over
-its local top levels and compares; a mismatch means drift and triggers resync. The checksum input format
-and WebSocket API version are pinned against the live docs and a captured fixture (the v1 and v2 feeds
-differ). This is the checksum mechanism (§6) the other two venues do not provide.
+**Kraken — CRC32 checksum over the top levels.** The book feed sends an in-band snapshot and then
+updates over one WebSocket; Kraken's integrity guard is a CRC32 checksum over the top 10 levels in its
+documented string format, not a per-update sequence (the adapter stamps a synthetic monotonic sequence
+so the engine's continuity check stays inert). After each applied update the engine recomputes the
+checksum over its local top 10 — the adapter owns the format, the engine owns the comparison — and a
+mismatch means drift and triggers resync. The feed is also windowed: subscribed at depth 10 it never
+deletes levels that fall out of the top 10, so the book is truncated to the window at bind and after
+every apply.
+A level kept beyond the window goes stale out of sight and corrupts the top-10 when it re-enters —
+observed on the live feed before truncation landed, caught by the checksum as repeated drift. The
+checksum format is pinned against the guide's published golden vector and verified against the live
+feed by the integration test (ADR-0016).
 
 ## 8. Reconnect is a full re-bootstrap, not a resume
 

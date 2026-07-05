@@ -3,7 +3,7 @@
 A real-time service that reconstructs live order books from crypto-exchange feeds, normalizes them
 into one canonical stream, and fans that stream out to consumers — with correctness guarantees that
 hold under reconnects, sequence gaps, and slow consumers. It is built for multiple venues behind one
-canonical model; Binance is wired live today (see Status).
+canonical model; Binance and Kraken are wired live today (see Status).
 
 In plain terms: it connects to an exchange, rebuilds its live book of buy and sell orders from a
 snapshot plus a flood of incremental updates, and serves a single clean, ordered, gap-free view to
@@ -31,7 +31,7 @@ bugs, and it is the centerpiece of this project.
 
 ## What it does
 
-- Ingests a live order-book feed over WebSocket (Binance today; the transport port takes any venue).
+- Ingests a live order-book feed over WebSocket (Binance and Kraken today; the transport port takes any venue).
 - Reconstructs the venue's L2 order book from snapshot plus incremental deltas, detecting sequence
   gaps and resynchronizing from a fresh snapshot when one is found.
 - Normalizes the venue's heterogeneous format into a single canonical book and trade model.
@@ -136,18 +136,19 @@ Go standard library alone.
 
 ## Status
 
-The table below is the source of truth: the core and the first live venue (Binance) are built and tested;
-more venues, the dashboard, and packaging are next.
+The table below is the source of truth: the core and the first two live venues (Binance, Kraken) are
+built and tested; OKX, the dashboard, and packaging are next.
 
 | Component | Status |
 |-----------|--------|
 | Canonical book/trade model (integer ticks, no float) | Done — tested |
-| Per-venue normalization to the canonical model | Planned (with adapters) |
+| Per-venue normalization to the canonical model | Done — tested (Binance, Kraken) |
 | Order-book engine (snapshot + delta, gap detect, resync, invariants) | Done — tested |
 | Transport port + deterministic synthetic source (seeded, fault-injecting) | Done — tested |
 | Recorded source (replay captured feeds) | Planned (with adapters) |
 | Binance live adapter (WebSocket diff-depth + REST snapshot) | Done — tested (`-live`) |
-| Kraken / OKX live adapters | Planned |
+| Kraken live adapter (WS v2 in-band book + CRC32 drift detection) | Done — tested (`-live -venue kraken -symbol BTC/USD`) |
+| OKX live adapter | Planned |
 | Fan-out delivery (`internal/delivery`, in-process, bounded backpressure) | Done — tested |
 | Runnable demo (`cmd/tickerplant`: source → engine → fan-out) | Done |
 | Dashboard (Next.js) | Planned |

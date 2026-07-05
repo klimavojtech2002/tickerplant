@@ -119,13 +119,16 @@ func TestParseFlagsHelpIsErrHelp(t *testing.T) {
 }
 
 func TestNewSourceSynthetic(t *testing.T) {
-	src, pace, err := newSource(context.Background(), false, "", "", 1, 10, 5*time.Millisecond)
+	src, vs, err := newSource(context.Background(), false, "", "", 1, 10, 5*time.Millisecond)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer src.Close()
-	if pace != 5*time.Millisecond {
-		t.Fatalf("synthetic pace = %v, want it preserved (5ms)", pace)
+	if vs.pace != 5*time.Millisecond {
+		t.Fatalf("synthetic pace = %v, want it preserved (5ms)", vs.pace)
+	}
+	if vs.checksum != nil || vs.window != 0 {
+		t.Fatalf("the synthetic source is a full-book sequence venue: setup = %+v, want no checksum, no window", vs)
 	}
 	if _, ok := src.Next(context.Background()); !ok {
 		t.Fatal("synthetic source must yield events")
@@ -133,7 +136,7 @@ func TestNewSourceSynthetic(t *testing.T) {
 }
 
 func TestNewSourceUnknownVenue(t *testing.T) {
-	if _, _, err := newSource(context.Background(), true, "kraken", "X", 1, 10, 0); err == nil {
+	if _, _, err := newSource(context.Background(), true, "okx", "X", 1, 10, 0); err == nil {
 		t.Fatal("an unknown live venue must error")
 	}
 }
@@ -173,6 +176,55 @@ func (s *scriptSource) Next(context.Context) (source.Event, bool) {
 }
 func (s *scriptSource) Snapshot(context.Context) (market.Snapshot, error) { return s.snap, nil }
 func (s *scriptSource) Close() error                                      { return nil }
+
+// run must hand cfg.checksum to the engine. A checksummer that can never match the
+// snapshot makes bootstrap fail loudly — if run dropped the wiring, the same script
+// would succeed silently and a checksum venue would run with no integrity guard.
+func TestRunWiresChecksumIntoEngine(t *testing.T) {
+	snap := market.Snapshot{LastUpdateID: 10, Bids: []market.Level{{Price: 100, Size: 1}}, Asks: []market.Level{{Price: 101, Size: 1}}}
+	poisoned := func([]market.Level, []market.Level) uint32 { return 1 } // snapshot carries checksum 0
+	if _, err := run(context.Background(), quietLog(), &scriptSource{snap: snap}, config{depth: 5, checksum: poisoned}); err == nil {
+		t.Fatal("a never-matching checksummer must fail bootstrap: cfg.checksum was not wired into the engine")
+	}
+	if _, err := run(context.Background(), quietLog(), &scriptSource{snap: snap}, config{depth: 5}); err != nil {
+		t.Fatalf("nil checksummer must run checksum-free: %v", err)
+	}
+}
+
+// run must hand cfg.window to the engine. The script mimics a windowed feed (Kraken):
+// checksums cover only the venue's window, so if run dropped the WithMaxDepth wiring
+// the engine's deeper book would mismatch every checksum and the run would fail.
+func TestRunWiresWindowIntoEngine(t *testing.T) {
+	pq := func(bids, asks []market.Level) uint32 {
+		var s uint32
+		for _, l := range bids {
+			s += uint32(l.Price) + uint32(l.Size)
+		}
+		for _, l := range asks {
+			s += uint32(l.Price) + uint32(l.Size)
+		}
+		return s
+	}
+	src := &scriptSource{
+		// window 1: the venue checksums only the best level per side
+		snap: market.Snapshot{LastUpdateID: 10,
+			Bids:     []market.Level{{Price: 100, Size: 1}, {Price: 99, Size: 1}},
+			Asks:     []market.Level{{Price: 102, Size: 1}, {Price: 103, Size: 1}},
+			Checksum: pq([]market.Level{{Price: 100, Size: 1}}, []market.Level{{Price: 102, Size: 1}})},
+		events: []source.Event{
+			{Kind: source.EventDelta, Delta: market.Delta{FirstSeq: 11, LastSeq: 11,
+				Bids:     []market.Level{{Price: 101, Size: 2}}, // pushes 100 out of the window
+				Checksum: pq([]market.Level{{Price: 101, Size: 2}}, []market.Level{{Price: 102, Size: 1}})}},
+		},
+	}
+	res, err := run(context.Background(), quietLog(), src, config{depth: 5, checksum: pq, window: 1})
+	if err != nil {
+		t.Fatalf("windowed run must bind and apply cleanly: %v", err)
+	}
+	if res.resyncs != 0 {
+		t.Fatalf("resyncs = %d, want 0 (a dropped window wiring makes every checksum mismatch)", res.resyncs)
+	}
+}
 
 // run must publish only when the view advances: a stale duplicate (dropped by the
 // engine) must not be re-broadcast.

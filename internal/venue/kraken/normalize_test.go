@@ -7,10 +7,12 @@ import (
 	"github.com/klimavojtech2002/tickerplant/internal/market"
 )
 
+// bookFrame mirrors the live wire shape (captured 2026-07-05): price/qty are JSON
+// numbers carrying the pair's full precision, including trailing zeros.
 func bookFrame(typ string) []byte {
 	return []byte(`{"channel":"book","type":"` + typ + `","data":[{"symbol":"BTC/USD",` +
-		`"bids":[{"price":"45284.0","qty":"0.00200000"}],` +
-		`"asks":[{"price":"45285.2","qty":"0.00100000"}],"checksum":12345}]}`)
+		`"bids":[{"price":45284.0,"qty":0.00200000}],` +
+		`"asks":[{"price":45285.2,"qty":0.00100000}],"checksum":12345,"timestamp":"2026-07-05T06:23:33.793844Z"}]}`)
 }
 
 func TestParseBookSnapshot(t *testing.T) {
@@ -58,7 +60,7 @@ func TestParseBookSkipsNonBook(t *testing.T) {
 
 func TestParseBookZeroQtyIsDelete(t *testing.T) {
 	raw := []byte(`{"channel":"book","type":"update","data":[{"symbol":"BTC/USD",` +
-		`"bids":[{"price":"45284.0","qty":"0.00000000"}],"asks":[]}]}`)
+		`"bids":[{"price":45284.0,"qty":0.00000000}],"asks":[]}]}`)
 	p, ok, err := parseBook(raw, scales{price: 1, qty: 8})
 	if !ok || err != nil {
 		t.Fatal(err)
@@ -68,14 +70,32 @@ func TestParseBookZeroQtyIsDelete(t *testing.T) {
 	}
 }
 
+// Malformed decimals that are still valid JSON numbers must surface an error, not a
+// silent skip. Next still skips them (the checksum on the next applied delta catches
+// the divergence), but Snapshot needs the error: a malformed in-band snapshot is fatal
+// for the wait that only that snapshot can end.
 func TestParseBookBadDecimal(t *testing.T) {
 	for _, raw := range [][]byte{
-		[]byte(`{"channel":"book","type":"update","data":[{"bids":[{"price":"45284.x","qty":"0.001"}],"asks":[]}]}`), // bad bid price
-		[]byte(`{"channel":"book","type":"update","data":[{"bids":[],"asks":[{"price":"45285.y","qty":"0.001"}]}]}`), // bad ask price
-		[]byte(`{"channel":"book","type":"update","data":[{"bids":[{"price":"45284.0","qty":"0.0z"}],"asks":[]}]}`),  // bad qty
+		[]byte(`{"channel":"book","type":"update","data":[{"bids":[{"price":4.52840e4,"qty":0.001}],"asks":[]}]}`),     // exponent form: legal JSON, not a plain decimal
+		[]byte(`{"channel":"book","type":"update","data":[{"bids":[],"asks":[{"price":45285.25,"qty":0.001}]}]}`),      // more precision than the pair's scale 1
+		[]byte(`{"channel":"book","type":"update","data":[{"bids":[{"price":45284.0,"qty":0.000000001}],"asks":[]}]}`), // qty finer than scale 8
 	} {
 		if _, _, err := parseBook(raw, scales{price: 1, qty: 8}); !errors.Is(err, market.ErrMalformed) {
 			t.Fatalf("frame %q: err = %v, want ErrMalformed", raw, err)
 		}
+	}
+}
+
+// The v2 wire sends numbers, but json.Number also accepts the same digits quoted as a
+// string — parsing stays literal and integer-exact either way. Pinned so the tolerance
+// is a documented behavior, not an accident.
+func TestParseBookStringLevelsParseExactly(t *testing.T) {
+	raw := []byte(`{"channel":"book","type":"update","data":[{"bids":[{"price":"45284.0","qty":"0.00200000"}],"asks":[]}]}`)
+	p, ok, err := parseBook(raw, scales{price: 1, qty: 8})
+	if !ok || err != nil {
+		t.Fatalf("string-typed levels: ok=%v err=%v", ok, err)
+	}
+	if p.bids[0] != (market.Level{Price: 452840, Size: 200000}) {
+		t.Fatalf("bid = %+v, want {452840,200000}", p.bids[0])
 	}
 }

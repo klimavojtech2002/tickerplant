@@ -57,6 +57,7 @@ type Engine struct {
 	wouldCrosses       atomic.Int64 // deltas rejected because applying them would cross the book (ADR-0004)
 	consecutiveResyncs int          // writer-goroutine only; reset on progress to bound a livelock
 	checksum           Checksummer  // nil on sequence venues; set via WithChecksum for checksum venues
+	maxDepth           int          // 0 = keep every level; >0 = the feed's subscribed window (WithMaxDepth)
 }
 
 // New creates an Engine publishing a top-N view of the given depth.
@@ -69,6 +70,17 @@ func New(src source.Source, depth int) *Engine {
 // triggers a resync. Call before Bootstrap/Run. Returns the engine for chaining.
 func (e *Engine) WithChecksum(fn Checksummer) *Engine {
 	e.checksum = fn
+	return e
+}
+
+// WithMaxDepth bounds the book to the feed's subscribed window (e.g. Kraken's book
+// depth). Such feeds never send deletes for levels that fall out of the window, so a
+// level kept beyond it goes stale and corrupts the top-N when it re-enters; the engine
+// truncates after every bind and apply instead. Zero (the default) keeps every level —
+// correct for full-book feeds like Binance and the synthetic source. Call before
+// Bootstrap/Run. Returns the engine for chaining.
+func (e *Engine) WithMaxDepth(n int) *Engine {
+	e.maxDepth = n
 	return e
 }
 
@@ -115,6 +127,9 @@ func (e *Engine) Bootstrap(ctx context.Context) error {
 			continue
 		}
 		e.book = buildFrom(snap)
+		if e.maxDepth > 0 {
+			e.book.truncate(e.maxDepth)
+		}
 		e.lastSeq = snap.LastUpdateID
 		if e.checksum != nil {
 			bids, asks := e.book.topN(checksumDepth)
@@ -154,6 +169,9 @@ func (e *Engine) applyDelta(d market.Delta) outcome {
 	}
 	for _, lvl := range d.Asks {
 		e.book.set(market.Ask, lvl.Price, lvl.Size)
+	}
+	if e.maxDepth > 0 {
+		e.book.truncate(e.maxDepth) // drop what fell out of the feed's window before any check sees it
 	}
 	e.lastSeq = d.LastSeq
 	if e.book.crosses() {
