@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"runtime"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -182,6 +183,37 @@ func TestStreamReadTimeoutReconnects(t *testing.T) {
 	}
 }
 
+// Close must return even when the session loop is parked in the frame send behind a
+// consumer that never reads (the ctx.Done arm of the send select). A plain blocking
+// send would wedge Close forever here.
+func TestCloseUnblocksBlockedFrameSend(t *testing.T) {
+	fc := newFakeConn()
+	fc.feed <- readResult{data: []byte("a")} // fills the size-1 buffer
+	fc.feed <- readResult{data: []byte("b")} // parks the loop in the send select
+	s := Dial(context.Background(), StreamConfig{BufferSize: 1, Backoff: fast(), dial: dialerOf(returns(fc))})
+
+	// Wait until the loop has read both frames from the feed; it is then at (or headed
+	// into) the send of "b" against the full buffer, and Close must return either way.
+	// len on a channel is race-safe.
+	deadline := time.After(2 * time.Second)
+	for len(fc.feed) > 0 {
+		select {
+		case <-deadline:
+			t.Fatal("session loop never consumed the fed frames")
+		default:
+			runtime.Gosched()
+		}
+	}
+
+	done := make(chan struct{})
+	go func() { _ = s.Close(); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Close wedged behind a slow reader; cancellation must win the frame send")
+	}
+}
+
 func TestStreamCloseClosesFramesIdempotent(t *testing.T) {
 	fc := newFakeConn()
 	fc.feed <- readResult{data: []byte("hi")}
@@ -197,8 +229,24 @@ func TestStreamCloseClosesFramesIdempotent(t *testing.T) {
 	}
 }
 
+// recordingJitter returns a Backoff Jitter that records each capped delay and collapses
+// the real wait to 1ms. The send is non-blocking so a long-running loop can never fill
+// the buffer and wedge Next (and with it Close); the asserted delays are always the
+// first few sends, which the buffer holds comfortably.
+func recordingJitter(delays chan time.Duration) func(time.Duration) time.Duration {
+	return func(d time.Duration) time.Duration {
+		select {
+		case delays <- d:
+		default:
+		}
+		return time.Millisecond
+	}
+}
+
 // signalHandler signals on each log record, so a test can act exactly when the loop
-// reaches the "reconnecting" log line (immediately before the backoff wait).
+// reaches the "reconnecting" log line (immediately before the backoff wait). The send
+// blocks on purpose: a loop that skips the backoff wait floods the logger, wedges
+// here, and hangs Close — the hang is what catches that mutation.
 type signalHandler struct{ ch chan struct{} }
 
 func (h signalHandler) Enabled(context.Context, slog.Level) bool { return true }
@@ -233,8 +281,7 @@ func TestStreamCancelDuringBackoffWait(t *testing.T) {
 // would keep the delay at Min.
 func TestBackoffEscalatesAcrossDialErrors(t *testing.T) {
 	delays := make(chan time.Duration, 16)
-	bo := Backoff{Min: 10 * time.Millisecond, Max: time.Second, Factor: 2,
-		Jitter: func(d time.Duration) time.Duration { delays <- d; return time.Millisecond }}
+	bo := Backoff{Min: 10 * time.Millisecond, Max: time.Second, Factor: 2, Jitter: recordingJitter(delays)}
 	d := func(context.Context, string) (conn, error) { return nil, errors.New("refused") }
 	s := Dial(context.Background(), StreamConfig{Backoff: bo, dial: d})
 	defer s.Close()
@@ -249,8 +296,7 @@ func TestBackoffEscalatesAcrossDialErrors(t *testing.T) {
 // A productive session (one that delivered a frame) must reset the backoff to Min.
 func TestBackoffResetsAfterProductiveSession(t *testing.T) {
 	delays := make(chan time.Duration, 16)
-	bo := Backoff{Min: 10 * time.Millisecond, Max: time.Second, Factor: 2,
-		Jitter: func(d time.Duration) time.Duration { delays <- d; return time.Millisecond }}
+	bo := Backoff{Min: 10 * time.Millisecond, Max: time.Second, Factor: 2, Jitter: recordingJitter(delays)}
 	c1 := newFakeConn()
 	c1.feed <- readResult{data: []byte("x")}
 	c1.feed <- readResult{err: errors.New("dropped")}

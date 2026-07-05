@@ -15,7 +15,7 @@ import (
 // Hub is an in-process fan-out of *book.View snapshots. The engine is the single
 // publisher; each consumer holds a size-1 latest slot plus a doorbell.
 type Hub struct {
-	maxLag int // consecutive supersedes before a consumer is disconnected
+	maxLag int // the consecutive-supersede count at which a consumer is disconnected
 
 	mu     sync.Mutex
 	subs   map[uint64]*sub
@@ -72,8 +72,9 @@ type Stats struct {
 	Dropped   uint64 `json:"dropped"`
 }
 
-// New returns a Hub. maxLag is how many consecutive supersedes a consumer may accumulate
-// before it is disconnected — 0 (or less) disconnects on the first supersede.
+// New returns a Hub. maxLag is the consecutive-supersede count at which a consumer is
+// disconnected: it tolerates maxLag-1 consecutive supersedes and is dropped on the
+// maxLag-th. Values of 1 or less disconnect on the first supersede.
 func New(maxLag int) *Hub {
 	return &Hub{maxLag: maxLag, subs: make(map[uint64]*sub)}
 }
@@ -106,7 +107,7 @@ func (h *Hub) Unsubscribe(id uint64) {
 
 // Publish hands the view to every consumer without blocking. A consumer that has not yet
 // taken its previous view has it superseded by this fresher one (latest-wins) and its
-// supersede streak grows; past maxLag consecutive supersedes it is disconnected. A
+// supersede streak grows; on the maxLag-th consecutive supersede it is disconnected. A
 // consumer that kept up (slot empty) has its streak reset. Publish never blocks, so a
 // slow consumer can never stall the engine.
 func (h *Hub) Publish(v *book.View) {

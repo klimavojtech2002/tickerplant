@@ -14,7 +14,7 @@ const simDepth = 20
 // runs are clean, others inject a gap, a reorder, a duplicate, one illegal crossing
 // delta, and sometimes a disconnect, all well before the stream ends so the engine can
 // converge. The cross sits at 330+seed%30 -> [330,359], disjoint from the gap [50,79],
-// reorder [120,150], duplicate [200,229], and disconnect [260,289] windows and before
+// reorder [120,149], duplicate [200,229], and disconnect [260,289] windows and before
 // Steps (400), so at the cross step the engine is provably caught up (e.lastSeq==s.seq):
 // the cross is applied and rejected, never degraded into a gap.
 func scenarioForSeed(seed int64) map[int]source.Fault {
@@ -34,14 +34,15 @@ func scenarioForSeed(seed int64) map[int]source.Fault {
 }
 
 // TestSimulation drives the engine over many seeds and fault scenarios against the
-// source's independent truth oracle, asserting continuously that the published view
-// never crosses and, at the quiescent end, that the engine has converged exactly to
-// the truth. It exercises gap, reorder, duplicate, disconnect, and crossing-delta
-// recovery. The crossing delta (FaultCross) drives the apply-path never-crosses check
-// itself: the engine must apply the bad update, detect the cross, reject it, and resync
-// without ever publishing the crossed state — proven here, not merely asserted, by the
-// exact per-seed WouldCrosses count below. The exact bind boundary stays pinned by the
-// white-box tests in engine_test.go.
+// source's independent truth oracle, asserting after every step that the published
+// view never crosses and, at the quiescent end, that the engine has converged exactly
+// to the truth's top-N (simDepth). It exercises gap, reorder, duplicate, disconnect,
+// and crossing-delta recovery. The crossing delta (FaultCross) drives the apply-path
+// never-crosses check itself: the engine must apply the bad update, detect the cross,
+// reject it, and resync — counted exactly per seed by WouldCrosses below. The view is
+// sampled between steps; that no crossed view is published even transiently inside a
+// step is pinned by TestCrossedStateNeverPublishedEvenTransiently. The exact bind
+// boundary stays pinned by the white-box tests in engine_test.go.
 func TestSimulation(t *testing.T) {
 	ctx := context.Background()
 	faultedSeeds, faultedWithResync := 0, 0

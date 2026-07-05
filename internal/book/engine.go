@@ -92,6 +92,9 @@ func (e *Engine) ChecksumMismatches() int { return int(e.checksumMismatches.Load
 // have crossed the book — the never-crosses invariant firing on a bad update (ADR-0004).
 func (e *Engine) WouldCrosses() int { return int(e.wouldCrosses.Load()) }
 
+// publish stores a freshly allocated View on every call — never a reused one. Tests
+// rely on pointer identity to prove "no publish happened"; reusing the allocation
+// would silently void them.
 func (e *Engine) publish() {
 	bids, asks := e.book.topN(e.depth)
 	e.view.Store(&View{LastSeq: e.lastSeq, Bids: bids, Asks: asks})
