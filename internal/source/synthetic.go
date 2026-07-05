@@ -6,6 +6,7 @@ import (
 	"errors"
 	"math/rand"
 	"slices"
+	"time"
 
 	"github.com/klimavojtech2002/tickerplant/internal/market"
 )
@@ -133,6 +134,7 @@ func (s *Synthetic) Next(ctx context.Context) (Event, bool) {
 	if len(s.pending) > 0 {
 		e := s.pending[0]
 		s.pending = s.pending[1:]
+		e.Received = time.Now() // stamped at emission: generation is this source's "wire"
 		return e, true
 	}
 	// Each step's fault is looked up exactly once, so a scheduled fault is never
@@ -144,19 +146,19 @@ func (s *Synthetic) Next(ctx context.Context) (Event, bool) {
 		s.step++
 		switch fault {
 		case FaultDisconnect:
-			return Event{Kind: EventDisconnected}, true
+			return Event{Kind: EventDisconnected, Received: time.Now()}, true
 		case FaultGap:
 			_ = s.genDelta() // generate but do not emit -> the engine sees a hole; on to the next step
 			continue
 		case FaultDuplicate:
 			d := s.genDelta()
 			s.pending = append(s.pending, Event{Kind: EventDelta, Delta: d})
-			return Event{Kind: EventDelta, Delta: d}, true
+			return Event{Kind: EventDelta, Received: time.Now(), Delta: d}, true
 		case FaultReorder:
 			d1 := s.genDelta()
 			next, ok := s.Next(ctx) // the following event, emitted before d1
 			if !ok {
-				return Event{Kind: EventDelta, Delta: d1}, true
+				return Event{Kind: EventDelta, Received: time.Now(), Delta: d1}, true
 			}
 			s.pending = append(s.pending, Event{Kind: EventDelta, Delta: d1})
 			return next, true
@@ -166,13 +168,13 @@ func (s *Synthetic) Next(ctx context.Context) (Event, bool) {
 			// the engine applies it, sees the book cross, and resyncs from the still-legal
 			// truth; the crossed state is never published. This is the venue-sent lie of
 			// ADR-0004, made observable so the simulation proves never-crosses.
-			return Event{Kind: EventDelta, Delta: market.Delta{
+			return Event{Kind: EventDelta, Received: time.Now(), Delta: market.Delta{
 				Venue: s.cfg.Venue, Symbol: s.cfg.Symbol,
 				FirstSeq: s.seq + 1, LastSeq: s.seq + 1,
 				Bids: []market.Level{{Price: crossBidPrice, Size: 1}},
 			}}, true
 		default: // FaultNone
-			return Event{Kind: EventDelta, Delta: s.genDelta()}, true
+			return Event{Kind: EventDelta, Received: time.Now(), Delta: s.genDelta()}, true
 		}
 	}
 	return Event{}, false
