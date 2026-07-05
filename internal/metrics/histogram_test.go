@@ -2,6 +2,7 @@ package metrics
 
 import (
 	"math"
+	"sync"
 	"testing"
 	"time"
 )
@@ -29,6 +30,7 @@ func TestPercentileKnownDistribution(t *testing.T) {
 		{0.50, 500 * time.Microsecond},
 		{0.90, 900 * time.Microsecond},
 		{0.99, 990 * time.Microsecond},
+		{1.00, 1000 * time.Microsecond}, // rank = ceil(1.0*1000) = 1000 -> the maximum sample
 	}
 	for _, c := range cases {
 		if got := h.Percentile(c.p); !withinRel(got, c.want, tol) {
@@ -38,6 +40,66 @@ func TestPercentileKnownDistribution(t *testing.T) {
 	// percentiles must be monotonic
 	if h.Percentile(0.5) > h.Percentile(0.99) {
 		t.Error("p50 must not exceed p99")
+	}
+}
+
+// The histogram claims to be safe for concurrent use; this makes that claim
+// falsifiable. Under the race detector any unguarded read/write is a report, and even
+// without it, 80k concurrent same-bucket increments make a lost update near-certain,
+// failing the exact Count below.
+func TestHistogramConcurrentRecordAndRead(t *testing.T) {
+	const (
+		writers   = 8
+		perWriter = 10_000
+		sample    = 100 * time.Microsecond
+	)
+	h := NewHistogram()
+	start := make(chan struct{})
+	done := make(chan struct{})
+
+	var readers sync.WaitGroup
+	for range 2 {
+		readers.Go(func() {
+			<-start
+			for {
+				select {
+				case <-done:
+					return
+				default:
+					_ = h.Percentile(0.99)
+					_ = h.Count()
+					_ = h.Max()
+					_ = h.Mean()
+				}
+			}
+		})
+	}
+
+	var writersWG sync.WaitGroup
+	for range writers {
+		writersWG.Go(func() {
+			<-start
+			for range perWriter {
+				h.Record(sample)
+			}
+		})
+	}
+	close(start)
+	writersWG.Wait()
+	close(done)
+	readers.Wait()
+
+	if got, want := h.Count(), uint64(writers*perWriter); got != want {
+		t.Fatalf("Count() = %d, want %d (a lost update means the mutex is gone)", got, want)
+	}
+	if h.Max() != sample {
+		t.Fatalf("Max() = %v, want %v (all samples identical)", h.Max(), sample)
+	}
+	if h.Mean() != sample {
+		t.Fatalf("Mean() = %v, want %v (exact: every sample is the same value)", h.Mean(), sample)
+	}
+	if got := h.Percentile(1.0); !withinRel(got, sample, 0.02) {
+		t.Fatalf("Percentile(1.0) = %v, want ~%v", got, sample)
 	}
 }
 
