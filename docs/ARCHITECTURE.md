@@ -27,8 +27,8 @@ transport port; delivery adapters sit on the output side.
 
 The synthetic source and a live socket implement the same transport port, so the engine cannot tell
 them apart — the basis of deterministic testing (ADR-0005). The diagram is the target architecture:
-Binance is wired live today; OKX, Kraken, and the dashboard are planned (see §11 and the README status
-table).
+Binance and Kraken are wired live today; OKX and the dashboard are planned (see §11 and the README
+status table).
 
 ## 2. Canonical model
 
@@ -116,8 +116,8 @@ control and does not claim to optimise (ADR-0009).
 - **Property / simulation tests** assert the invariants continuously over generated runs — book stays
   correct or resyncs correctly — rather than checking a happy path.
 - **Race detection** (`go test -race`) is always on; book ownership is verified, not assumed.
-- **Integration tests** run the live Binance adapter against the real venue, behind the port, separate
-  from the deterministic suite (Kraken/OKX adapters land later).
+- **Integration tests** run the live Binance and Kraken adapters against the real venue, behind the
+  port, separate from the deterministic suite (the OKX adapter lands later).
 - **Benchmarks** measure internal latency under the load harness (§9).
 
 The full correctness model and proof method are in [correctness.md](correctness.md) §10.
@@ -127,5 +127,5 @@ The full correctness model and proof method are in [correctness.md](correctness.
 The build is sliced and audit-gated; the README status table is the source of truth for what is
 implemented. The core is built and tested — canonical model, transport port and synthetic source,
 order-book engine, the in-process fan-out with a runnable demo (`cmd/tickerplant`), the metrics and
-benchmark harness, the Binance live adapter, and CI. Remaining: more live venues (Kraken, OKX) →
+benchmark harness, the Binance and Kraken live adapters, and CI. Remaining: OKX →
 dashboard → docker packaging.

@@ -357,6 +357,47 @@ slot is size-1 by definition.
 - Trade-off: intermediate views are not retained. For a complete-snapshot feed that is the point; a
   consumer needing every delta would use a different, delta-level stream (out of scope).
 
+## ADR-0016 — Adapting a windowed, sequence-less feed (Kraken)
+
+**Status:** Accepted
+
+**Context.** Kraken's v2 book channel differs from Binance on three axes at once: there is no
+per-update sequence (the CRC32 checksum over the top 10 levels is the only integrity signal, ADR-0007);
+the snapshot arrives in-band as the first message of a subscription, not from a REST endpoint; and the
+feed is windowed — subscribed at depth 10, it never sends deletes for levels that fall outside the top
+10. The last point is a documented client obligation ("truncate your book to the subscribed depth")
+and it is load-bearing: in the first live run the engine kept levels beyond the window, one of them
+died venue-side unseen, re-entered the local top-10 as a stale ghost, and the checksum drifted 4 times
+in 200 updates. The engine's continuity check also needs some sequence, and bolting a "no sequence"
+mode onto the thesis component would fork its logic for one venue.
+
+**Decision.** Three small mechanisms, each at the layer that owns the concern:
+
+- The adapter stamps a **synthetic monotonic sequence** (the snapshot and each emitted update take the
+  next id), so the engine's gap logic stays inert and every real integrity decision flows through the
+  checksum. Gaps can then only come from the adapter's own bookkeeping.
+- The engine gains **`WithMaxDepth`**: after every bind and apply it truncates the book to the feed's
+  subscribed window, so out-of-window ghosts cannot exist. Zero (the default) keeps every level —
+  correct for full-book feeds (Binance, synthetic).
+- A **drift resync redials**: a checksum mismatch needs a fresh in-band snapshot, which only a new
+  subscription serves. An in-socket unsubscribe/resubscribe would also be a new subscription, but it
+  adds a second recovery path with its own ack states and write plumbing for a rare event; tearing the
+  transport down and re-dialing reuses the one path that already exists — reconnect = re-bootstrap
+  (correctness.md §8) — for disconnect and drift alike. A snapshot arriving
+  unrequested (the transport reconnected) is cached and surfaced as a disconnect so the engine rebinds.
+
+**Consequences.**
+
+- The engine stays one code path; the venue quirk lives in one option and one adapter.
+- `kraken.Checksum` needs no per-symbol scales: stripping the decimal point and leading zeros reduces
+  each field to the decimal digits of the scaled integer, so the function is scale-free and a
+  swapped-scales mistake is unrepresentable. Scales still matter where they belong — parsing the wire
+  at the pair's precision (AssetPairs `pair_decimals`/`lot_decimals`).
+- Drift recovery costs a reconnect (TCP+TLS+WS). Checksum drift is rare (zero in the 200-update live
+  verification once truncation landed), and a single recovery path wins on simplicity.
+- The live integration test asserts zero mismatches over a live stretch, so a format or window
+  regression fails against the real venue, not just fixtures.
+
 ## Verified against
 
 - Go language specification — `internal` package import rule (ADR-0002).
