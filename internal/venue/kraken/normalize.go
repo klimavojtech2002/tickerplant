@@ -12,9 +12,11 @@ import (
 // the checksum, checksum.go).
 type scales struct{ price, qty int }
 
-// Kraken v2 book message. price/qty arrive as decimal strings (not numbers), so they are
-// parsed integer-exact with no float (ADR-0003). A book message carries one symbol's
-// data; type is "snapshot" (first) or "update".
+// Kraken v2 book message. price/qty arrive as JSON numbers with the pair's full wire
+// precision (e.g. "qty":0.00005100 — trailing zeros on the wire, verified against the
+// live feed 2026-07-05). json.Number keeps that literal token, so parsing stays
+// integer-exact with no float (ADR-0003) and the checksum can reproduce the exact wire
+// digits. A book message carries one symbol's data; type is "snapshot" or "update".
 type bookMessage struct {
 	Channel string     `json:"channel"`
 	Type    string     `json:"type"`
@@ -29,8 +31,8 @@ type bookData struct {
 }
 
 type bookLevel struct {
-	Price string `json:"price"`
-	Qty   string `json:"qty"`
+	Price json.Number `json:"price"`
+	Qty   json.Number `json:"qty"`
 }
 
 // parsed is one normalized Kraken book message: levels (integer-exact) and the venue
@@ -45,7 +47,8 @@ type parsed struct {
 
 // parseBook normalizes one raw Kraken frame. ok is false for frames the caller skips —
 // subscription acks, heartbeats, status, and anything that does not decode as a book
-// message (a later sequence gap catches a frame wrongly skipped). A book frame whose
+// message (the sequence is synthetic, so a wrongly skipped update cannot gap; the
+// checksum on the next applied delta catches the divergence). A book frame whose
 // levels do not parse is a loud error.
 func parseBook(raw []byte, sc scales) (p parsed, ok bool, err error) {
 	var m bookMessage
@@ -56,15 +59,18 @@ func parseBook(raw []byte, sc scales) (p parsed, ok bool, err error) {
 		return parsed{}, false, nil // ack/heartbeat/status: skip
 	}
 	d := m.Data[0]
+	isSnap := m.Type == "snapshot"
 	bids, err := toLevels(d.Bids, sc)
 	if err != nil {
-		return parsed{}, false, fmt.Errorf("kraken bids: %w", err)
+		// isSnapshot survives the error so Snapshot can fail loud on a malformed
+		// in-band snapshot instead of skipping it and waiting forever.
+		return parsed{isSnapshot: isSnap}, false, fmt.Errorf("kraken bids: %w", err)
 	}
 	asks, err := toLevels(d.Asks, sc)
 	if err != nil {
-		return parsed{}, false, fmt.Errorf("kraken asks: %w", err)
+		return parsed{isSnapshot: isSnap}, false, fmt.Errorf("kraken asks: %w", err)
 	}
-	return parsed{isSnapshot: m.Type == "snapshot", bids: bids, asks: asks, checksum: d.Checksum}, true, nil
+	return parsed{isSnapshot: isSnap, bids: bids, asks: asks, checksum: d.Checksum}, true, nil
 }
 
 // toLevels normalizes Kraken's [{price,qty}] into canonical levels, integer-exact. A
@@ -72,11 +78,11 @@ func parseBook(raw []byte, sc scales) (p parsed, ok bool, err error) {
 func toLevels(raw []bookLevel, sc scales) ([]market.Level, error) {
 	out := make([]market.Level, len(raw))
 	for i, l := range raw {
-		p, err := market.ParsePrice(l.Price, sc.price)
+		p, err := market.ParsePrice(l.Price.String(), sc.price)
 		if err != nil {
 			return nil, fmt.Errorf("level %d price %q: %w", i, l.Price, err)
 		}
-		q, err := market.ParseSize(l.Qty, sc.qty)
+		q, err := market.ParseSize(l.Qty.String(), sc.qty)
 		if err != nil {
 			return nil, fmt.Errorf("level %d qty %q: %w", i, l.Qty, err)
 		}
