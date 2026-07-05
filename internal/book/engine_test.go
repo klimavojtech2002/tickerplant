@@ -350,6 +350,83 @@ func TestEngineRecoversFromStaleSnapshot(t *testing.T) {
 	}
 }
 
+// pqChecksum sums prices and sizes, so a level with a stale quantity changes the
+// value — the property the windowed-feed ghost regression below depends on.
+func pqChecksum(bids, asks []market.Level) uint32 {
+	var s uint32
+	for _, l := range bids {
+		s += uint32(l.Price) + uint32(l.Size)
+	}
+	for _, l := range asks {
+		s += uint32(l.Price) + uint32(l.Size)
+	}
+	return s
+}
+
+// windowSnap builds a 10-level-per-side snapshot (bids 100..91, asks 200..209, size 1)
+// with its pqChecksum — the shape of a Kraken depth-10 subscription.
+func windowSnap() market.Snapshot {
+	var snap market.Snapshot
+	for i := range 10 {
+		snap.Bids = append(snap.Bids, market.Level{Price: market.Price(100 - i), Size: 1})
+		snap.Asks = append(snap.Asks, market.Level{Price: market.Price(200 + i), Size: 1})
+	}
+	snap.LastUpdateID = 10
+	snap.Checksum = pqChecksum(snap.Bids, snap.Asks)
+	return snap
+}
+
+// Regression for the live-Kraken checksum drift found on 2026-07-05: a windowed feed
+// never deletes levels that fall out of its window, so a kept level becomes a stale
+// ghost. Here bid 91 falls out when 101 arrives and is then deleted venue-side —
+// unseen. When 101 is deleted, the venue's window re-admits 90 (resent fresh), not
+// the dead 91. With WithMaxDepth the engine's book matches the venue's window exactly
+// and both updates apply cleanly; without truncation the ghost 91 sits in the top-10,
+// the checksum mismatches, and this test fails on the exact counters.
+func TestMaxDepthDropsOutOfWindowGhosts(t *testing.T) {
+	snap := windowSnap()
+	up1Bids := []market.Level{{Price: 101, Size: 2}} // pushes 91 out of the window
+	window1 := append([]market.Level{{Price: 101, Size: 2}}, snap.Bids[:9]...)
+	up2Bids := []market.Level{{Price: 101, Size: 0}, {Price: 90, Size: 4}} // 101 gone; 90 re-enters fresh (91 died out of sight)
+	window2 := append(append([]market.Level{}, snap.Bids[:9]...), market.Level{Price: 90, Size: 4})
+
+	m := &mockSource{
+		snap: snap,
+		events: []source.Event{
+			{Kind: source.EventDelta, Delta: market.Delta{FirstSeq: 11, LastSeq: 11, Bids: up1Bids, Checksum: pqChecksum(window1, snap.Asks)}},
+			{Kind: source.EventDelta, Delta: market.Delta{FirstSeq: 12, LastSeq: 12, Bids: up2Bids, Checksum: pqChecksum(window2, snap.Asks)}},
+		},
+	}
+	e := New(m, 10).WithChecksum(pqChecksum).WithMaxDepth(10)
+	if err := e.Run(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if e.ChecksumMismatches() != 0 || e.Resyncs() != 0 {
+		t.Fatalf("mismatches=%d resyncs=%d, want 0/0 (the out-of-window ghost must be truncated away)",
+			e.ChecksumMismatches(), e.Resyncs())
+	}
+	v := e.View()
+	if got := v.Bids[len(v.Bids)-1]; got != (market.Level{Price: 90, Size: 4}) {
+		t.Fatalf("10th bid = %+v, want the re-admitted fresh {90,4}, never the ghost 91", got)
+	}
+}
+
+// A snapshot deeper than the window must be truncated at bind, or it seeds the same
+// ghosts bootstrap-first — on either side.
+func TestMaxDepthTruncatesBootstrapSnapshot(t *testing.T) {
+	snap := windowSnap()
+	snap.Bids = append(snap.Bids, market.Level{Price: 89, Size: 1})  // an 11th bid
+	snap.Asks = append(snap.Asks, market.Level{Price: 210, Size: 1}) // an 11th ask
+	snap.Checksum = 0
+	e := New(&mockSource{snap: snap}, 10).WithMaxDepth(10)
+	if err := e.Bootstrap(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if nb, na := len(e.book.bids), len(e.book.asks); nb != 10 || na != 10 {
+		t.Fatalf("book holds %d bids / %d asks after a windowed bootstrap, want 10/10", nb, na)
+	}
+}
+
 // staleSource returns a mock whose snapshot is permanently behind the stream, so each
 // of n deltas is an unbridgeable gap — a no-progress resync.
 func staleSource(n int) *mockSource {

@@ -74,6 +74,20 @@ func (b *book) crosses() bool {
 	return b.bids[0].Price >= b.asks[0].Price
 }
 
+// truncate keeps only the best n levels per side. A feed subscribed at a fixed window
+// (Kraken book depth 10) never sends deletes for levels that fall out of that window,
+// so anything kept beyond it is an unmaintained ghost that would poison the book when
+// it re-enters the top-N; dropping it after every apply is the venue's documented
+// client obligation.
+func (b *book) truncate(n int) {
+	if len(b.bids) > n {
+		b.bids = b.bids[:n]
+	}
+	if len(b.asks) > n {
+		b.asks = b.asks[:n]
+	}
+}
+
 // topN returns fresh copies of the best n levels per side, so a published view can be
 // read without a lock and never mutated through (ADR-0008).
 func (b *book) topN(n int) (bids, asks []market.Level) {
