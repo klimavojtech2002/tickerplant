@@ -5,8 +5,10 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"os/signal"
@@ -25,35 +27,67 @@ type config struct {
 	pace  time.Duration
 }
 
+// options is everything main reads from the command line.
+type options struct {
+	seed     int64
+	steps    int
+	depth    int
+	every    int
+	everySet bool // -every given explicitly, even if equal to the default
+	pace     time.Duration
+	live     bool
+	venue    string
+	symbol   string
+}
+
+// parseFlags parses argv (without the program name) on a private FlagSet, so tests can
+// drive it with real argv slices instead of mutating the global flag state. Usage and
+// errors go to out (stderr in main, discarded in tests).
+func parseFlags(args []string, out io.Writer) (options, error) {
+	var o options
+	fs := flag.NewFlagSet("tickerplant", flag.ContinueOnError)
+	fs.SetOutput(out)
+	fs.Int64Var(&o.seed, "seed", 1, "synthetic source seed")
+	fs.IntVar(&o.steps, "steps", 5000, "number of source steps to run")
+	fs.IntVar(&o.depth, "depth", 10, "published book depth")
+	fs.IntVar(&o.every, "every", 500, "log the top of book every N updates")
+	fs.DurationVar(&o.pace, "pace", 200*time.Microsecond, "delay between updates (mimics a live feed; 0 floods to stress backpressure)")
+	fs.BoolVar(&o.live, "live", false, "connect to a live venue instead of the synthetic source")
+	fs.StringVar(&o.venue, "venue", "binance", "live venue (with -live): binance")
+	fs.StringVar(&o.symbol, "symbol", "BTCUSDT", "live symbol (with -live)")
+	if err := fs.Parse(args); err != nil {
+		return options{}, err
+	}
+	// An explicit -every must be honoured even on a live run, where the default is
+	// overridden to log every update (liveCadence).
+	fs.Visit(func(f *flag.Flag) {
+		if f.Name == "every" {
+			o.everySet = true
+		}
+	})
+	return o, nil
+}
+
 func main() {
-	seed := flag.Int64("seed", 1, "synthetic source seed")
-	steps := flag.Int("steps", 5000, "number of source steps to run")
-	depth := flag.Int("depth", 10, "published book depth")
-	every := flag.Int("every", 500, "log the top of book every N updates")
-	pace := flag.Duration("pace", 200*time.Microsecond, "delay between updates (mimics a live feed; 0 floods to stress backpressure)")
-	live := flag.Bool("live", false, "connect to a live venue instead of the synthetic source")
-	venueName := flag.String("venue", "binance", "live venue (with -live): binance")
-	symbol := flag.String("symbol", "BTCUSDT", "live symbol (with -live)")
-	flag.Parse()
+	opts, err := parseFlags(os.Args[1:], os.Stderr)
+	if err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			os.Exit(0) // -h: usage was printed, same exit as flag.ExitOnError
+		}
+		os.Exit(2) // the FlagSet already printed the error and usage
+	}
 
 	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 
-	src, pacing, err := newSource(ctx, *live, *venueName, *symbol, *seed, *steps, *pace)
+	src, pacing, err := newSource(ctx, opts.live, opts.venue, opts.symbol, opts.seed, opts.steps, opts.pace)
 	if err != nil {
 		log.Error("source setup failed", "err", err)
 		os.Exit(1)
 	}
 
-	everySet := false
-	flag.Visit(func(f *flag.Flag) {
-		if f.Name == "every" {
-			everySet = true
-		}
-	})
-
-	res, err := run(ctx, log, src, config{depth: *depth, every: liveCadence(*every, everySet, *live), pace: pacing})
+	res, err := run(ctx, log, src, config{depth: opts.depth, every: liveCadence(opts.every, opts.everySet, opts.live), pace: pacing})
 	if err != nil {
 		log.Error("engine stopped", "err", err)
 		os.Exit(1)

@@ -3,6 +3,8 @@ package main
 import (
 	"bytes"
 	"context"
+	"errors"
+	"flag"
 	"io"
 	"log/slog"
 	"strings"
@@ -32,6 +34,87 @@ func TestLiveCadence(t *testing.T) {
 		if got := liveCadence(c.every, c.everySet, c.live); got != c.want {
 			t.Errorf("liveCadence(%d, set=%v, live=%v) = %d, want %d", c.every, c.everySet, c.live, got, c.want)
 		}
+	}
+}
+
+// parseFlags runs on a private FlagSet, so real argv slices drive it directly. The
+// third case is the load-bearing one: an explicit -every at the default value must
+// still set everySet, or a live run would wrongly override the requested cadence.
+func TestParseFlags(t *testing.T) {
+	cases := []struct {
+		name        string
+		args        []string
+		want        options
+		wantCadence int
+		wantErr     bool
+	}{
+		{
+			name: "defaults",
+			args: nil,
+			want: options{seed: 1, steps: 5000, depth: 10, every: 500, everySet: false,
+				pace: 200 * time.Microsecond, live: false, venue: "binance", symbol: "BTCUSDT"},
+			wantCadence: 500,
+		},
+		{
+			name: "live with default cadence logs every update",
+			args: []string{"-live"},
+			want: options{seed: 1, steps: 5000, depth: 10, every: 500, everySet: false,
+				pace: 200 * time.Microsecond, live: true, venue: "binance", symbol: "BTCUSDT"},
+			wantCadence: 1,
+		},
+		{
+			name: "explicit -every at the default value is honoured on a live run",
+			args: []string{"-live", "-every", "500"},
+			want: options{seed: 1, steps: 5000, depth: 10, every: 500, everySet: true,
+				pace: 200 * time.Microsecond, live: true, venue: "binance", symbol: "BTCUSDT"},
+			wantCadence: 500,
+		},
+		{
+			name: "explicit -every",
+			args: []string{"-every", "7"},
+			want: options{seed: 1, steps: 5000, depth: 10, every: 7, everySet: true,
+				pace: 200 * time.Microsecond, live: false, venue: "binance", symbol: "BTCUSDT"},
+			wantCadence: 7,
+		},
+		{
+			name: "typed values parse",
+			args: []string{"-seed", "42", "-steps", "100", "-pace", "1ms", "-depth", "3", "-venue", "binance", "-symbol", "ETHUSDT"},
+			want: options{seed: 42, steps: 100, depth: 3, every: 500, everySet: false,
+				pace: time.Millisecond, live: false, venue: "binance", symbol: "ETHUSDT"},
+			wantCadence: 500,
+		},
+		{
+			name:    "unknown flag errors",
+			args:    []string{"-nope"},
+			wantErr: true,
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got, err := parseFlags(c.args, io.Discard)
+			if c.wantErr {
+				if err == nil {
+					t.Fatal("want a parse error")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got != c.want {
+				t.Fatalf("parseFlags(%v) = %+v, want %+v", c.args, got, c.want)
+			}
+			if cad := liveCadence(got.every, got.everySet, got.live); cad != c.wantCadence {
+				t.Fatalf("composed cadence = %d, want %d", cad, c.wantCadence)
+			}
+		})
+	}
+}
+
+// -h must surface flag.ErrHelp so main can exit 0, matching flag.ExitOnError's UX.
+func TestParseFlagsHelpIsErrHelp(t *testing.T) {
+	if _, err := parseFlags([]string{"-h"}, io.Discard); !errors.Is(err, flag.ErrHelp) {
+		t.Fatalf("parseFlags(-h) = %v, want flag.ErrHelp", err)
 	}
 }
 
