@@ -153,6 +153,7 @@ built and tested; OKX, the dashboard, and packaging are next.
 | Runnable demo (`cmd/tickerplant`: source → engine → fan-out) | Done |
 | Dashboard (Next.js) | Planned |
 | Metrics: engine counters (gaps/resyncs/disconnects) + latency histogram | Done — tested |
+| HTTP edge: SSE `/stream` (complete top-N views) + `/metrics` JSON (`-http :8080`) | Done — tested |
 | Benchmark harness (open-loop, coordinated-omission-aware) | Done — tested |
 | CI (`.github/workflows/ci.yml`: gofmt / vet / staticcheck / build / `-race`) | Done |
 | Docker, docker-compose | Planned |

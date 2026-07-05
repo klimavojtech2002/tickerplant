@@ -100,11 +100,15 @@ occasional check.
 
 ## 9. Observability and latency measurement
 
-The engine exposes per-venue lag, gap and reconnect counts, and dropped-event counts (read by the demo
-today; a `/metrics` endpoint is planned), plus internal processing latency as a distribution
-(p50/p99/p99.9/max). "Internal" is exact: from a raw message
-arriving at an adapter to the normalized update leaving the fan-out, with the clock source and span
-stated, under a defined open-loop, coordinated-omission-aware load harness on documented hardware.
+The engine exposes gap, resync, disconnect, would-cross, and checksum-mismatch counters, the
+fan-out's delivered/dropped counts, and internal processing latency as a distribution
+(p50/p99/p99.9/max), all served by the HTTP edge's `/metrics` endpoint (ADR-0017). "Internal" is
+exact: from the adapter taking the raw message off its transport to the applied view leaving for
+the fan-out, stamped on each event and observed by the engine (monotonic clock), so no wire-wait is
+ever inside a sample. Queue-wait before the dequeue is excluded by construction — this is service
+time, near-zero backlog on any live feed; sojourn under load is the bench harness's job, measured
+open-loop and coordinated-omission-aware (ADR-0009). Sub-resolution samples land in the lowest
+bucket, so an idle p50 can read as the clock's granularity floor rather than a real duration.
 End-to-end latency from the exchange is dominated by network round-trip, which this system does not
 control and does not claim to optimise (ADR-0009).
 
@@ -127,5 +131,5 @@ The full correctness model and proof method are in [correctness.md](correctness.
 The build is sliced and audit-gated; the README status table is the source of truth for what is
 implemented. The core is built and tested — canonical model, transport port and synthetic source,
 order-book engine, the in-process fan-out with a runnable demo (`cmd/tickerplant`), the metrics and
-benchmark harness, the Binance and Kraken live adapters, and CI. Remaining: OKX →
-dashboard → docker packaging.
+benchmark harness, the Binance and Kraken live adapters, the HTTP edge (SSE stream +
+/metrics, ADR-0017), and CI. Remaining: OKX → dashboard → docker packaging.
