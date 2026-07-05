@@ -5,6 +5,7 @@ import (
 	"errors"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/klimavojtech2002/tickerplant/internal/market"
 	"github.com/klimavojtech2002/tickerplant/internal/source"
@@ -347,6 +348,35 @@ func TestEngineRecoversFromStaleSnapshot(t *testing.T) {
 	}
 	if !levelsEqual(v.Bids, clipLevels(truth.Bids, 5)) || !levelsEqual(v.Asks, clipLevels(truth.Asks, 5)) {
 		t.Fatal("after recovery the view must equal the truth's top-5")
+	}
+}
+
+// The latency observer must fire once per applied-and-published delta, measuring
+// from the event's Received stamp — and stay silent for unstamped events, trades,
+// and drops, so a scripted source can never smuggle a zero-span sample in.
+func TestLatencyObserverReportsAppliedStampedDeltas(t *testing.T) {
+	m := &mockSource{
+		snap: market.Snapshot{LastUpdateID: 10, Bids: []market.Level{{Price: 100, Size: 1}}, Asks: []market.Level{{Price: 101, Size: 1}}},
+		events: []source.Event{
+			{Kind: source.EventDelta, Received: time.Now().Add(-time.Millisecond), Delta: market.Delta{FirstSeq: 11, LastSeq: 11, Bids: []market.Level{{Price: 99, Size: 2}}}},
+			{Kind: source.EventTrade, Received: time.Now(), Trade: market.Trade{Price: 100, Size: 1, Side: market.Bid}},
+			{Kind: source.EventDelta, Delta: market.Delta{FirstSeq: 12, LastSeq: 12, Bids: []market.Level{{Price: 98, Size: 1}}}},                       // unstamped: applied, not reported
+			{Kind: source.EventDelta, Received: time.Now(), Delta: market.Delta{FirstSeq: 12, LastSeq: 12, Bids: []market.Level{{Price: 98, Size: 9}}}}, // duplicate: dropped, not reported
+		},
+	}
+	var got []time.Duration
+	e := New(m, 5).WithLatencyObserver(func(d time.Duration) { got = append(got, d) })
+	if err := e.Run(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("observer fired %d times, want exactly 1 (the stamped applied delta)", len(got))
+	}
+	if got[0] < time.Millisecond {
+		t.Fatalf("span = %v, want >= the 1ms the stamp was backdated by", got[0])
+	}
+	if v := e.View(); v.LastSeq != 12 {
+		t.Fatalf("unstamped delta must still apply: LastSeq = %d, want 12", v.LastSeq)
 	}
 }
 

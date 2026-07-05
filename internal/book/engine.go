@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sync/atomic"
+	"time"
 
 	"github.com/klimavojtech2002/tickerplant/internal/market"
 	"github.com/klimavojtech2002/tickerplant/internal/source"
@@ -50,14 +51,15 @@ type Engine struct {
 	book               *book
 	lastSeq            market.Sequence
 	view               atomic.Pointer[View]
-	resyncs            atomic.Int64 // metrics; read lock-free from any goroutine (ADR-0008, slice 0006)
-	gaps               atomic.Int64 // sequence gaps detected
-	disconnects        atomic.Int64 // disconnect events seen
-	checksumMismatches atomic.Int64 // checksum drifts detected (checksum venues)
-	wouldCrosses       atomic.Int64 // deltas rejected because applying them would cross the book (ADR-0004)
-	consecutiveResyncs int          // writer-goroutine only; reset on progress to bound a livelock
-	checksum           Checksummer  // nil on sequence venues; set via WithChecksum for checksum venues
-	maxDepth           int          // 0 = keep every level; >0 = the feed's subscribed window (WithMaxDepth)
+	resyncs            atomic.Int64        // metrics; read lock-free from any goroutine (ADR-0008, slice 0006)
+	gaps               atomic.Int64        // sequence gaps detected
+	disconnects        atomic.Int64        // disconnect events seen
+	checksumMismatches atomic.Int64        // checksum drifts detected (checksum venues)
+	wouldCrosses       atomic.Int64        // deltas rejected because applying them would cross the book (ADR-0004)
+	consecutiveResyncs int                 // writer-goroutine only; reset on progress to bound a livelock
+	checksum           Checksummer         // nil on sequence venues; set via WithChecksum for checksum venues
+	maxDepth           int                 // 0 = keep every level; >0 = the feed's subscribed window (WithMaxDepth)
+	latencyFn          func(time.Duration) // nil = no latency observation (WithLatencyObserver)
 }
 
 // New creates an Engine publishing a top-N view of the given depth.
@@ -81,6 +83,16 @@ func (e *Engine) WithChecksum(fn Checksummer) *Engine {
 // Bootstrap/Run. Returns the engine for chaining.
 func (e *Engine) WithMaxDepth(n int) *Engine {
 	e.maxDepth = n
+	return e
+}
+
+// WithLatencyObserver reports, for every applied-and-published delta, the span from
+// the adapter taking the raw message off its transport (Event.Received) to the view
+// leaving for the fan-out — the internal latency ARCHITECTURE §9 defines, with no
+// wire-wait inside it. Events without a Received stamp are not reported. Call before
+// Bootstrap/Run. Returns the engine for chaining.
+func (e *Engine) WithLatencyObserver(fn func(time.Duration)) *Engine {
+	e.latencyFn = fn
 	return e
 }
 
@@ -201,6 +213,9 @@ func (e *Engine) Step(ctx context.Context) (bool, error) {
 		case applied:
 			e.consecutiveResyncs = 0 // progress made; reset the livelock guard
 			e.publish()
+			if e.latencyFn != nil && !ev.Received.IsZero() {
+				e.latencyFn(time.Since(ev.Received))
+			}
 		case dropped:
 			// stale/duplicate: ignore
 		case needResync:
