@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"sync"
 	"time"
@@ -38,6 +39,7 @@ type LiveConfig struct {
 	RESTBase string // default defaultRESTBase
 	WSBase   string // default defaultWSBase
 	Client   *http.Client
+	Logger   *slog.Logger // transport logs (reconnects); nil discards
 }
 
 func (cfg LiveConfig) resolve() (restBase, wsBase string, client *http.Client) {
@@ -79,6 +81,7 @@ func Live(ctx context.Context, cfg LiveConfig) (*Source, error) {
 			Backoff:     venue.Backoff{Min: time.Second, Max: 30 * time.Second, Factor: 2, Jitter: venue.FullJitter},
 			DialTimeout: 10 * time.Second,
 			ReadTimeout: 10 * time.Second, // Kraken heartbeats every second; a longer silence is a dead socket
+			Logger:      cfg.Logger,
 		})
 	}
 

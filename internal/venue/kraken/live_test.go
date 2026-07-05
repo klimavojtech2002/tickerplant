@@ -142,6 +142,9 @@ func TestLiveEndToEndLocal(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Live: %v", err)
 	}
+	if p, q := src.Scales(); p != 1 || q != 8 {
+		t.Fatalf("Scales() = %d/%d, want the AssetPairs precisions 1/8", p, q)
+	}
 
 	eng := book.New(src, 10).WithChecksum(Checksum).WithMaxDepth(BookDepth)
 	if err := eng.Bootstrap(context.Background()); err != nil {

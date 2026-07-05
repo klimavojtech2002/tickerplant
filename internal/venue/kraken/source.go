@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/klimavojtech2002/tickerplant/internal/market"
 	"github.com/klimavojtech2002/tickerplant/internal/source"
@@ -62,6 +63,10 @@ func New(cfg Config) *Source {
 	}
 }
 
+// Scales returns the symbol's price and quantity decimal scales, so an edge (the
+// HTTP view stream) can render ticks back to the venue's exact decimal strings.
+func (s *Source) Scales() (price, qty int) { return s.cfg.PriceScale, s.cfg.QtyScale }
+
 // Next returns the next book event. Updates become deltas with the next synthetic
 // sequence. An in-band snapshot arriving mid-stream (the transport reconnected and
 // re-subscribed) is cached for Snapshot and surfaced as a disconnect, so the engine
@@ -77,6 +82,7 @@ func (s *Source) Next(ctx context.Context) (source.Event, bool) {
 		case <-s.done:
 			return source.Event{}, false
 		case raw, ok := <-s.frames:
+			received := time.Now() // the frame just left the transport: the latency span starts here
 			if !ok {
 				return source.Event{}, false
 			}
@@ -86,10 +92,10 @@ func (s *Source) Next(ctx context.Context) (source.Event, bool) {
 			}
 			if p.isSnapshot {
 				s.cache(p)
-				return source.Event{Kind: source.EventDisconnected}, true
+				return source.Event{Kind: source.EventDisconnected, Received: received}, true
 			}
 			s.seq++
-			return source.Event{Kind: source.EventDelta, Delta: market.Delta{
+			return source.Event{Kind: source.EventDelta, Received: received, Delta: market.Delta{
 				Venue: s.cfg.Venue, Symbol: s.cfg.Symbol,
 				FirstSeq: s.seq, LastSeq: s.seq,
 				Bids: p.bids, Asks: p.asks,
