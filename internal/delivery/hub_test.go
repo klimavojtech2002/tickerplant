@@ -3,6 +3,7 @@ package delivery
 import (
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/klimavojtech2002/tickerplant/internal/book"
 	"github.com/klimavojtech2002/tickerplant/internal/market"
@@ -132,6 +133,55 @@ func TestZeroMaxLagDisconnectsOnFirstSupersede(t *testing.T) {
 			t.Fatalf("disconnected consumer must Take nil, got LastSeq %d", v.LastSeq)
 		}
 	}
+}
+
+// maxLag 1 behaves exactly like 0: the streak is incremented before the compare, so
+// the first supersede reads streak(1) >= maxLag(1) and disconnects.
+func TestMaxLagOneDisconnectsOnFirstSupersede(t *testing.T) {
+	h := New(1)
+	c := h.Subscribe()
+	h.Publish(view(1)) // delivered (slot was empty)
+	h.Publish(view(2)) // first supersede -> streak(1) >= maxLag(1) -> disconnect
+	if s := h.Stats(); s.Consumers != 0 || s.Dropped != 1 {
+		t.Fatalf("maxLag 1 must disconnect on the first supersede: %+v", s)
+	}
+	if v := c.Take(); v != nil {
+		t.Fatalf("disconnected consumer must Take nil, got LastSeq %d", v.LastSeq)
+	}
+}
+
+// While a producer floods the hub, a live consumer must end on the freshest view — a
+// lost doorbell wakeup or a stale latest slot would strand the final view and time
+// this out. The hub stays open during the wait, so nothing here rides on Close.
+func TestConcurrentPublishConsumerSeesFinalView(t *testing.T) {
+	const n = 1000
+	h := New(1 << 20) // high maxLag: a lagging consumer is conflated, never disconnected
+	c := h.Subscribe()
+	sawFinal := make(chan struct{})
+
+	var wg sync.WaitGroup
+	wg.Go(func() {
+		seen := false
+		for range c.Ready() {
+			v := c.Take()
+			if v != nil && v.LastSeq == n && !seen {
+				seen = true
+				close(sawFinal)
+			}
+		}
+	})
+
+	for i := 1; i <= n; i++ {
+		h.Publish(view(market.Sequence(i)))
+	}
+
+	select {
+	case <-sawFinal:
+	case <-time.After(2 * time.Second):
+		t.Fatal("consumer never observed the final view: lost wakeup or stale latest slot")
+	}
+	h.Close()
+	wg.Wait()
 }
 
 // A disconnected consumer gets no stale final view: Take returns nil, so it must resync.
