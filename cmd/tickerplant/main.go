@@ -10,13 +10,17 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
+	"net/http"
 	"os"
 	"os/signal"
 	"time"
 
 	"github.com/klimavojtech2002/tickerplant/internal/book"
 	"github.com/klimavojtech2002/tickerplant/internal/delivery"
+	"github.com/klimavojtech2002/tickerplant/internal/httpapi"
 	"github.com/klimavojtech2002/tickerplant/internal/market"
+	"github.com/klimavojtech2002/tickerplant/internal/metrics"
 	"github.com/klimavojtech2002/tickerplant/internal/source"
 	"github.com/klimavojtech2002/tickerplant/internal/venue/binance"
 	"github.com/klimavojtech2002/tickerplant/internal/venue/kraken"
@@ -28,6 +32,10 @@ type config struct {
 	pace     time.Duration
 	checksum book.Checksummer // nil except for checksum venues (Kraken)
 	window   int              // feed's subscribed book window; 0 = full-book feed
+	venue    string
+	symbol   string
+	scales   [2]int       // price/size decimal scales for the HTTP edge's rendering
+	httpLn   net.Listener // serve the HTTP edge on this listener; nil = edge off
 }
 
 // options is everything main reads from the command line.
@@ -41,6 +49,7 @@ type options struct {
 	live     bool
 	venue    string
 	symbol   string
+	httpAddr string
 }
 
 // parseFlags parses argv (without the program name) on a private FlagSet, so tests can
@@ -58,6 +67,7 @@ func parseFlags(args []string, out io.Writer) (options, error) {
 	fs.BoolVar(&o.live, "live", false, "connect to a live venue instead of the synthetic source")
 	fs.StringVar(&o.venue, "venue", "binance", "live venue (with -live): binance|kraken")
 	fs.StringVar(&o.symbol, "symbol", "BTCUSDT", "live symbol (with -live)")
+	fs.StringVar(&o.httpAddr, "http", "", "serve the SSE stream and /metrics on this address (e.g. :8080); empty = off")
 	if err := fs.Parse(args); err != nil {
 		return options{}, err
 	}
@@ -84,16 +94,28 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 
-	src, vs, err := newSource(ctx, opts.live, opts.venue, opts.symbol, opts.seed, opts.steps, opts.pace)
+	src, vs, err := newSource(ctx, log, opts.live, opts.venue, opts.symbol, opts.seed, opts.steps, opts.pace)
 	if err != nil {
 		log.Error("source setup failed", "err", err)
 		os.Exit(1)
 	}
 
-	res, err := run(ctx, log, src, config{
+	cfg := config{
 		depth: opts.depth, every: liveCadence(opts.every, opts.everySet, opts.live),
 		pace: vs.pace, checksum: vs.checksum, window: vs.window,
-	})
+		venue: venueName(opts.live, opts.venue), symbol: symbolName(opts.live, opts.symbol), scales: vs.scales,
+	}
+	if opts.httpAddr != "" {
+		ln, err := net.Listen("tcp", opts.httpAddr)
+		if err != nil {
+			log.Error("http listen failed", "addr", opts.httpAddr, "err", err)
+			os.Exit(1)
+		}
+		log.Info("http edge listening", "addr", ln.Addr().String())
+		cfg.httpLn = ln
+	}
+
+	res, err := run(ctx, log, src, cfg)
 	if err != nil {
 		log.Error("engine stopped", "err", err)
 		os.Exit(1)
@@ -113,29 +135,47 @@ type venueSetup struct {
 	pace     time.Duration
 	checksum book.Checksummer
 	window   int
+	scales   [2]int // price/size decimal scales (synthetic prices are plain ints: 0,0)
 }
 
 // newSource builds the synthetic source, or a live venue adapter when -live is set.
-func newSource(ctx context.Context, live bool, venueName, symbol string, seed int64, steps int, pace time.Duration) (source.Source, venueSetup, error) {
+func newSource(ctx context.Context, log *slog.Logger, live bool, venueName, symbol string, seed int64, steps int, pace time.Duration) (source.Source, venueSetup, error) {
 	if !live {
 		return source.New(source.Config{Venue: "synthetic", Symbol: "DEMO", Seed: seed, Steps: steps}), venueSetup{pace: pace}, nil
 	}
 	switch venueName {
 	case "binance":
-		s, err := binance.Live(ctx, binance.LiveConfig{Symbol: symbol})
+		s, err := binance.Live(ctx, binance.LiveConfig{Symbol: symbol, Logger: log})
 		if err != nil {
 			return nil, venueSetup{}, err
 		}
-		return s, venueSetup{}, nil
+		p, sz := s.Scales()
+		return s, venueSetup{scales: [2]int{p, sz}}, nil
 	case "kraken":
-		s, err := kraken.Live(ctx, kraken.LiveConfig{Symbol: symbol})
+		s, err := kraken.Live(ctx, kraken.LiveConfig{Symbol: symbol, Logger: log})
 		if err != nil {
 			return nil, venueSetup{}, err
 		}
-		return s, venueSetup{checksum: kraken.Checksum, window: kraken.BookDepth}, nil
+		p, q := s.Scales()
+		return s, venueSetup{checksum: kraken.Checksum, window: kraken.BookDepth, scales: [2]int{p, q}}, nil
 	default:
 		return nil, venueSetup{}, fmt.Errorf("unknown venue %q", venueName)
 	}
+}
+
+// venueName/symbolName label the HTTP edge: the synthetic demo is its own venue.
+func venueName(live bool, venue string) string {
+	if live {
+		return venue
+	}
+	return "synthetic"
+}
+
+func symbolName(live bool, symbol string) string {
+	if live {
+		return symbol
+	}
+	return "DEMO"
 }
 
 // runResult is the read-only outcome of a finished pipeline run: the final published
@@ -170,8 +210,30 @@ func resultOf(eng *book.Engine, hub *delivery.Hub) runResult {
 // scripted source.
 func run(ctx context.Context, log *slog.Logger, src source.Source, cfg config) (runResult, error) {
 	defer src.Close() // release the source (e.g. a live WebSocket) on exit
-	eng := book.New(src, cfg.depth).WithChecksum(cfg.checksum).WithMaxDepth(cfg.window)
+	// Internal latency per ARCHITECTURE §9: adapter frame-dequeue -> view published,
+	// observed by the engine so no wire-wait is ever inside a sample.
+	lat := metrics.NewHistogram()
+	eng := book.New(src, cfg.depth).WithChecksum(cfg.checksum).WithMaxDepth(cfg.window).WithLatencyObserver(lat.Record)
 	hub := delivery.New(1024)
+
+	if cfg.httpLn != nil {
+		// ReadHeaderTimeout bounds a client that connects and never finishes its
+		// request; response-side stalls are the handler's write deadline's job.
+		edge := &http.Server{ReadHeaderTimeout: 10 * time.Second, Handler: httpapi.New(httpapi.Config{
+			Hub: hub, Engine: eng,
+			Venue: market.Venue(cfg.venue), Symbol: market.Symbol(cfg.symbol),
+			PriceScale: cfg.scales[0], SizeScale: cfg.scales[1],
+			Latency: lat, Log: log,
+		})}
+		go func() {
+			if err := edge.Serve(cfg.httpLn); err != nil && !errors.Is(err, http.ErrServerClosed) {
+				log.Error("http edge failed", "err", err)
+			}
+		}()
+		// Close, not Shutdown: open SSE streams never drain on their own, and by the
+		// time this runs the hub is closed, so every handler is already exiting.
+		defer func() { _ = edge.Close() }()
+	}
 
 	c := hub.Subscribe()
 	done := make(chan struct{})
