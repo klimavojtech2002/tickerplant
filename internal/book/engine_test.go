@@ -83,6 +83,9 @@ func TestBootstrapCrossingFailsLoud(t *testing.T) {
 	if e.Resyncs() != maxBindAttempts {
 		t.Fatalf("bootstrap must retry exactly %d times then fail loudly, got %d", maxBindAttempts, e.Resyncs())
 	}
+	if e.View() != nil {
+		t.Fatal("a failed bootstrap must publish nothing: no crossed snapshot may leak to readers")
+	}
 }
 
 // mockSource is a scripted source for engine cases the legal-by-construction
@@ -129,11 +132,74 @@ func TestRunHandlesTradeAndDisconnect(t *testing.T) {
 	if err := e.Run(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if e.Resyncs() == 0 {
-		t.Fatal("disconnect must trigger a resync")
+	if e.Resyncs() != 1 {
+		t.Fatalf("Resyncs() = %d, want exactly 1 (the disconnect; a trade must not resync)", e.Resyncs())
 	}
 	if v := e.View(); v == nil || v.Crosses() {
 		t.Fatal("view must exist and not cross after the run")
+	}
+}
+
+// A trade must leave the book and the published view untouched: no mutation, no
+// publish, no resync. The view pointer is compared directly — publish always stores a
+// fresh *View, so an unchanged pointer proves no publish happened at all.
+func TestTradeIsNoOpOnBookAndView(t *testing.T) {
+	m := &mockSource{
+		snap: market.Snapshot{LastUpdateID: 10, Bids: []market.Level{{Price: 100, Size: 1}}, Asks: []market.Level{{Price: 101, Size: 1}}},
+		events: []source.Event{
+			{Kind: source.EventDelta, Delta: market.Delta{FirstSeq: 11, LastSeq: 11, Bids: []market.Level{{Price: 99, Size: 2}}}},
+			{Kind: source.EventTrade, Trade: market.Trade{Price: 100, Size: 1, Side: market.Bid}},
+		},
+	}
+	e := New(m, 5)
+	if err := e.Bootstrap(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.Step(context.Background()); err != nil { // the delta
+		t.Fatal(err)
+	}
+	after := e.View()
+	if after == nil || after.LastSeq != 11 {
+		t.Fatalf("after the delta View.LastSeq = %v, want 11", after)
+	}
+	if _, err := e.Step(context.Background()); err != nil { // the trade
+		t.Fatal(err)
+	}
+	if e.View() != after {
+		t.Fatal("a trade must not publish: the view pointer changed")
+	}
+	if e.Resyncs() != 0 || e.Disconnects() != 0 {
+		t.Fatalf("a trade must not resync or count a disconnect: resyncs=%d disconnects=%d", e.Resyncs(), e.Disconnects())
+	}
+}
+
+// A rejected crossing delta must never become visible, even transiently inside the
+// same Step. The resync's snapshot refetch is made to fail, so Step returns before any
+// legitimate re-publish could paper over a premature one; publish always stores a
+// fresh *View, so an unchanged pointer proves the crossed book was never published.
+func TestCrossedStateNeverPublishedEvenTransiently(t *testing.T) {
+	m := &mockSource{
+		snap:         market.Snapshot{LastUpdateID: 10, Bids: []market.Level{{Price: 100, Size: 1}}, Asks: []market.Level{{Price: 101, Size: 1}}},
+		snapErr:      errors.New("snapshot unavailable"),
+		snapErrAfter: 1, // bootstrap's snapshot succeeds; the resync's refetch fails
+		events: []source.Event{
+			{Kind: source.EventDelta, Delta: market.Delta{FirstSeq: 11, LastSeq: 11, Bids: []market.Level{{Price: 101, Size: 1}}}}, // bid at the ask: crosses
+		},
+	}
+	e := New(m, 5)
+	if err := e.Bootstrap(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	vBefore := e.View()
+	_, err := e.Step(context.Background())
+	if err == nil {
+		t.Fatal("the failing resync must surface an error")
+	}
+	if e.WouldCrosses() != 1 {
+		t.Fatalf("WouldCrosses() = %d, want 1 (the delta was applied and rejected)", e.WouldCrosses())
+	}
+	if e.View() != vBefore {
+		t.Fatal("the crossed state leaked: a new view was published between apply and resync")
 	}
 }
 
@@ -227,6 +293,9 @@ func TestBootstrapChecksumMismatchFailsLoud(t *testing.T) {
 	if e.ChecksumMismatches() != maxBindAttempts {
 		t.Fatalf("ChecksumMismatches() = %d, want %d (one per rejected attempt)", e.ChecksumMismatches(), maxBindAttempts)
 	}
+	if e.View() != nil {
+		t.Fatal("a failed bootstrap must publish nothing: no unverified snapshot may leak to readers")
+	}
 }
 
 // The checksum covers exactly the top 10 levels per side (Kraken), independent of the
@@ -244,6 +313,40 @@ func TestChecksumCoversTopTen(t *testing.T) {
 	m := &mockSource{snap: market.Snapshot{LastUpdateID: 10, Bids: bids, Asks: asks, Checksum: want}}
 	if err := New(m, 5).WithChecksum(sumChecksum).Bootstrap(context.Background()); err != nil {
 		t.Fatalf("a top-10 checksum must bind a deeper book (depth-independent), got %v", err)
+	}
+}
+
+// A snapshot older than the stream (fetched before buffered deltas) must not strand
+// the engine: the first delta is a forward gap, the resync refetches a current
+// snapshot, and the run converges. Counts are derived: one gap, one resync.
+func TestEngineRecoversFromStaleSnapshot(t *testing.T) {
+	ctx := context.Background()
+	src := source.New(source.Config{Venue: "v", Symbol: "s", Seed: 11, Steps: 60, StaleSnapshot: true})
+	// Advance the stream past the captured snapshot (seq 1000 -> 1030) before the
+	// engine binds, the way a buffered live feed outruns a REST snapshot.
+	for range 30 {
+		if _, ok := src.Next(ctx); !ok {
+			t.Fatal("source ended during pre-consume")
+		}
+	}
+	e := New(src, 5)
+	if err := e.Run(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if e.Gaps() != 1 || e.Resyncs() != 1 || e.Disconnects() != 0 {
+		t.Fatalf("gaps=%d resyncs=%d disconnects=%d, want 1/1/0 (stale bind, one gap, one refetch)",
+			e.Gaps(), e.Resyncs(), e.Disconnects())
+	}
+	truth, err := src.Snapshot(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	v := e.View()
+	if v == nil || v.LastSeq != truth.LastUpdateID {
+		t.Fatalf("view seq = %v, want truth %d", v, truth.LastUpdateID)
+	}
+	if !levelsEqual(v.Bids, clipLevels(truth.Bids, 5)) || !levelsEqual(v.Asks, clipLevels(truth.Asks, 5)) {
+		t.Fatal("after recovery the view must equal the truth's top-5")
 	}
 }
 
@@ -351,8 +454,11 @@ func TestViewReflectsLastSeq(t *testing.T) {
 // Readers hammering View()/Resyncs() while the writer runs must be race-free
 // (ADR-0008 lock-free reads). Run under -race in CI to exercise the contract.
 func TestConcurrentReaders(t *testing.T) {
+	// The cross at 320 is deterministic: the gap's resync rebinds to current truth and
+	// 252..319 are clean, so the engine is caught up and must apply-and-reject exactly
+	// one crossing delta while the readers race it.
 	src := source.New(source.Config{Venue: "v", Symbol: "s", Seed: 3, Steps: 400,
-		Faults: map[int]source.Fault{100: source.FaultDisconnect, 250: source.FaultGap}})
+		Faults: map[int]source.Fault{100: source.FaultDisconnect, 250: source.FaultGap, 320: source.FaultCross}})
 	e := New(src, 10)
 	if err := e.Bootstrap(context.Background()); err != nil {
 		t.Fatal(err)
@@ -387,6 +493,9 @@ func TestConcurrentReaders(t *testing.T) {
 	}
 	close(done)
 	wg.Wait()
+	if e.WouldCrosses() != 1 {
+		t.Fatalf("WouldCrosses() = %d, want 1 (the scheduled cross was applied and rejected)", e.WouldCrosses())
+	}
 }
 
 func TestCrossesSnapshotDefensiveUnsorted(t *testing.T) {
