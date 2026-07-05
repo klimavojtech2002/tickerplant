@@ -19,12 +19,15 @@ import (
 	"github.com/klimavojtech2002/tickerplant/internal/market"
 	"github.com/klimavojtech2002/tickerplant/internal/source"
 	"github.com/klimavojtech2002/tickerplant/internal/venue/binance"
+	"github.com/klimavojtech2002/tickerplant/internal/venue/kraken"
 )
 
 type config struct {
-	depth int
-	every int
-	pace  time.Duration
+	depth    int
+	every    int
+	pace     time.Duration
+	checksum book.Checksummer // nil except for checksum venues (Kraken)
+	window   int              // feed's subscribed book window; 0 = full-book feed
 }
 
 // options is everything main reads from the command line.
@@ -53,7 +56,7 @@ func parseFlags(args []string, out io.Writer) (options, error) {
 	fs.IntVar(&o.every, "every", 500, "log the top of book every N updates")
 	fs.DurationVar(&o.pace, "pace", 200*time.Microsecond, "delay between updates (mimics a live feed; 0 floods to stress backpressure)")
 	fs.BoolVar(&o.live, "live", false, "connect to a live venue instead of the synthetic source")
-	fs.StringVar(&o.venue, "venue", "binance", "live venue (with -live): binance")
+	fs.StringVar(&o.venue, "venue", "binance", "live venue (with -live): binance|kraken")
 	fs.StringVar(&o.symbol, "symbol", "BTCUSDT", "live symbol (with -live)")
 	if err := fs.Parse(args); err != nil {
 		return options{}, err
@@ -81,13 +84,16 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 
-	src, pacing, err := newSource(ctx, opts.live, opts.venue, opts.symbol, opts.seed, opts.steps, opts.pace)
+	src, vs, err := newSource(ctx, opts.live, opts.venue, opts.symbol, opts.seed, opts.steps, opts.pace)
 	if err != nil {
 		log.Error("source setup failed", "err", err)
 		os.Exit(1)
 	}
 
-	res, err := run(ctx, log, src, config{depth: opts.depth, every: liveCadence(opts.every, opts.everySet, opts.live), pace: pacing})
+	res, err := run(ctx, log, src, config{
+		depth: opts.depth, every: liveCadence(opts.every, opts.everySet, opts.live),
+		pace: vs.pace, checksum: vs.checksum, window: vs.window,
+	})
 	if err != nil {
 		log.Error("engine stopped", "err", err)
 		os.Exit(1)
@@ -98,21 +104,37 @@ func main() {
 		"would-cross", res.wouldCrosses)
 }
 
-// newSource builds the synthetic source, or a live venue adapter when -live is set. A
-// live feed paces itself, so the artificial inter-update delay is dropped for it.
-func newSource(ctx context.Context, live bool, venueName, symbol string, seed int64, steps int, pace time.Duration) (source.Source, time.Duration, error) {
+// venueSetup is what a source choice implies for the engine: the pacing (a live feed
+// paces itself, so the artificial delay is dropped), the checksummer (non-nil only for
+// checksum venues — Kraken's feed has no sequence, so running it without the checksum
+// wired would mean no integrity guard), and the book window (non-zero only for feeds
+// subscribed at a fixed depth, which never delete out-of-window levels).
+type venueSetup struct {
+	pace     time.Duration
+	checksum book.Checksummer
+	window   int
+}
+
+// newSource builds the synthetic source, or a live venue adapter when -live is set.
+func newSource(ctx context.Context, live bool, venueName, symbol string, seed int64, steps int, pace time.Duration) (source.Source, venueSetup, error) {
 	if !live {
-		return source.New(source.Config{Venue: "synthetic", Symbol: "DEMO", Seed: seed, Steps: steps}), pace, nil
+		return source.New(source.Config{Venue: "synthetic", Symbol: "DEMO", Seed: seed, Steps: steps}), venueSetup{pace: pace}, nil
 	}
 	switch venueName {
 	case "binance":
 		s, err := binance.Live(ctx, binance.LiveConfig{Symbol: symbol})
 		if err != nil {
-			return nil, 0, err
+			return nil, venueSetup{}, err
 		}
-		return s, 0, nil
+		return s, venueSetup{}, nil
+	case "kraken":
+		s, err := kraken.Live(ctx, kraken.LiveConfig{Symbol: symbol})
+		if err != nil {
+			return nil, venueSetup{}, err
+		}
+		return s, venueSetup{checksum: kraken.Checksum, window: kraken.BookDepth}, nil
 	default:
-		return nil, 0, fmt.Errorf("unknown venue %q", venueName)
+		return nil, venueSetup{}, fmt.Errorf("unknown venue %q", venueName)
 	}
 }
 
@@ -148,7 +170,7 @@ func resultOf(eng *book.Engine, hub *delivery.Hub) runResult {
 // scripted source.
 func run(ctx context.Context, log *slog.Logger, src source.Source, cfg config) (runResult, error) {
 	defer src.Close() // release the source (e.g. a live WebSocket) on exit
-	eng := book.New(src, cfg.depth)
+	eng := book.New(src, cfg.depth).WithChecksum(cfg.checksum).WithMaxDepth(cfg.window)
 	hub := delivery.New(1024)
 
 	c := hub.Subscribe()
