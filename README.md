@@ -130,14 +130,15 @@ system does not persist across crashes.
 
 Go, for its concurrency model and standard-library networking. The core ships as a **reusable
 library** — the transport port, the normalizer, and the invariant-checked order-book engine — with a
-thin service on top; a Next.js/TypeScript dashboard and Docker/docker-compose packaging are planned.
+thin service, an HTTP edge, and a Next.js/TypeScript dashboard on top; Docker/docker-compose
+packaging is planned.
 GitHub Actions runs CI. The core — model, transport port, engine, and fan-out — is written against the
 Go standard library alone.
 
 ## Status
 
-The table below is the source of truth: the core and the first two live venues (Binance, Kraken) are
-built and tested; OKX, the dashboard, and packaging are next.
+The table below is the source of truth: the core, the first two live venues (Binance, Kraken), the
+HTTP edge, and the dashboard are built and tested; OKX and packaging are next.
 
 | Component | Status |
 |-----------|--------|
@@ -151,7 +152,7 @@ built and tested; OKX, the dashboard, and packaging are next.
 | OKX live adapter | Planned |
 | Fan-out delivery (`internal/delivery`, in-process, bounded backpressure) | Done — tested |
 | Runnable demo (`cmd/tickerplant`: source → engine → fan-out) | Done |
-| Dashboard (Next.js) | Planned |
+| Dashboard (Next.js, `web/`: live book + health from the HTTP edge, no floats on the price path) | Done — tested |
 | Metrics: engine counters (gaps/resyncs/disconnects) + latency histogram | Done — tested |
 | HTTP edge: SSE `/stream` (complete top-N views) + `/metrics` JSON (`-http :8080`) | Done — tested |
 | Benchmark harness (open-loop, coordinated-omission-aware) | Done — tested |
