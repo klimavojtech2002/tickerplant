@@ -398,6 +398,51 @@ mode onto the thesis component would fork its logic for one venue.
 - The live integration test asserts zero mismatches over a live stretch, so a format or window
   regression fails against the real venue, not just fixtures.
 
+## ADR-0017 — The HTTP edge: SSE streaming complete views
+
+**Status:** Accepted
+
+**Context.** The fan-out is in-process (ADR-0013) and conflates to the latest complete top-N view
+(ADR-0015); nothing exposed the pipeline outside the process. The dashboard (and anything else)
+needs a network stream and the system's health counters.
+
+**Decision.** A thin `internal/httpapi` handler with two endpoints.
+- `GET /stream` — Server-Sent Events, one complete view per event. SSE over WebSocket: the flow is
+  strictly one-way, EventSource reconnects natively, and no client->server protocol exists to need
+  a socket. Complete views over deltas: ADR-0015 already made every published view whole, so a
+  client is a pure renderer — no reducer, no join protocol, and reconnect is just "the first event
+  is the engine's current view" (with a sequence dedupe on the opener/subscription seam). No
+  `Last-Event-ID`: replaying superseded views would undo the conflation the delivery layer exists
+  to provide.
+- `GET /metrics` — a JSON snapshot of the delivery stats, the engine counters, and the internal
+  latency histogram (p50/p99/p99.9/max as duration strings): one sample per applied delta, spanning
+  the adapter's raw-message dequeue to the view leaving for the fan-out (correctness of the span is
+  the engine's job — WithLatencyObserver — so no wire-wait can enter a sample).
+
+Prices and sizes cross the wire as the venue's decimal strings, rendered server-side from the
+integer ticks at the venue scales. int64 ticks do not fit JS's float64 past 2^53, and a string is
+un-mis-parseable by accident — the no-float discipline extends across the wire.
+
+The layer adds no second backpressure mechanism. A slow SSE client lags its Hub consumer, the Hub
+conflates and eventually disconnects it (ADR-0006/0015), and the handler's only own guard is a
+per-event write deadline so a dead connection cannot wedge a goroutine. Shutdown is `Close`, not
+`Shutdown`: open SSE streams never drain on their own, and the hub closing has already ended every
+handler loop.
+
+**Consequences.**
+- The client stays honest and thin; the server stays the single source of truth.
+- Every event re-sends the whole top-N (~1 KB at depth 10). Conflation bounds the rate to what
+  each client sustains, so the bandwidth cost is the price of the no-reducer client; revisit only
+  with a measured need.
+- A quiet feed sends nothing after the opener; EventSource keeps the connection open. Keepalive
+  comments are unnecessary for the demo topology (no proxies) and were left out deliberately.
+- The counters travel as JSON numbers (small ints); only prices/sizes and durations need the
+  string treatment.
+- Plain JSON rather than the Prometheus exposition format: one process, one scraper (the
+  dashboard), no aggregation layer — adopting the format without its ecosystem would be cargo
+  cult. The quantiles are cumulative since process start, which fits a demo's "has it ever
+  drifted" question; windowed quantiles are an aggregation concern and arrive with one, if ever.
+
 ## Verified against
 
 - Go language specification — `internal` package import rule (ADR-0002).

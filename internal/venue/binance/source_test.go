@@ -107,6 +107,9 @@ func TestNextSkipsNonDepthAndMalformedThenStopsOnClose(t *testing.T) {
 	s := newSource(t, frames, "", nil)
 
 	ev, ok := s.Next(context.Background())
+	if ev.Received.IsZero() {
+		t.Fatal("Received is zero; the latency span must start at frame dequeue")
+	}
 	if !ok || ev.Kind != source.EventDelta || ev.Delta.FirstSeq != 101 {
 		t.Fatalf("first event = %+v, ok=%v; want a delta at seq 101", ev, ok)
 	}

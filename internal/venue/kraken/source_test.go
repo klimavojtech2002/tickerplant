@@ -66,6 +66,9 @@ func TestSnapshotThenDeltasContiguous(t *testing.T) {
 		if ev.Delta.FirstSeq != wantSeq || ev.Delta.LastSeq != wantSeq {
 			t.Fatalf("event %d: seq [%d,%d], want [%d,%d]", i, ev.Delta.FirstSeq, ev.Delta.LastSeq, wantSeq, wantSeq)
 		}
+		if ev.Received.IsZero() {
+			t.Fatalf("event %d: Received is zero; the latency span must start at frame dequeue", i)
+		}
 	}
 }
 

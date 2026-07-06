@@ -11,6 +11,7 @@ package source
 
 import (
 	"context"
+	"time"
 
 	"github.com/klimavojtech2002/tickerplant/internal/market"
 )
@@ -41,11 +42,15 @@ func (k EventKind) String() string {
 }
 
 // Event is one item from a Source's stream. The field matching Kind is the valid
-// one; the others are zero.
+// one; the others are zero. Received is when the adapter took the raw input this
+// event was decoded from off its transport (the synthetic source stamps emission) —
+// the start of the internal-latency span the metrics report; zero means unstamped
+// and no latency is recorded for the event.
 type Event struct {
-	Kind  EventKind
-	Delta market.Delta
-	Trade market.Trade
+	Kind     EventKind
+	Received time.Time
+	Delta    market.Delta
+	Trade    market.Trade
 }
 
 // Source is the transport port. The synthetic source and the live venue adapters

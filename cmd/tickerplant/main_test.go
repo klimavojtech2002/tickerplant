@@ -1,12 +1,16 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"flag"
 	"io"
 	"log/slog"
+	"net"
+	"net/http"
 	"strings"
 	"testing"
 	"time"
@@ -84,6 +88,13 @@ func TestParseFlags(t *testing.T) {
 			wantCadence: 500,
 		},
 		{
+			name: "http edge address",
+			args: []string{"-http", ":8080"},
+			want: options{seed: 1, steps: 5000, depth: 10, every: 500, everySet: false,
+				pace: 200 * time.Microsecond, live: false, venue: "binance", symbol: "BTCUSDT", httpAddr: ":8080"},
+			wantCadence: 500,
+		},
+		{
 			name:    "unknown flag errors",
 			args:    []string{"-nope"},
 			wantErr: true,
@@ -119,7 +130,7 @@ func TestParseFlagsHelpIsErrHelp(t *testing.T) {
 }
 
 func TestNewSourceSynthetic(t *testing.T) {
-	src, vs, err := newSource(context.Background(), false, "", "", 1, 10, 5*time.Millisecond)
+	src, vs, err := newSource(context.Background(), quietLog(), false, "", "", 1, 10, 5*time.Millisecond)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -127,8 +138,8 @@ func TestNewSourceSynthetic(t *testing.T) {
 	if vs.pace != 5*time.Millisecond {
 		t.Fatalf("synthetic pace = %v, want it preserved (5ms)", vs.pace)
 	}
-	if vs.checksum != nil || vs.window != 0 {
-		t.Fatalf("the synthetic source is a full-book sequence venue: setup = %+v, want no checksum, no window", vs)
+	if vs.checksum != nil || vs.window != 0 || vs.scales != [2]int{0, 0} {
+		t.Fatalf("the synthetic source is a full-book integer venue: setup = %+v, want no checksum, no window, scales 0/0", vs)
 	}
 	if _, ok := src.Next(context.Background()); !ok {
 		t.Fatal("synthetic source must yield events")
@@ -136,7 +147,7 @@ func TestNewSourceSynthetic(t *testing.T) {
 }
 
 func TestNewSourceUnknownVenue(t *testing.T) {
-	if _, _, err := newSource(context.Background(), true, "okx", "X", 1, 10, 0); err == nil {
+	if _, _, err := newSource(context.Background(), quietLog(), true, "okx", "X", 1, 10, 0); err == nil {
 		t.Fatal("an unknown live venue must error")
 	}
 }
@@ -378,5 +389,120 @@ func TestLogTopRendersEmptySides(t *testing.T) {
 	logTop(slog.New(slog.NewTextHandler(&buf, nil)), &book.View{})
 	if out := buf.String(); !strings.Contains(out, "bid=-") || !strings.Contains(out, "ask=-") {
 		t.Fatalf("empty view must render bid=- and ask=-, got %q", out)
+	}
+}
+
+// The edge's identity labels: a live run reports the venue flag values, the
+// synthetic demo is its own venue.
+func TestVenueSymbolNames(t *testing.T) {
+	if v, sy := venueName(true, "kraken"), symbolName(true, "BTC/USD"); v != "kraken" || sy != "BTC/USD" {
+		t.Fatalf("live identity = %s/%s", v, sy)
+	}
+	if v, sy := venueName(false, "kraken"), symbolName(false, "BTC/USD"); v != "synthetic" || sy != "DEMO" {
+		t.Fatalf("synthetic identity = %s/%s, want synthetic/DEMO regardless of flags", v, sy)
+	}
+}
+
+// gatedSource serves a snapshot and a few events, then blocks Next until released —
+// it keeps run alive while a test talks to the HTTP edge.
+type gatedSource struct {
+	snap    market.Snapshot
+	events  []source.Event
+	i       int
+	release chan struct{}
+}
+
+func (g *gatedSource) Next(ctx context.Context) (source.Event, bool) {
+	if g.i < len(g.events) {
+		e := g.events[g.i]
+		e.Received = time.Now() // real sources stamp at dequeue; the gate mimics them
+		g.i++
+		return e, true
+	}
+	select {
+	case <-g.release:
+		return source.Event{}, false
+	case <-ctx.Done():
+		return source.Event{}, false
+	}
+}
+func (g *gatedSource) Snapshot(context.Context) (market.Snapshot, error) { return g.snap, nil }
+func (g *gatedSource) Close() error                                      { return nil }
+
+// run with -http must serve the edge while the pipeline lives and tear it down when
+// the run ends: /metrics answers with the configured identity, /stream opens with the
+// bootstrapped view, and after the source ends the port stops answering.
+func TestRunServesHTTPEdge(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	gs := &gatedSource{
+		snap: market.Snapshot{LastUpdateID: 10, Bids: []market.Level{{Price: 100, Size: 1}}, Asks: []market.Level{{Price: 101, Size: 1}}},
+		events: []source.Event{
+			{Kind: source.EventDelta, Delta: market.Delta{FirstSeq: 11, LastSeq: 11, Bids: []market.Level{{Price: 99, Size: 2}}}},
+		},
+		release: make(chan struct{}),
+	}
+	done := make(chan error, 1)
+	go func() {
+		_, err := run(context.Background(), quietLog(), gs, config{
+			depth: 5, venue: "synthetic", symbol: "DEMO", httpLn: ln,
+		})
+		done <- err
+	}()
+
+	base := "http://" + ln.Addr().String()
+	var doc struct {
+		Venue   string `json:"venue"`
+		Symbol  string `json:"symbol"`
+		Latency *struct {
+			Count uint64 `json:"count"`
+		} `json:"latency"`
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for { // poll until the edge answers AND the one scripted delta has been recorded
+		resp, err := http.Get(base + "/metrics")
+		if err == nil {
+			decodeErr := json.NewDecoder(resp.Body).Decode(&doc)
+			resp.Body.Close()
+			if decodeErr != nil {
+				t.Fatal(decodeErr)
+			}
+			if doc.Latency != nil && doc.Latency.Count == 1 {
+				break
+			}
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("edge never reported the recorded step: err=%v doc=%+v", err, doc)
+		}
+	}
+	if doc.Venue != "synthetic" || doc.Symbol != "DEMO" {
+		t.Fatalf("metrics identity = %s/%s", doc.Venue, doc.Symbol)
+	}
+
+	stream, err := http.Get(base + "/stream")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sc := bufio.NewScanner(stream.Body)
+	got := ""
+	for sc.Scan() {
+		if line := sc.Text(); strings.HasPrefix(line, "data: ") {
+			got = line
+			break
+		}
+	}
+	stream.Body.Close()
+	if !strings.Contains(got, `"seq":11`) {
+		t.Fatalf("stream opener = %q, want the current view at seq 11 (snapshot + one applied delta)", got)
+	}
+
+	close(gs.release) // end the run; the edge must go down with it
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	if _, err := http.Get(base + "/metrics"); err == nil {
+		t.Fatal("edge still answering after the run ended")
 	}
 }

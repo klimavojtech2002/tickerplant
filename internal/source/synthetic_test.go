@@ -356,3 +356,23 @@ func TestFaultAtStreamEnd(t *testing.T) {
 		t.Fatalf("reorder at end: got %d deltas, want 1", len(ds))
 	}
 }
+
+// Every emitted event carries a Received stamp — the start of the internal-latency
+// span; the golden hashes ignore it, so determinism is untouched.
+func TestEventsAreStamped(t *testing.T) {
+	c := cfg(3, 50)
+	c.Faults = map[int]Fault{5: FaultGap, 10: FaultReorder, 15: FaultDuplicate, 20: FaultDisconnect, 25: FaultCross}
+	for i, e := range drain(New(c)) {
+		if e.Received.IsZero() {
+			t.Fatalf("event %d (%v) has a zero Received stamp", i, e.Kind)
+		}
+	}
+	// reorder scheduled on the final step takes the end-of-stream branch: still stamped
+	end := cfg(4, 30)
+	end.Faults = map[int]Fault{29: FaultReorder}
+	for i, e := range drain(New(end)) {
+		if e.Received.IsZero() {
+			t.Fatalf("end-reorder event %d (%v) has a zero Received stamp", i, e.Kind)
+		}
+	}
+}

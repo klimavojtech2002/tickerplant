@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"sync"
+	"time"
 
 	"github.com/klimavojtech2002/tickerplant/internal/market"
 	"github.com/klimavojtech2002/tickerplant/internal/source"
@@ -57,6 +58,10 @@ func New(cfg Config) *Source {
 	}
 }
 
+// Scales returns the symbol's price and size decimal scales, so an edge (the HTTP
+// view stream) can render ticks back to the venue's exact decimal strings.
+func (s *Source) Scales() (price, size int) { return s.cfg.PriceScale, s.cfg.SizeScale }
+
 // Next returns the next book update. It skips frames that are not depthUpdates
 // (subscription acks, pings) and frames that fail to normalize — a skipped frame
 // leaves a sequence hole, which the engine's gap check turns into a resync, so a bad
@@ -70,6 +75,7 @@ func (s *Source) Next(ctx context.Context) (source.Event, bool) {
 		case <-s.done:
 			return source.Event{}, false
 		case raw, ok := <-s.cfg.Frames:
+			received := time.Now() // the frame just left the transport: the latency span starts here
 			if !ok {
 				return source.Event{}, false
 			}
@@ -81,7 +87,7 @@ func (s *Source) Next(ctx context.Context) (source.Event, bool) {
 			if err != nil {
 				continue
 			}
-			return source.Event{Kind: source.EventDelta, Delta: d}, true
+			return source.Event{Kind: source.EventDelta, Received: received, Delta: d}, true
 		}
 	}
 }
