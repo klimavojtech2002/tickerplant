@@ -443,6 +443,48 @@ handler loop.
   cult. The quantiles are cumulative since process start, which fits a demo's "has it ever
   drifted" question; windowed quantiles are an aggregation concern and arrive with one, if ever.
 
+## ADR-0018 — The dashboard is a renderer, and floats never touch the price path
+
+**Status:** Accepted
+
+**Context.** The HTTP edge (ADR-0017) streams complete top-N views with prices and sizes as the
+venue's decimal strings. The dashboard has to display them, derive a spread and bar widths, and
+survive disconnects — in a language whose only built-in number is a float64.
+
+**Decision.**
+- **Strings end to end, BigInt where math is needed.** Prices and sizes render verbatim. The two
+  derived values — spread and bar share — strip the decimal point (all values in a feed share the
+  venue's scale) and compute in BigInt; only a final 0–100 integer becomes a JS number, as a CSS
+  width. `parseFloat`/`Number` never see a price. int64 ticks exceed 2^53, so this is correctness,
+  not style.
+- **A renderer, not a reconstruction.** Every event is a whole book, so the client keeps exactly
+  one view — the freshest — in a small external store (the ADR-0015 shape again) read through
+  `useSyncExternalStore`. There is no reducer to get wrong; missed frames are by design not
+  replayed. A crossed frame is refused loudly (dev throws, production drops with an error log):
+  the server owns the invariant, the client owns never rendering a violation of it.
+- **Reconnect is EventSource's.** Native retry + the edge's current-view opener; the client adds
+  only a status badge, which degrades "live" to "stalled" when views stop arriving so a silently
+  dead pipe cannot look healthy.
+- **Boundary validation.** TypeScript types do not exist at runtime, so every event is shape-checked
+  before it enters the store; malformed frames are dropped with an error log.
+- **Minimal, hermetic toolchain.** Next.js + React (the portfolio's stack), vitest + Testing
+  Library + jsdom for tests — the one dev-dependency cluster, justified as the standard minimal
+  React test rig. System fonts only: a Google Fonts fetch would make the build depend on the
+  network. Dark-only console aesthetic, deliberately: this is a market-data terminal, not a
+  content site; side identity lives in the bid/ask bars — a green/red pair picked to hold >=3:1
+  contrast on the surface and to stay separable under simulated color-vision deficiency — never
+  in text, and the sides are named by their headers, so no information is color-alone.
+
+**Consequences.**
+- The client cannot disagree with the backend about numbers — it never re-derives them.
+- Exactness is testable in plain functions: the suite pins digit-preservation past 2^53, the
+  float-classic 0.4 − 0.1 = 0.3 spread, integer bar shares, and the crossed-frame refusal.
+- No charting library: the book is two tables with proportional bars and the health panel is stat
+  tiles, which HTML does natively.
+- The page shows one instrument, because the process serves one. Multi-instrument is future work;
+  the natural seam is keying the store by the event's venue/symbol identity, which every view
+  already carries.
+
 ## Verified against
 
 - Go language specification — `internal` package import rule (ADR-0002).

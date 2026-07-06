@@ -108,6 +108,9 @@ func (s *server) stream(w http.ResponseWriter, r *http.Request) {
 	h := w.Header()
 	h.Set("Content-Type", "text/event-stream")
 	h.Set("Cache-Control", "no-cache")
+	// The dashboard runs on its own origin in development; the edge is a public
+	// read-only stream, so the open CORS grant gives nothing away.
+	h.Set("Access-Control-Allow-Origin", "*")
 	w.WriteHeader(http.StatusOK)
 	// The server buffers headers until the first flush; without this a client on a
 	// quiet feed would hang waiting for the response to open (EventSource onopen).
@@ -212,6 +215,7 @@ func (s *server) metrics(w http.ResponseWriter, _ *http.Request) {
 		}
 	}
 	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Access-Control-Allow-Origin", "*")
 	if err := json.NewEncoder(w).Encode(doc); err != nil {
 		s.cfg.Log.Error("metrics encode failed", "err", err)
 	}

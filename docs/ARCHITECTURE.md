@@ -27,8 +27,8 @@ transport port; delivery adapters sit on the output side.
 
 The synthetic source and a live socket implement the same transport port, so the engine cannot tell
 them apart — the basis of deterministic testing (ADR-0005). The diagram is the target architecture:
-Binance and Kraken are wired live today; OKX and the dashboard are planned (see §11 and the README
-status table).
+Binance and Kraken are wired live today; OKX and docker packaging are planned (see §11 and the
+README status table).
 
 ## 2. Canonical model
 
@@ -132,4 +132,4 @@ The build is sliced and audit-gated; the README status table is the source of tr
 implemented. The core is built and tested — canonical model, transport port and synthetic source,
 order-book engine, the in-process fan-out with a runnable demo (`cmd/tickerplant`), the metrics and
 benchmark harness, the Binance and Kraken live adapters, the HTTP edge (SSE stream +
-/metrics, ADR-0017), and CI. Remaining: OKX → dashboard → docker packaging.
+/metrics, ADR-0017), the dashboard (ADR-0018), and CI. Remaining: OKX → docker packaging.
