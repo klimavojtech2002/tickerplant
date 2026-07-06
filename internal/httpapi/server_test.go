@@ -86,6 +86,9 @@ func openStream(t *testing.T, url string) (*http.Response, *bufio.Scanner) {
 	if ct := resp.Header.Get("Content-Type"); ct != "text/event-stream" {
 		t.Fatalf("Content-Type = %q, want text/event-stream", ct)
 	}
+	if ao := resp.Header.Get("Access-Control-Allow-Origin"); ao != "*" {
+		t.Fatalf("Allow-Origin = %q; without it a browser EventSource on another origin cannot connect", ao)
+	}
 	return resp, bufio.NewScanner(resp.Body)
 }
 
@@ -311,6 +314,9 @@ func TestMetricsExact(t *testing.T) {
 	defer resp.Body.Close()
 	if ct := resp.Header.Get("Content-Type"); ct != "application/json" {
 		t.Fatalf("Content-Type = %q", ct)
+	}
+	if ao := resp.Header.Get("Access-Control-Allow-Origin"); ao != "*" {
+		t.Fatalf("Allow-Origin = %q; the dashboard polls /metrics cross-origin in dev", ao)
 	}
 	var doc metricsJSON
 	if err := json.NewDecoder(resp.Body).Decode(&doc); err != nil {
