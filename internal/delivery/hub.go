@@ -80,7 +80,9 @@ func New(maxLag int) *Hub {
 }
 
 // Subscribe registers a consumer and returns its handle. On a closed hub the handle's
-// doorbell is already closed and Take returns nil.
+// doorbell is already closed and Take returns nil; its id is left at the zero value,
+// which is safe only because Close permanently empties subs and a closed hub never
+// re-adds to it, so that id can never collide with a live subscriber's.
 func (h *Hub) Subscribe() *Consumer {
 	ready := make(chan struct{}, 1)
 	h.mu.Lock()
