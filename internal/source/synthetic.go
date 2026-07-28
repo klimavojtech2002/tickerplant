@@ -26,6 +26,7 @@ const (
 	FaultDuplicate        // emit one delta twice
 	FaultDisconnect       // emit an EventDisconnected
 	FaultCross            // emit one illegal delta that would cross the book (stream only; truth stays legal)
+	FaultCoalesce         // emit two legal advances as one delta spanning both sequences (a batched venue message)
 )
 
 // crossBidPrice is a bid price above the entire ask band (asks live in [1001,2000] —
@@ -126,6 +127,44 @@ func (s *Synthetic) genDelta() market.Delta {
 	return d
 }
 
+// genCoalescedDelta advances the truth by two legal level changes (FaultCoalesce),
+// like genDelta but emitted as one Delta spanning both sequence numbers — the shape a
+// client sees when a venue batches consecutive updates into one wire message (e.g.
+// Binance's U..u range). The emitted levels are the net effect of both changes: a
+// second change to the same (side, price) overwrites the first, exactly as it did in
+// the truth.
+func (s *Synthetic) genCoalescedDelta() market.Delta {
+	first := s.seq + 1
+	d1 := s.genDelta()
+	d2 := s.genDelta()
+	return market.Delta{
+		Venue: s.cfg.Venue, Symbol: s.cfg.Symbol, FirstSeq: first, LastSeq: s.seq,
+		Bids: mergeLevels(d1.Bids, d2.Bids), Asks: mergeLevels(d1.Asks, d2.Asks),
+	}
+}
+
+// mergeLevels combines two level lists so a later entry at the same price overwrites
+// an earlier one — the net effect of two sequential updates folded into one message.
+// genDelta emits at most one level per call, so this never sees more than two inputs
+// in practice, but the merge itself makes no assumption about that.
+func mergeLevels(older, newer []market.Level) []market.Level {
+	out := append([]market.Level{}, older...)
+	for _, add := range newer {
+		replaced := false
+		for i, lvl := range out {
+			if lvl.Price == add.Price {
+				out[i] = add
+				replaced = true
+				break
+			}
+		}
+		if !replaced {
+			out = append(out, add)
+		}
+	}
+	return out
+}
+
 // Next returns the next event. Faults are applied here, on the emitted stream only.
 func (s *Synthetic) Next(ctx context.Context) (Event, bool) {
 	if s.closed || ctx.Err() != nil {
@@ -162,6 +201,8 @@ func (s *Synthetic) Next(ctx context.Context) (Event, bool) {
 			}
 			s.pending = append(s.pending, Event{Kind: EventDelta, Delta: d1})
 			return next, true
+		case FaultCoalesce:
+			return Event{Kind: EventDelta, Received: time.Now(), Delta: s.genCoalescedDelta()}, true
 		case FaultCross:
 			// Emit one illegal delta — a bid above the whole ask band — without advancing
 			// the truth or the sequence. When the engine is caught up this is contiguous, so

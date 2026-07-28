@@ -12,11 +12,15 @@ const simDepth = 20
 
 // scenarioForSeed deterministically derives a fault schedule from the seed: some
 // runs are clean, others inject a gap, a reorder, a duplicate, one illegal crossing
-// delta, and sometimes a disconnect, all well before the stream ends so the engine can
-// converge. The cross sits at 330+seed%30 -> [330,359], disjoint from the gap [50,79],
-// reorder [120,149], duplicate [200,229], and disconnect [260,289] windows and before
-// Steps (400), so at the cross step the engine is provably caught up (e.lastSeq==s.seq):
-// the cross is applied and rejected, never degraded into a gap.
+// delta, a coalesced multi-sequence delta, and sometimes a disconnect, all well before
+// the stream ends so the engine can converge. The cross sits at 330+seed%30 ->
+// [330,359], disjoint from the gap [50,79], reorder [120,149], duplicate [200,229],
+// and disconnect [260,289] windows and before Steps (400), so at the cross step the
+// engine is provably caught up (e.lastSeq==s.seq): the cross is applied and rejected,
+// never degraded into a gap. The coalesce sits at 370+seed%20 -> [370,389], disjoint
+// from every window above and past the cross's own resync tail, so the engine is
+// caught up when it fires too: the straddling delta (FirstSeq==lastSeq+1,
+// LastSeq==lastSeq+2) applies as the exact-contiguous case, not a gap.
 func scenarioForSeed(seed int64) map[int]source.Fault {
 	if seed%5 == 0 {
 		return nil
@@ -26,6 +30,7 @@ func scenarioForSeed(seed int64) map[int]source.Fault {
 		120 + int(seed%30): source.FaultReorder,
 		200 + int(seed%30): source.FaultDuplicate,
 		330 + int(seed%30): source.FaultCross,
+		370 + int(seed%20): source.FaultCoalesce,
 	}
 	if seed%3 == 0 {
 		f[260+int(seed%30)] = source.FaultDisconnect
