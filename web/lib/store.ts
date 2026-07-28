@@ -6,7 +6,7 @@
 import { crossed } from "./ticks";
 import type { ViewEvent } from "./types";
 
-export type StreamStatus = "connecting" | "live" | "retrying";
+export type StreamStatus = "connecting" | "live" | "retrying" | "disconnected";
 
 export type Snapshot = {
   status: StreamStatus;

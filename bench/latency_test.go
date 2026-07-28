@@ -87,4 +87,5 @@ func BenchmarkPipelineLatency(b *testing.B) {
 	b.ReportMetric(float64(corrected.Percentile(0.50).Nanoseconds()), "p50-ns")
 	b.ReportMetric(float64(corrected.Percentile(0.99).Nanoseconds()), "p99-ns")
 	b.ReportMetric(float64(corrected.Percentile(0.999).Nanoseconds()), "p999-ns")
+	b.ReportMetric(float64(corrected.Max().Nanoseconds()), "max-ns")
 }

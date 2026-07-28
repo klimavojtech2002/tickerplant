@@ -40,7 +40,11 @@ func Checksum(bids, asks []market.Level) uint32 {
 // venue's trailing zeros are already inside the scaled value.
 func crcField(v int64) string {
 	if v == 0 {
-		return "0" // a zero strips to empty; Kraken book levels are never zero, but be safe
+		// Unreachable in practice: book.set deletes any level whose size reaches 0
+		// (internal/book/book.go), so topN — this function's only caller's input —
+		// never contains a zero-size level, and prices are never zero either. Kept
+		// as a defensive branch rather than assuming the caller's invariant here.
+		return "0"
 	}
 	return strconv.FormatInt(v, 10)
 }

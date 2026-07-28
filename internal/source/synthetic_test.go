@@ -174,6 +174,105 @@ func TestFaultCrossEmitsCrossingDelta(t *testing.T) {
 	}
 }
 
+// TestFaultCoalesceSpansTwoSequences proves the coalesced delta is not just
+// structurally shaped right (FirstSeq/LastSeq spanning two new sequences) but
+// actually correct: every level it claims changed matches what the truth oracle
+// says happened, so the "net effect of two updates" claim is verified, not assumed.
+func TestFaultCoalesceSpansTwoSequences(t *testing.T) {
+	c := cfg(5, 50)
+	c.Faults = map[int]Fault{0: FaultCoalesce}
+	s := New(c)
+	ctx := context.Background()
+
+	before, err := s.Snapshot(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ev, ok := s.Next(ctx)
+	if !ok || ev.Kind != EventDelta {
+		t.Fatalf("FaultCoalesce must emit a delta event, got kind %d ok=%v", ev.Kind, ok)
+	}
+	d := ev.Delta
+	if d.FirstSeq != before.LastUpdateID+1 || d.LastSeq != before.LastUpdateID+2 {
+		t.Fatalf("coalesced delta must span exactly two new sequences: before %d, got FirstSeq=%d LastSeq=%d",
+			before.LastUpdateID, d.FirstSeq, d.LastSeq)
+	}
+	if n := len(d.Bids) + len(d.Asks); n < 1 || n > 2 {
+		t.Fatalf("coalesced delta must carry one or two net level changes, got %d", n)
+	}
+
+	after, err := s.Snapshot(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.LastUpdateID != before.LastUpdateID+2 {
+		t.Fatalf("FaultCoalesce must advance the truth by exactly two sequences: before %d, after %d",
+			before.LastUpdateID, after.LastUpdateID)
+	}
+	assertMatchesTruth(t, d.Bids, after.Bids, "bid")
+	assertMatchesTruth(t, d.Asks, after.Asks, "ask")
+}
+
+// assertMatchesTruth checks that every level a delta claims changed is exactly what
+// the truth snapshot now shows at that price: present with the same size, or absent
+// if the delta deleted it (size 0).
+func assertMatchesTruth(t *testing.T, deltaLevels, truthLevels []market.Level, side string) {
+	t.Helper()
+	for _, lvl := range deltaLevels {
+		var size market.Size
+		var found bool
+		for _, l := range truthLevels {
+			if l.Price == lvl.Price {
+				size, found = l.Size, true
+				break
+			}
+		}
+		if lvl.Size == 0 {
+			if found {
+				t.Fatalf("%s %d deleted in the delta but still present in truth", side, lvl.Price)
+			}
+			continue
+		}
+		if !found || size != lvl.Size {
+			t.Fatalf("%s %d = %d in the delta does not match truth (found=%v, size=%d)", side, lvl.Price, lvl.Size, found, size)
+		}
+	}
+}
+
+// TestMergeLevels pins the coalescing rule directly: a later entry at the same price
+// overwrites an earlier one (including a delete), and disjoint prices both survive.
+func TestMergeLevels(t *testing.T) {
+	cases := []struct {
+		name         string
+		older, newer []market.Level
+		want         []market.Level
+	}{
+		{"both empty", nil, nil, []market.Level{}},
+		{"older only", []market.Level{{Price: 1, Size: 1}}, nil, []market.Level{{Price: 1, Size: 1}}},
+		{"newer only", nil, []market.Level{{Price: 1, Size: 1}}, []market.Level{{Price: 1, Size: 1}}},
+		{
+			"disjoint prices, both kept",
+			[]market.Level{{Price: 1, Size: 1}}, []market.Level{{Price: 2, Size: 2}},
+			[]market.Level{{Price: 1, Size: 1}, {Price: 2, Size: 2}},
+		},
+		{
+			"same price, newer size wins",
+			[]market.Level{{Price: 1, Size: 1}}, []market.Level{{Price: 1, Size: 9}},
+			[]market.Level{{Price: 1, Size: 9}},
+		},
+		{
+			"same price, newer delete wins",
+			[]market.Level{{Price: 1, Size: 1}}, []market.Level{{Price: 1, Size: 0}},
+			[]market.Level{{Price: 1, Size: 0}},
+		},
+	}
+	for _, c := range cases {
+		if got := mergeLevels(c.older, c.newer); !slices.Equal(got, c.want) {
+			t.Errorf("%s: mergeLevels(%v, %v) = %v, want %v", c.name, c.older, c.newer, got, c.want)
+		}
+	}
+}
+
 func deltas(evs []Event) []market.Delta {
 	var ds []market.Delta
 	for _, e := range evs {

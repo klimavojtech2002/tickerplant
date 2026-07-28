@@ -463,16 +463,18 @@ survive disconnects — in a language whose only built-in number is a float64.
   replayed. A crossed frame is refused loudly (dev throws, production drops with an error log):
   the server owns the invariant, the client owns never rendering a violation of it.
 - **Reconnect is EventSource's.** Native retry + the edge's current-view opener; the client adds
-  only a status badge, which degrades "live" to "stalled" when views stop arriving so a silently
-  dead pipe cannot look healthy.
+  only a status badge, which degrades "live" to "stalled" when views stop arriving, and separately
+  reports "disconnected" (not "retrying") when the browser's own readyState shows it has given up
+  for good, so a silently dead pipe cannot look healthy or look like it will recover on its own.
 - **Boundary validation.** TypeScript types do not exist at runtime, so every event is shape-checked
   before it enters the store; malformed frames are dropped with an error log.
 - **Minimal, hermetic toolchain.** Next.js + React (the portfolio's stack), vitest + Testing
   Library + jsdom for tests — the one dev-dependency cluster, justified as the standard minimal
   React test rig. System fonts only: a Google Fonts fetch would make the build depend on the
   network. Dark-only console aesthetic, deliberately: this is a market-data terminal, not a
-  content site; side identity lives in the bid/ask bars — a green/red pair picked to hold >=3:1
-  contrast on the surface and to stay separable under simulated color-vision deficiency — never
+  content site; side identity lives in the bid/ask bars — a green/red pair whose composited pixel
+  (the color at the bar's own fill opacity over the surface, not the bare swatch) holds >=3:1
+  contrast on the surface and stays separable under simulated color-vision deficiency — never
   in text, and the sides are named by their headers, so no information is color-alone.
 
 **Consequences.**

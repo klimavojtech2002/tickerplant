@@ -16,4 +16,6 @@ var (
 	ErrStaleSnapshot = errors.New("stale snapshot")
 	// ErrMalformed: an input could not be parsed into the canonical model.
 	ErrMalformed = errors.New("malformed input")
+	// ErrNotBootstrapped: Step was called before Bootstrap bound a book.
+	ErrNotBootstrapped = errors.New("engine not bootstrapped")
 )

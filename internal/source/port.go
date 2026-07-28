@@ -62,7 +62,6 @@ type Source interface {
 	// Snapshot returns a fresh full book, used on bootstrap and on resync after a
 	// gap, checksum mismatch, or disconnect.
 	Snapshot(ctx context.Context) (market.Snapshot, error)
-	// Close releases the source. It is safe to call once; further Next calls return
-	// false.
+	// Close releases the source. It is idempotent; further Next calls return false.
 	Close() error
 }

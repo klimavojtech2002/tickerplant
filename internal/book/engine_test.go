@@ -74,6 +74,34 @@ func TestApplyDeltaIsAbsoluteNotIncrement(t *testing.T) {
 	}
 }
 
+func TestStepBeforeBootstrapReturnsError(t *testing.T) {
+	src := source.New(source.Config{Venue: "v", Symbol: "s", Seed: 1, Steps: 5})
+	e := New(src, 5) // Bootstrap deliberately not called
+	ok, err := e.Step(context.Background())
+	if ok {
+		t.Fatal("Step before Bootstrap must return ok=false")
+	}
+	if !errors.Is(err, market.ErrNotBootstrapped) {
+		t.Fatalf("Step before Bootstrap: err = %v, want ErrNotBootstrapped", err)
+	}
+}
+
+// A checksum venue whose maxDepth is narrower than the checksum's own depth would
+// silently checksum fewer levels than the venue expects, resyncing forever with no
+// clear cause. Bootstrap must refuse this configuration loudly, before ever touching
+// the source (mockSource.snapCalls proves no Snapshot call was made).
+func TestBootstrapRejectsNarrowerMaxDepthThanChecksum(t *testing.T) {
+	m := &mockSource{snap: market.Snapshot{LastUpdateID: 1}}
+	e := New(m, 5).WithChecksum(func([]market.Level, []market.Level) uint32 { return 0 }).WithMaxDepth(5)
+	err := e.Bootstrap(context.Background())
+	if err == nil {
+		t.Fatal("maxDepth narrower than checksumDepth must fail Bootstrap loudly")
+	}
+	if m.snapCalls != 0 {
+		t.Fatalf("the misconfiguration must be caught before any Snapshot call, got %d calls", m.snapCalls)
+	}
+}
+
 func TestBootstrapCrossingFailsLoud(t *testing.T) {
 	src := source.New(source.Config{Venue: "v", Symbol: "s", Seed: 1, Steps: 1, CrossingSnapshot: true})
 	e := New(src, 5)

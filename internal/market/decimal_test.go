@@ -84,6 +84,20 @@ func TestFormatScaled(t *testing.T) {
 	}
 }
 
+// A pathological scale must not drive an unbounded allocation — ParseScaled already
+// rejects scale > 18, and FormatScaled must clamp to the same bound defensively
+// rather than trust its caller (unlike ParseScaled, it has no error return to refuse
+// with).
+func TestFormatScaledClampsPathologicalScale(t *testing.T) {
+	got := FormatScaled(5, 1000)
+	if len(got) > 25 { // 18 fractional digits + sign + point + a few integer digits
+		t.Fatalf("FormatScaled with scale=1000 should clamp to bounded output, got length %d: %q", len(got), got)
+	}
+	if want := FormatScaled(5, 18); got != want {
+		t.Fatalf("FormatScaled(5, 1000) = %q, want the scale=18-clamped result %q", got, want)
+	}
+}
+
 // A canonical string (exactly scale fractional digits) survives parse then format.
 func TestScaledRoundTrip(t *testing.T) {
 	cases := []struct {

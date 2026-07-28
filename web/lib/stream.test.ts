@@ -9,6 +9,10 @@ class FakeEventSource {
   static last: FakeEventSource | null = null;
   url: string;
   closed = false;
+  // Mirrors EventSource's readyState: 0 CONNECTING, 1 OPEN, 2 CLOSED. Tests drive
+  // this directly to distinguish a transient error (browser keeps retrying) from a
+  // fatal one (browser gave up for good).
+  readyState = 0;
   onopen: ((ev: Event) => void) | null = null;
   onerror: ((ev: Event) => void) | null = null;
   private handlers = new Map<string, (ev: MessageEvent) => void>();
@@ -65,6 +69,24 @@ describe("connectStream", () => {
     es.emit("view", goodView.replace("62721.7", "1e5"));
     es.emit("view", goodView.replace("1.35823999", "-3"));
     expect(store.getSnapshot().view?.seq).toBe(7);
+  });
+
+  it("reports a fatal close as disconnected, not retrying", () => {
+    const store = new ViewStore();
+    connectStream("http://edge", store, FakeEventSource);
+    const es = FakeEventSource.last!;
+    es.readyState = 2; // CLOSED: the browser has given up for good
+    es.onerror!(new Event("error"));
+    expect(store.getSnapshot().status).toBe("disconnected");
+  });
+
+  it("keeps reporting retrying while EventSource is still retrying on its own", () => {
+    const store = new ViewStore();
+    connectStream("http://edge", store, FakeEventSource);
+    const es = FakeEventSource.last!;
+    es.readyState = 0; // CONNECTING: mid browser-managed retry, not fatal
+    es.onerror!(new Event("error"));
+    expect(store.getSnapshot().status).toBe("retrying");
   });
 
   it("closes the source on cleanup", () => {

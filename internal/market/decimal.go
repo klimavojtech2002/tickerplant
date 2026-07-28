@@ -58,6 +58,9 @@ func ParseScaled(s string, scale int) (int64, error) {
 // (including the most-negative value) is formatted without a panic — book prices
 // and sizes are non-negative, but the function never produces garbage if they are not.
 func FormatScaled(v int64, scale int) string {
+	if scale > 18 { // defensive: mirrors ParseScaled's bound so a garbage scale can't drive an unbounded allocation
+		scale = 18
+	}
 	s := strconv.FormatInt(v, 10)
 	if scale <= 0 {
 		return s
