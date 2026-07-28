@@ -100,7 +100,11 @@ func (e *Engine) WithLatencyObserver(fn func(time.Duration)) *Engine {
 // call from any goroutine.
 func (e *Engine) View() *View { return e.view.Load() }
 
-// Resyncs returns how many times the engine has resynced (a metric, slice 0006).
+// Resyncs returns how many times the engine has resynced (a metric, slice 0006). This
+// counts cold-start bootstrap-retry attempts (an unusable first snapshot) together
+// with genuine post-bind resyncs — both are Bootstrap calls that discarded a rejected
+// snapshot — so a string of bind-time rejections reads the same as the book having
+// gone live and drifted.
 func (e *Engine) Resyncs() int { return int(e.resyncs.Load()) }
 
 // Gaps returns how many sequence gaps the engine has detected (a metric).
@@ -127,6 +131,9 @@ func (e *Engine) publish() {
 // Bootstrap binds the book from a fresh snapshot, retrying a bounded number of times
 // if the snapshot is crossed; it surfaces a loud error rather than wedging.
 func (e *Engine) Bootstrap(ctx context.Context) error {
+	if e.checksum != nil && e.maxDepth > 0 && e.maxDepth < checksumDepth {
+		return fmt.Errorf("engine: maxDepth %d narrower than checksum depth %d: misconfigured", e.maxDepth, checksumDepth)
+	}
 	lastReason := market.ErrCrossed // why the most recent attempt was rejected
 	for range maxBindAttempts {
 		snap, err := e.src.Snapshot(ctx)
@@ -203,6 +210,9 @@ func (e *Engine) applyDelta(d market.Delta) outcome {
 // Step processes one source event. It returns false when the source is exhausted or
 // the context is cancelled. A gap, would-cross, or disconnect triggers a resync.
 func (e *Engine) Step(ctx context.Context) (bool, error) {
+	if e.book == nil {
+		return false, fmt.Errorf("book: Step called before Bootstrap: %w", market.ErrNotBootstrapped)
+	}
 	ev, ok := e.src.Next(ctx)
 	if !ok {
 		return false, ctx.Err()

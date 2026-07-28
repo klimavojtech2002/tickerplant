@@ -205,6 +205,9 @@ func TestRunWiresChecksumIntoEngine(t *testing.T) {
 // run must hand cfg.window to the engine. The script mimics a windowed feed (Kraken):
 // checksums cover only the venue's window, so if run dropped the WithMaxDepth wiring
 // the engine's deeper book would mismatch every checksum and the run would fail.
+// Window 10 (not narrower) because Bootstrap now refuses a checksum venue whose
+// maxDepth is narrower than the checksum depth (engine.go's own checksumDepth, 10) —
+// 11 levels per side make the truncation still bite at that floor.
 func TestRunWiresWindowIntoEngine(t *testing.T) {
 	pq := func(bids, asks []market.Level) uint32 {
 		var s uint32
@@ -216,19 +219,24 @@ func TestRunWiresWindowIntoEngine(t *testing.T) {
 		}
 		return s
 	}
+	bids := make([]market.Level, 11) // 100..90 descending
+	for i := range bids {
+		bids[i] = market.Level{Price: market.Price(100 - i), Size: 1}
+	}
+	asks := make([]market.Level, 11) // 102..112 ascending
+	for i := range asks {
+		asks[i] = market.Level{Price: market.Price(102 + i), Size: 1}
+	}
 	src := &scriptSource{
-		// window 1: the venue checksums only the best level per side
-		snap: market.Snapshot{LastUpdateID: 10,
-			Bids:     []market.Level{{Price: 100, Size: 1}, {Price: 99, Size: 1}},
-			Asks:     []market.Level{{Price: 102, Size: 1}, {Price: 103, Size: 1}},
-			Checksum: pq([]market.Level{{Price: 100, Size: 1}}, []market.Level{{Price: 102, Size: 1}})},
+		// window 10: the 11th level on each side (90, 112) never enters the checksum.
+		snap: market.Snapshot{LastUpdateID: 10, Bids: bids, Asks: asks, Checksum: pq(bids[:10], asks[:10])},
 		events: []source.Event{
 			{Kind: source.EventDelta, Delta: market.Delta{FirstSeq: 11, LastSeq: 11,
-				Bids:     []market.Level{{Price: 101, Size: 2}}, // pushes 100 out of the window
-				Checksum: pq([]market.Level{{Price: 101, Size: 2}}, []market.Level{{Price: 102, Size: 1}})}},
+				Bids:     []market.Level{{Price: 101, Size: 2}}, // new best bid pushes 91 out of the window
+				Checksum: pq(append([]market.Level{{Price: 101, Size: 2}}, bids[:9]...), asks[:10])}},
 		},
 	}
-	res, err := run(context.Background(), quietLog(), src, config{depth: 5, checksum: pq, window: 1})
+	res, err := run(context.Background(), quietLog(), src, config{depth: 5, checksum: pq, window: 10})
 	if err != nil {
 		t.Fatalf("windowed run must bind and apply cleanly: %v", err)
 	}
