@@ -26,6 +26,14 @@ import (
 	"github.com/klimavojtech2002/tickerplant/internal/venue/kraken"
 )
 
+// defaultVenue/defaultSymbol are the -venue/-symbol flag defaults, named so the
+// startup warning below can detect a likely -live typo without duplicating the
+// literal strings the flags themselves declare.
+const (
+	defaultVenue  = "binance"
+	defaultSymbol = "BTCUSDT"
+)
+
 type config struct {
 	depth    int
 	every    int
@@ -65,8 +73,8 @@ func parseFlags(args []string, out io.Writer) (options, error) {
 	fs.IntVar(&o.every, "every", 500, "log the top of book every N updates")
 	fs.DurationVar(&o.pace, "pace", 200*time.Microsecond, "delay between updates (mimics a live feed; 0 floods to stress backpressure)")
 	fs.BoolVar(&o.live, "live", false, "connect to a live venue instead of the synthetic source")
-	fs.StringVar(&o.venue, "venue", "binance", "live venue (with -live): binance|kraken")
-	fs.StringVar(&o.symbol, "symbol", "BTCUSDT", "live symbol (with -live)")
+	fs.StringVar(&o.venue, "venue", defaultVenue, "live venue (with -live): binance|kraken")
+	fs.StringVar(&o.symbol, "symbol", defaultSymbol, "live symbol (with -live)")
 	fs.StringVar(&o.httpAddr, "http", "", "serve the SSE stream and /metrics on this address (e.g. :8080); empty = off")
 	if err := fs.Parse(args); err != nil {
 		return options{}, err
@@ -105,6 +113,10 @@ func main() {
 		pace: vs.pace, checksum: vs.checksum, window: vs.window,
 		venue: venueName(opts.live, opts.venue), symbol: symbolName(opts.live, opts.symbol), scales: vs.scales,
 	}
+	log.Info("mode", "live", opts.live, "venue", cfg.venue, "symbol", cfg.symbol)
+	if liveFlagsIgnored(opts.live, opts.venue, opts.symbol) {
+		log.Warn("live venue/symbol flags ignored without -live", "venue", opts.venue, "symbol", opts.symbol)
+	}
 	if opts.httpAddr != "" {
 		ln, err := net.Listen("tcp", opts.httpAddr)
 		if err != nil {
@@ -116,14 +128,39 @@ func main() {
 	}
 
 	res, err := run(ctx, log, src, cfg)
-	if err != nil {
-		log.Error("engine stopped", "err", err)
-		os.Exit(1)
+	if code := reportOutcome(log, err); code != 0 {
+		os.Exit(code)
 	}
 	log.Info("done",
 		"delivered", res.stats.Delivered, "dropped", res.stats.Dropped,
 		"resyncs", res.resyncs, "gaps", res.gaps, "disconnects", res.disconnects,
 		"would-cross", res.wouldCrosses)
+}
+
+// reportOutcome logs the pipeline's result and returns the process exit code. A
+// context-cancellation error (Ctrl-C, the only signal wired via signal.NotifyContext)
+// is a clean shutdown, not a failure — it must not read as a crash on the one
+// interruption every demo hits.
+func reportOutcome(log *slog.Logger, err error) int {
+	switch {
+	case err == nil:
+		return 0
+	case errors.Is(err, context.Canceled):
+		log.Info("interrupted, shutting down")
+		return 0
+	default:
+		log.Error("engine stopped", "err", err)
+		return 1
+	}
+}
+
+// liveFlagsIgnored reports whether -venue/-symbol were set to something other than
+// their defaults while -live was not given, meaning the flags are silently ignored
+// (newSource always builds the synthetic demo when live is false). Worth a startup
+// warning: -venue kraken without -live is a very plausible typo for -live -venue
+// kraken, and running the synthetic demo instead is otherwise silent.
+func liveFlagsIgnored(live bool, venue, symbol string) bool {
+	return !live && (venue != defaultVenue || symbol != defaultSymbol)
 }
 
 // venueSetup is what a source choice implies for the engine: the pacing (a live feed

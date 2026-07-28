@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"flag"
+	"fmt"
 	"io"
 	"log/slog"
 	"net"
@@ -352,8 +353,56 @@ func TestRunWithFaultsStaysUncrossed(t *testing.T) {
 func TestRunContextCancelled(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	if _, err := run(ctx, quietLog(), synthetic(1, 400), config{depth: 10}); err == nil {
+	_, err := run(ctx, quietLog(), synthetic(1, 400), config{depth: 10})
+	if err == nil {
 		t.Fatal("a cancelled context must surface an error")
+	}
+	// reportOutcome relies on this specific error surfacing unwrapped: it is what
+	// lets Ctrl-C during a live demo exit clean instead of reading as a crash.
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("run on a cancelled context must surface context.Canceled, got %v", err)
+	}
+}
+
+// reportOutcome must treat a cancelled context (Ctrl-C, the only signal wired) as a
+// clean shutdown, not a crash — that is the one interruption every demo hits.
+func TestReportOutcome(t *testing.T) {
+	cases := []struct {
+		name string
+		err  error
+		want int
+	}{
+		{"success", nil, 0},
+		{"interrupted", context.Canceled, 0},
+		{"interrupted, wrapped", fmt.Errorf("run: %w", context.Canceled), 0},
+		{"real failure", errors.New("boom"), 1},
+	}
+	for _, c := range cases {
+		if got := reportOutcome(quietLog(), c.err); got != c.want {
+			t.Errorf("%s: reportOutcome(%v) = %d, want %d", c.name, c.err, got, c.want)
+		}
+	}
+}
+
+// liveFlagsIgnored catches the plausible typo of setting -venue/-symbol without
+// -live: newSource silently falls back to the synthetic demo in that case.
+func TestLiveFlagsIgnored(t *testing.T) {
+	cases := []struct {
+		name          string
+		live          bool
+		venue, symbol string
+		want          bool
+	}{
+		{"defaults, synthetic", false, defaultVenue, defaultSymbol, false},
+		{"venue set without -live", false, "kraken", defaultSymbol, true},
+		{"symbol set without -live", false, defaultVenue, "BTC/USD", true},
+		{"live with non-default venue", true, "kraken", "BTC/USD", false},
+		{"live with defaults", true, defaultVenue, defaultSymbol, false},
+	}
+	for _, c := range cases {
+		if got := liveFlagsIgnored(c.live, c.venue, c.symbol); got != c.want {
+			t.Errorf("%s: liveFlagsIgnored(%v, %q, %q) = %v, want %v", c.name, c.live, c.venue, c.symbol, got, c.want)
+		}
 	}
 }
 
