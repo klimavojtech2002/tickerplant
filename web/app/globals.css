@@ -1,8 +1,10 @@
 /* Dark, terminal-leaning surface — a deliberate single mode for a market-data
- * console. Side identity lives in the bars only: bid #16a34a / ask #ef4444, a pair
- * that on this surface holds >=3:1 contrast and stays separable under simulated
- * color-vision deficiency (deutan deltaE ~14). All text wears ink tokens, and the
- * sides are named by their table headers, so nothing is color-alone. */
+ * console. Side identity lives in the bars: bid #16a34a / ask #ef4444 composited at
+ * the bar's own opacity (see .bar below) over --surface hold >=3:1 contrast there —
+ * the figure is measured on the painted pixel, not the bare swatch, since alpha
+ * blending changes it — and stay separable under simulated color-vision deficiency
+ * (deutan deltaE ~14). All text wears ink tokens, and the sides are named by their
+ * table headers, so nothing is color-alone. */
 
 :root {
   --surface: #1a1a19;
@@ -74,7 +76,8 @@ h1 {
 }
 
 .badge-retrying .badge-dot,
-.badge-stalled .badge-dot {
+.badge-stalled .badge-dot,
+.badge-disconnected .badge-dot {
   background: var(--warn);
 }
 
@@ -140,14 +143,16 @@ td.size {
 
 /* The bar sits behind the size text: a thin fill whose width is the exact integer
  * share of the side's largest size. A 2px vertical inset keeps adjacent bars from
- * fusing into a block, and the low opacity keeps the ink readable over it. */
+ * fusing into a block. Opacity 0.78 is tuned so the composited pixel (not the bare
+ * --bid/--ask swatch) clears 3:1 against --surface, while the ink stays readable
+ * over it. */
 .bar {
   position: absolute;
   left: 0;
   top: 2px;
   bottom: 2px;
   border-radius: 3px;
-  opacity: 0.28;
+  opacity: 0.78;
 }
 
 .bar-bids {
