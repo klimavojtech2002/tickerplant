@@ -1,0 +1,30 @@
+# One-command run: `docker compose up --build`. Defaults to the synthetic source, so
+# it needs no live venue, account, or paid feed. The dashboard's edge URL fallback
+# (web/app/page.tsx) already points at the edge's host-mapped port below, so nothing
+# else needs configuring for the default demo.
+#
+# For live data instead, override the edge's command, e.g.:
+#   docker compose run --rm --service-ports edge -http :8080 -live -venue kraken -symbol BTC/USD
+
+services:
+  edge:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    # -steps defaults to 5000 at the default pace (200us), which exhausts the
+    # synthetic source and exits after about a second - fine for the test suite, not
+    # for a demo meant to stay up while a reviewer browses the dashboard. A large step
+    # count keeps it running for a full session; it still exits cleanly (never wedges)
+    # once exhausted.
+    command: ["-http", ":8080", "-steps", "100000000"]
+    ports:
+      - "8080:8080"
+
+  dashboard:
+    build:
+      context: ./web
+      dockerfile: Dockerfile
+    ports:
+      - "3000:80"
+    depends_on:
+      - edge
