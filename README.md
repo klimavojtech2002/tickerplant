@@ -130,15 +130,40 @@ system does not persist across crashes.
 
 Go, for its concurrency model and standard-library networking. The core ships as a **reusable
 library** — the transport port, the normalizer, and the invariant-checked order-book engine — with a
-thin service, an HTTP edge, and a Next.js/TypeScript dashboard on top; Docker/docker-compose
-packaging is planned.
+thin service, an HTTP edge, and a Next.js/TypeScript dashboard on top.
 GitHub Actions runs CI. The core — model, transport port, engine, and fan-out — is written against the
 Go standard library alone.
+
+## Running it
+
+```
+docker compose up --build
+```
+
+Brings up the edge (`:8080`) and the dashboard (`:3000`) together. No account, API key, or paid
+feed required — the edge defaults to the deterministic synthetic source. Open
+`http://localhost:3000`.
+
+For live data instead of the synthetic demo, override the edge's command:
+
+```
+docker compose run --rm --service-ports edge -http :8080 -live -venue kraken -symbol BTC/USD
+```
+
+Both images are built from scratch — the Go service on `gcr.io/distroless/static-debian12:nonroot`
+(no shell, non-root, CA certs for live `wss://`; **15.9 MB**), the dashboard as a static export
+served by `nginx:alpine` (the page is fully client-side, so no Node runtime ships in the final
+image; **74.7 MB**, dominated by the nginx base).
+
+Without Docker: `go run ./cmd/tickerplant -http :8080 -steps 100000000` for the edge (the step count
+keeps the synthetic demo running for a full session instead of exhausting in ~1s at the default),
+then `cd web && pnpm install && pnpm dev` for the dashboard against it.
 
 ## Status
 
 The table below is the source of truth: the core, the first two live venues (Binance, Kraken), the
-HTTP edge, and the dashboard are built and tested; OKX and packaging are next.
+HTTP edge, the dashboard, and Docker/compose packaging are built and tested; OKX is the remaining
+venue.
 
 | Component | Status |
 |-----------|--------|
@@ -156,8 +181,8 @@ HTTP edge, and the dashboard are built and tested; OKX and packaging are next.
 | Metrics: engine counters (gaps/resyncs/disconnects) + latency histogram | Done — tested |
 | HTTP edge: SSE `/stream` (complete top-N views) + `/metrics` JSON (`-http :8080`) | Done — tested |
 | Benchmark harness (open-loop, coordinated-omission-aware) | Done — tested |
-| CI (`.github/workflows/ci.yml`: gofmt / vet / staticcheck / build / `-race`) | Done |
-| Docker, docker-compose | Planned |
+| CI (`.github/workflows/ci.yml`: gofmt / vet / staticcheck / build / `-race`, plus a front-end lint/type-check/test/build job) | Done |
+| Docker, docker-compose (`docker compose up`, synthetic by default) | Done — tested |
 
 ## Limitations
 
