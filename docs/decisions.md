@@ -243,8 +243,9 @@ weaker), and its sequenced feed needs an account.
   than the same one three times.
 - The transport port (ADR-0001) makes a fourth venue an adapter, not a rewrite.
 - Trade-off: three documented procedures to track and re-verify against live venue docs at
-  implementation time. Accepted; that tracking is the senior skill being demonstrated — borne out when
-  OKX deprecated its book checksum on 2026-06-23, leaving it sequence-only, caught by re-verification.
+  implementation time, since a venue's own recovery procedure can change: OKX deprecated its book
+  checksum on 2026-06-23, leaving it sequence-only, caught by re-verification before that adapter
+  was built.
 
 ## ADR-0012 — A pull-based transport port, not a channel
 
