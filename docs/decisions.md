@@ -505,6 +505,13 @@ running demo) and the Next.js dashboard.
   client"` component, no API routes, no server actions, ADR-0018) — `next.config.ts`'s `output:
   "export"` produces plain HTML/CSS/JS, served by `nginx:alpine`. No Node runtime in the final
   image, and no server-side attack surface for something that does no server-side work.
+  Unlike the Go service, this image's master process still starts as root (nginx's own standard
+  pattern: bind port 80, then the worker processes — the ones that actually parse and serve every
+  request — drop to the unprivileged `nginx` user). Left as upstream ships it rather than
+  reconfiguring the listen port and writable paths to force full rootless mode: nginx's
+  root-master/unprivileged-worker split is battle-tested for exactly this exposure (a static file
+  server, no exec, no user input reaching a shell), and the marginal hardening did not seem worth
+  the fragility of hand-patching a stock config. Stated as a trade-off, not left unacknowledged.
 - **`NEXT_PUBLIC_EDGE_URL` stays at its code default for the compose demo.** A static export inlines
   environment variables at build time, not request time, so the edge URL cannot be picked up from
   the container's runtime environment the way a server-rendered app could. The dashboard's existing
