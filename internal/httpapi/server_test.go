@@ -211,6 +211,24 @@ func TestLaggingClientDisconnectedAndUnwedged(t *testing.T) {
 
 	resp, _ := openStream(t, srv.URL) // never read from it
 
+	// openStream's http.Get returns once the server flushes headers, which happens
+	// before the handler calls Hub.Subscribe (server.go's stream). Unlike every other
+	// openStream caller in this file, this test never reads the body (nextView), so it
+	// has no other happens-after signal that the subscription landed — without this
+	// wait, the loop below's condition can read Consumers()==0 before the handler ever
+	// subscribes, skip its body entirely, and leave the handler parked forever with
+	// nothing published to unwedge it (the same bug class TestStreamNoOpenerBeforeFirstPublish
+	// hit; reproduced empirically here too before this fix).
+	subDeadline := time.After(5 * time.Second)
+	for hub.Stats().Consumers != 1 {
+		select {
+		case <-subDeadline:
+			t.Fatal("handler never subscribed")
+		default:
+			runtime.Gosched()
+		}
+	}
+
 	deadline := time.After(5 * time.Second)
 	for seq := market.Sequence(2); hub.Stats().Consumers != 0; seq++ {
 		select {
