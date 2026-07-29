@@ -1,0 +1,13 @@
+# Keep the build context small and free of anything local-only or governance-related
+# (defense in depth alongside .git/info/exclude — see CLAUDE.md §1).
+.git
+.dev
+.claude
+.private
+CLAUDE.md
+web
+bin
+*.exe
+*.test
+*.out
+coverage.*

@@ -487,6 +487,46 @@ survive disconnects — in a language whose only built-in number is a float64.
   the natural seam is keying the store by the event's venue/symbol identity, which every view
   already carries.
 
+## ADR-0019 — Distroless/nonroot for the service, a static export for the dashboard
+
+**Status:** Accepted
+
+**Context.** The system needs to run with one command on a reviewer's machine, with no account or
+paid feed — `docker compose up`. Two images: the Go service (an HTTP edge plus, over stdout, the
+running demo) and the Next.js dashboard.
+
+**Decision.**
+- **Go service: `gcr.io/distroless/static-debian12:nonroot`.** The binary is `CGO_ENABLED=0`, so it
+  needs nothing from the OS but CA certificates (for live `wss://`) — which the `nonroot` distroless
+  variant already ships, along with a non-root user (uid 65532), with no shell and no package
+  manager in the final image. A multi-stage build (`golang:1.25-alpine` builder → distroless final)
+  keeps the toolchain out of what ships.
+- **Dashboard: a static export, not a Next.js server.** The page is entirely client-side (one `"use
+  client"` component, no API routes, no server actions, ADR-0018) — `next.config.ts`'s `output:
+  "export"` produces plain HTML/CSS/JS, served by `nginx:alpine`. No Node runtime in the final
+  image, and no server-side attack surface for something that does no server-side work.
+- **`NEXT_PUBLIC_EDGE_URL` stays at its code default for the compose demo.** A static export inlines
+  environment variables at build time, not request time, so the edge URL cannot be picked up from
+  the container's runtime environment the way a server-rendered app could. The dashboard's existing
+  fallback (`app/page.tsx`) already points at `http://127.0.0.1:8080`, which is exactly the edge's
+  host-mapped port in `docker-compose.yml` — the common case needs no override, because the
+  EventSource connection runs in the reviewer's browser, not inside the container network.
+- **Live mode is a command override, not a new flag.** `cmd/tickerplant` already reads `-live
+  -venue -symbol` from argv; docker-compose.yml documents overriding the service's command
+  (`docker compose run --rm --service-ports edge -live ...`) rather than inventing a
+  compose-specific environment-variable indirection for something argv already does.
+
+**Consequences.**
+- Two build contexts (`.` for the service, `./web` for the dashboard), each with its own
+  `.dockerignore` — the service's excludes `web/` entirely and every governance path (defense in
+  depth alongside `.git/info/exclude`, CLAUDE.md §1); the dashboard's excludes `node_modules`/`.next`
+  so the build installs cleanly rather than copying a host's platform-specific artifacts.
+- A multi-instrument or server-rendered dashboard would force revisiting the static-export choice;
+  out of scope while the page serves one instrument (ADR-0018's own noted future work).
+- Image sizes, measured: the Go service is **15.9 MB** (distroless static + a stripped, trimmed
+  binary); the dashboard is **74.7 MB**, dominated by the `nginx:alpine` base rather than the
+  handful of static files it serves.
+
 ## Verified against
 
 - Go language specification — `internal` package import rule (ADR-0002).
