@@ -1,10 +1,7 @@
-# Keep the build context small and free of anything local-only or governance-related
-# (defense in depth alongside .git/info/exclude — see CLAUDE.md §1).
+# Keep the build context small. The Dockerfile's explicit COPY list (go.mod, go.sum,
+# cmd, internal) is the real boundary on what enters the image; this just keeps
+# everything else from being sent to the daemon at all.
 .git
-.dev
-.claude
-.private
-CLAUDE.md
 web
 bin
 *.exe

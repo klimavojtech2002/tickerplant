@@ -150,10 +150,11 @@ For live data instead of the synthetic demo, override the edge's command:
 docker compose run --rm --service-ports edge -http :8080 -live -venue kraken -symbol BTC/USD
 ```
 
-Both images are built from scratch — the Go service on `gcr.io/distroless/static-debian12:nonroot`
-(no shell, non-root, CA certs for live `wss://`; **15.9 MB**), the dashboard as a static export
-served by `nginx:alpine` (the page is fully client-side, so no Node runtime ships in the final
-image; **74.7 MB**, dominated by the nginx base).
+Both images are multi-stage, purpose-built minimal — the Go service on
+`gcr.io/distroless/static-debian12:nonroot` (no shell, non-root, CA certs for live `wss://`;
+**15.9 MB**), the dashboard as a static export served by `nginx:alpine` (the page is fully
+client-side, so no Node runtime ships in the final image; **74.7 MB**, dominated by the nginx
+base).
 
 Without Docker: `go run ./cmd/tickerplant -http :8080 -steps 100000000` for the edge (the step count
 keeps the synthetic demo running for a full session instead of exhausting in ~1s at the default),

@@ -505,6 +505,13 @@ running demo) and the Next.js dashboard.
   client"` component, no API routes, no server actions, ADR-0018) — `next.config.ts`'s `output:
   "export"` produces plain HTML/CSS/JS, served by `nginx:alpine`. No Node runtime in the final
   image, and no server-side attack surface for something that does no server-side work.
+  Unlike the Go service, this image's master process still starts as root (nginx's own standard
+  pattern: bind port 80, then the worker processes — the ones that actually parse and serve every
+  request — drop to the unprivileged `nginx` user). Left as upstream ships it rather than
+  reconfiguring the listen port and writable paths to force full rootless mode: nginx's
+  root-master/unprivileged-worker split is battle-tested for exactly this exposure (a static file
+  server, no exec, no user input reaching a shell), and the marginal hardening did not seem worth
+  the fragility of hand-patching a stock config. Stated as a trade-off, not left unacknowledged.
 - **`NEXT_PUBLIC_EDGE_URL` stays at its code default for the compose demo.** A static export inlines
   environment variables at build time, not request time, so the edge URL cannot be picked up from
   the container's runtime environment the way a server-rendered app could. The dashboard's existing
@@ -518,9 +525,10 @@ running demo) and the Next.js dashboard.
 
 **Consequences.**
 - Two build contexts (`.` for the service, `./web` for the dashboard), each with its own
-  `.dockerignore` — the service's excludes `web/` entirely and every governance path (defense in
-  depth alongside `.git/info/exclude`, CLAUDE.md §1); the dashboard's excludes `node_modules`/`.next`
-  so the build installs cleanly rather than copying a host's platform-specific artifacts.
+  `.dockerignore` to keep the context small — the real boundary on what reaches either image is
+  each Dockerfile's own explicit `COPY` list, not the ignore file; the dashboard's additionally
+  excludes `node_modules`/`.next` so the build installs cleanly rather than copying a host's
+  platform-specific artifacts.
 - A multi-instrument or server-rendered dashboard would force revisiting the static-export choice;
   out of scope while the page serves one instrument (ADR-0018's own noted future work).
 - Image sizes, measured: the Go service is **15.9 MB** (distroless static + a stripped, trimmed
