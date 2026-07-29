@@ -4,6 +4,7 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -52,3 +53,52 @@ jobs:
 
       - name: test (race + coverage)
         run: go test -race -coverprofile=coverage.out ./...
+
+  web:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.21.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'pnpm'
+          cache-dependency-path: web/pnpm-lock.yaml
+
+      - name: install
+        run: pnpm install --frozen-lockfile
+
+      - name: lint
+        run: pnpm lint
+
+      - name: type-check
+        run: pnpm type-check
+
+      - name: test
+        run: pnpm test
+
+      - name: build
+        run: pnpm build
+
+  # Live-venue tests hit real exchange endpoints, so they run only on demand — a venue
+  # outage or rate limit must never block a merge. Not in the required-checks set.
+  integration:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+          cache: true
+
+      - name: live venue integration tests
+        run: go test -tags integration ./internal/venue/...
