@@ -518,9 +518,10 @@ running demo) and the Next.js dashboard.
 
 **Consequences.**
 - Two build contexts (`.` for the service, `./web` for the dashboard), each with its own
-  `.dockerignore` — the service's excludes `web/` entirely and every governance path (defense in
-  depth alongside `.git/info/exclude`, CLAUDE.md §1); the dashboard's excludes `node_modules`/`.next`
-  so the build installs cleanly rather than copying a host's platform-specific artifacts.
+  `.dockerignore` to keep the context small — the real boundary on what reaches either image is
+  each Dockerfile's own explicit `COPY` list, not the ignore file; the dashboard's additionally
+  excludes `node_modules`/`.next` so the build installs cleanly rather than copying a host's
+  platform-specific artifacts.
 - A multi-instrument or server-rendered dashboard would force revisiting the static-export choice;
   out of scope while the page serves one instrument (ADR-0018's own noted future work).
 - Image sizes, measured: the Go service is **15.9 MB** (distroless static + a stripped, trimmed
