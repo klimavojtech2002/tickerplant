@@ -375,6 +375,22 @@ func TestStreamNoOpenerBeforeFirstPublish(t *testing.T) {
 	defer hub.Close()
 	srv := newEdge(t, hub, &stubEngine{view: nil}, nil, 0)
 	_, sc := openStream(t, srv.URL)
+	// openStream's http.Get returns once the server flushes headers, which happens
+	// before the handler calls Hub.Subscribe (server.go's stream, by design: it
+	// unblocks EventSource's onopen on a quiet feed even before subscribing). A
+	// Publish racing ahead of that Subscribe would never reach this client, and
+	// since this test's engine has no opener view, there would be nothing else to
+	// wake it — an unrecoverable hang, not a flake. Wait for the subscription first,
+	// the same pattern already used below (TestStreamDegradedWriters).
+	deadline := time.After(5 * time.Second)
+	for hub.Stats().Consumers != 1 {
+		select {
+		case <-deadline:
+			t.Fatal("handler never subscribed")
+		default:
+			runtime.Gosched()
+		}
+	}
 	hub.Publish(view(9))
 	if first := nextView(t, sc); first.Seq != 9 {
 		t.Fatalf("first event seq = %d, want 9 (no empty opener)", first.Seq)
