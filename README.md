@@ -157,8 +157,8 @@ client-side, so no Node runtime ships in the final image; **74.7 MB**, dominated
 base).
 
 Without Docker: `go run ./cmd/tickerplant -http :8080 -steps 100000000` for the edge (the step count
-keeps the synthetic demo running for a full session instead of exhausting in ~1s at the default),
-then `cd web && pnpm install && pnpm dev` for the dashboard against it.
+keeps the synthetic demo running for a full session instead of exhausting in ~12.5 minutes at the
+default), then `cd web && pnpm install && pnpm dev` for the dashboard against it.
 
 ## Status
 
