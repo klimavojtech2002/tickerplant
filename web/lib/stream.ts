@@ -5,6 +5,14 @@
 // reported as "disconnected" rather than "retrying", since the browser has given up
 // and only a page reload restarts it. The constructor is injectable so tests can
 // drive the whole lifecycle with a scripted fake.
+//
+// React's Strict Mode (on by default for the App Router) mounts, cleans up, and
+// re-mounts every effect once in development, so a discarded EventSource can still
+// have a message queued or in flight when its replacement is already live. Without a
+// guard, a stale event from that discarded instance reaches the same store and can
+// roll a fresher view backward or relabel a live connection as retrying. `closed`
+// makes every handler a no-op once this call's own cleanup has run, independent of
+// whatever the browser (or a test double) does with the EventSource afterward.
 
 import type { ViewStore } from "./store";
 import { parseView } from "./types";
@@ -30,14 +38,19 @@ export function connectStream(
   ES: EventSourceCtor = EventSource as unknown as EventSourceCtor,
 ): () => void {
   const es = new ES(`${baseURL}/stream`);
-  es.onopen = () => store.setStatus("live");
+  let closed = false;
+  es.onopen = () => {
+    if (!closed) store.setStatus("live");
+  };
   es.onerror = () => {
+    if (closed) return;
     // A CLOSED readyState means the browser will never retry on its own — a
     // "retrying" badge would lie. Anything else is the ordinary transient error
     // EventSource is already recovering from.
     store.setStatus(es.readyState === CLOSED ? "disconnected" : "retrying");
   };
   es.addEventListener("view", (ev) => {
+    if (closed) return;
     const v = parseView(ev.data as string);
     if (v === null) {
       console.error("malformed view event dropped:", ev.data);
@@ -45,5 +58,8 @@ export function connectStream(
     }
     store.push(v);
   });
-  return () => es.close();
+  return () => {
+    closed = true;
+    es.close();
+  };
 }

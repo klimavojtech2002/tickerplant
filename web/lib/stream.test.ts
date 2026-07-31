@@ -95,4 +95,40 @@ describe("connectStream", () => {
     stop();
     expect(es.closed).toBe(true);
   });
+
+  // React Strict Mode (on by default under the App Router) mounts every effect
+  // twice in development: connect, clean up, reconnect. The discarded first
+  // EventSource's handlers stay wired to the same store, so a stale event
+  // reaching them after cleanup must be inert rather than corrupt state the
+  // surviving connection already set.
+  it("ignores a stale status event from a connection whose cleanup already ran", () => {
+    const store = new ViewStore();
+    const stop1 = connectStream("http://edge", store, FakeEventSource);
+    const esA = FakeEventSource.last!;
+    esA.onopen!(new Event("open"));
+    stop1();
+
+    connectStream("http://edge", store, FakeEventSource);
+    const esB = FakeEventSource.last!;
+    esB.onopen!(new Event("open"));
+    expect(store.getSnapshot().status).toBe("live");
+
+    esA.onerror!(new Event("error")); // late event from the discarded connection
+    expect(store.getSnapshot().status).toBe("live");
+  });
+
+  it("ignores a stale view event from a connection whose cleanup already ran", () => {
+    const store = new ViewStore();
+    const stop1 = connectStream("http://edge", store, FakeEventSource);
+    const esA = FakeEventSource.last!;
+    stop1();
+
+    connectStream("http://edge", store, FakeEventSource);
+    const esB = FakeEventSource.last!;
+    esB.emit("view", goodView);
+    expect(store.getSnapshot().view?.seq).toBe(7);
+
+    esA.emit("view", goodView.replace('"seq":7', '"seq":1')); // stale, from A
+    expect(store.getSnapshot().view?.seq).toBe(7);
+  });
 });
