@@ -71,7 +71,11 @@ func parseFlags(args []string, out io.Writer) (options, error) {
 	fs.IntVar(&o.steps, "steps", 5000, "number of source steps to run")
 	fs.IntVar(&o.depth, "depth", 10, "published book depth")
 	fs.IntVar(&o.every, "every", 500, "log the top of book every N updates")
-	fs.DurationVar(&o.pace, "pace", 200*time.Microsecond, "delay between updates (mimics a live feed; 0 floods to stress backpressure)")
+	// 150ms (~6.7/s) sits in the range a real top-of-book feed updates at; the prior
+	// 200us default (~5000/s) was fast enough that a browser watching the dashboard's
+	// SSE stream would see real reconnect cycling under the sustained load, not just a
+	// cosmetically fast demo.
+	fs.DurationVar(&o.pace, "pace", 150*time.Millisecond, "delay between updates (mimics a live feed; 0 floods to stress backpressure)")
 	fs.BoolVar(&o.live, "live", false, "connect to a live venue instead of the synthetic source")
 	fs.StringVar(&o.venue, "venue", defaultVenue, "live venue (with -live): binance|kraken")
 	fs.StringVar(&o.symbol, "symbol", defaultSymbol, "live symbol (with -live)")

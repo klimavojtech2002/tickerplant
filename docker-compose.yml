@@ -11,10 +11,11 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    # -steps defaults to 5000 at the default pace (200us), which exhausts the
-    # synthetic source and exits after about a second - fine for the test suite, not
-    # for a demo meant to stay up while a reviewer browses the dashboard. A large step
-    # count keeps it running for a full session; it still exits cleanly (never wedges)
+    # -steps defaults to 5000 at the default pace (150ms), which exhausts the
+    # synthetic source and exits after about 12.5 minutes - fine for the test suite,
+    # not for a demo meant to stay up while a reviewer browses the dashboard. A large
+    # step count keeps it running for a full session (100,000,000 steps at 150ms is
+    # over 170 days, effectively indefinite); it still exits cleanly (never wedges)
     # once exhausted.
     command: ["-http", ":8080", "-steps", "100000000"]
     ports:
