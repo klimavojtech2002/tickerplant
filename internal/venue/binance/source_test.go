@@ -14,9 +14,14 @@ import (
 	"github.com/klimavojtech2002/tickerplant/internal/source"
 )
 
-// depthFrame builds a raw depthUpdate JSON frame, as the WebSocket would deliver it.
+// depthFrame builds a raw depthUpdate JSON frame, as the WebSocket would deliver it —
+// including "E" (event time), which real frames always carry. Omitting it here once
+// let every real frame fail silently in production while every test stayed green: with
+// no field claiming "E", encoding/json's case-insensitive fallback collided it onto
+// Event (tag "e"), a string, so unmarshaling a real frame's numeric "E" failed. Keeping
+// "E" in the fixture is what makes this shape a regression test for that class of bug.
 func depthFrame(first, final uint64, bids, asks [][]string) []byte {
-	b, _ := json.Marshal(map[string]any{"e": "depthUpdate", "U": first, "u": final, "b": bids, "a": asks})
+	b, _ := json.Marshal(map[string]any{"e": "depthUpdate", "E": 1700000000000, "U": first, "u": final, "b": bids, "a": asks})
 	return b
 }
 
