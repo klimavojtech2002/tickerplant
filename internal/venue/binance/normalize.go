@@ -22,13 +22,19 @@ import (
 )
 
 // depthUpdate is the WS diff-depth event. Each level in b/a is a [price, quantity]
-// pair of decimal strings; quantity 0 deletes the level.
+// pair of decimal strings; quantity 0 deletes the level. EventTime is otherwise
+// unused, but its field must exist: encoding/json falls back to a case-insensitive
+// match when a JSON key has no exact-tag match, so without a field claiming "E" the
+// wire's "E" (event time, a number) collides onto Event (tag "e", a string) and every
+// real frame fails to unmarshal — never reproduced by a struct literal or a
+// hand-built test frame missing "E", only by the venue's actual wire format.
 type depthUpdate struct {
-	Event string     `json:"e"`
-	First uint64     `json:"U"`
-	Final uint64     `json:"u"`
-	Bids  [][]string `json:"b"`
-	Asks  [][]string `json:"a"`
+	Event     string     `json:"e"`
+	EventTime int64      `json:"E"`
+	First     uint64     `json:"U"`
+	Final     uint64     `json:"u"`
+	Bids      [][]string `json:"b"`
+	Asks      [][]string `json:"a"`
 }
 
 // restDepth is the REST /api/v3/depth snapshot.
