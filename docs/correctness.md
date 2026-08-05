@@ -198,6 +198,8 @@ harness are built (slices 0002–0003) — by deterministic simulation, by this 
 - Latency claims are measured with the clock source and span stated, under a defined load harness, and
   reported as a distribution (p50/p99/p99.9/max), not a single trimmed number (ADR-0009).
 
+![Best bid/ask through two injected failures — one gap and one illegal crossing delta, both detected and resynced within the update they occurred](figures/fig1-recovery.svg)
+
 ## What this does not cover
 
 - **Crash persistence.** State lives in memory. The guarantee covers reconnects, gaps, and slow consumers

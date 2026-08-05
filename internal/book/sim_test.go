@@ -86,6 +86,20 @@ func TestSimulation(t *testing.T) {
 		if got := e.WouldCrosses(); got != wantCross {
 			t.Fatalf("seed %d: WouldCrosses() = %d, want %d", seed, got, wantCross)
 		}
+		// Every faulted seed schedules one FaultGap plus one FaultReorder — and a
+		// reordered delta reads to the engine exactly like a gap (the later-sequenced
+		// event arrives first, ahead of what it's waiting for), so a faulted seed
+		// registers two gaps; a clean seed schedules neither and registers none. Pinning
+		// the exact count here (not just relying on the aggregate resync-ratio guard
+		// below) is the anti-fake-green check for the gap path specifically: a gap that
+		// silently failed to register would read low here and fail loudly.
+		wantGaps := 0
+		if len(faults) > 0 {
+			wantGaps = 2
+		}
+		if got := e.Gaps(); got != wantGaps {
+			t.Fatalf("seed %d: Gaps() = %d, want %d", seed, got, wantGaps)
+		}
 		if len(faults) > 0 {
 			faultedSeeds++
 			if e.Resyncs() > 0 {

@@ -80,6 +80,9 @@ func main() {
 		record(idx)
 	}
 
+	if len(points) == 0 {
+		log.Fatalf("no published view captured (empty book)")
+	}
 	if err := os.WriteFile(*out, []byte(render(points, gapAt, crossAt, eng)), 0o644); err != nil {
 		log.Fatalf("write: %v", err)
 	}

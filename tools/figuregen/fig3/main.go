@@ -64,19 +64,22 @@ func main() {
 		log.Error("no latency samples captured")
 		os.Exit(1)
 	}
+	tail := tailAboveResolution(samples)
+	if len(tail) == 0 {
+		log.Error("every sample was within measurement resolution; nothing to plot", "totalSamples", len(samples))
+		os.Exit(1)
+	}
 
-	if err := os.WriteFile(*out, []byte(render(samples, *capture, symbol2display(*symbol))), 0o644); err != nil {
+	if err := os.WriteFile(*out, []byte(render(samples, tail, *capture, *symbol)), 0o644); err != nil {
 		log.Error("write failed", "err", err)
 		os.Exit(1)
 	}
 	fmt.Printf("wrote %s: %d raw samples over %s\n", *out, len(samples), *capture)
 }
 
-func symbol2display(s string) string { return s }
-
-const plotW, plotH = card.ContentWidth, 420
-
-func render(samples []time.Duration, window time.Duration, symbol string) string {
+// tailAboveResolution returns the sorted samples above the measurement floor: the
+// real, measured latency distribution the histogram plots.
+func tailAboveResolution(samples []time.Duration) []time.Duration {
 	var tail []time.Duration
 	for _, d := range samples {
 		if d > resolution {
@@ -84,11 +87,13 @@ func render(samples []time.Duration, window time.Duration, symbol string) string
 		}
 	}
 	slices.Sort(tail)
+	return tail
+}
 
+const plotW, plotH = card.ContentWidth, 420
+
+func render(samples, tail []time.Duration, window time.Duration, symbol string) string {
 	percentile := func(p float64) time.Duration {
-		if len(tail) == 0 {
-			return 0
-		}
 		idx := int(p * float64(len(tail)-1))
 		return tail[idx]
 	}
