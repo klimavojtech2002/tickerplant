@@ -8,8 +8,6 @@ import "errors"
 var (
 	// ErrCrossed: the book would have best bid >= best ask after an update.
 	ErrCrossed = errors.New("book crossed")
-	// ErrSequenceGap: a delta does not continue from the last applied sequence.
-	ErrSequenceGap = errors.New("sequence gap")
 	// ErrChecksumMismatch: a venue checksum disagrees with the local book.
 	ErrChecksumMismatch = errors.New("checksum mismatch")
 	// ErrStaleSnapshot: the snapshot is older than the available stream position.
