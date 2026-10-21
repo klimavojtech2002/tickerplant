@@ -187,7 +187,7 @@ func TestLogTopRendersBidAndAsk(t *testing.T) {
 		LastSeq: 5,
 		Bids:    []market.Level{{Price: 100, Size: 2}},
 		Asks:    []market.Level{{Price: 101, Size: 3}},
-	})
+	}, [2]int{})
 	if out := buf.String(); !strings.Contains(out, "100 x 2") || !strings.Contains(out, "101 x 3") {
 		t.Fatalf("logTop output %q is missing the rendered bid/ask", out)
 	}
@@ -355,7 +355,7 @@ func TestRunStepErrorPropagates(t *testing.T) {
 // An empty book (no bids or asks) renders each side as "-", not a panic or a zero level.
 func TestLogTopRendersEmptySides(t *testing.T) {
 	var buf bytes.Buffer
-	logTop(slog.New(slog.NewTextHandler(&buf, nil)), &book.View{})
+	logTop(slog.New(slog.NewTextHandler(&buf, nil)), &book.View{}, [2]int{})
 	if out := buf.String(); !strings.Contains(out, "bid=-") || !strings.Contains(out, "ask=-") {
 		t.Fatalf("empty view must render bid=- and ask=-, got %q", out)
 	}
@@ -683,5 +683,19 @@ func TestRunClosesEdgeWhenShutdownTimesOut(t *testing.T) {
 		t.Fatal("read succeeded on a connection that should have been closed")
 	} else if ne, ok := err.(net.Error); ok && ne.Timeout() {
 		t.Fatal("the stalled connection was still open 2s after Run returned: Close was not used after Shutdown timed out")
+	}
+}
+
+// logTop prints prices and sizes at the feed's scale.
+func TestLogTopScaled(t *testing.T) {
+	var buf bytes.Buffer
+	v := &book.View{LastSeq: 7,
+		Bids: []market.Level{{Price: 6400050, Size: 1}},
+		Asks: []market.Level{{Price: 6400100, Size: 25}}}
+	logTop(slog.New(slog.NewTextHandler(&buf, nil)), v, [2]int{2, 3})
+	for _, want := range []string{"bid=\"64000.50 x 0.001\"", "ask=\"64001.00 x 0.025\""} {
+		if !strings.Contains(buf.String(), want) {
+			t.Errorf("log lacks %s:\n%s", want, buf.String())
+		}
 	}
 }

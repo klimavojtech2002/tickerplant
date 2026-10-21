@@ -253,7 +253,7 @@ func Run(ctx context.Context, log *slog.Logger, src source.Source, cfg Config) (
 			}
 			if cfg.every > 0 {
 				if n++; n%cfg.every == 0 {
-					logTop(log, v)
+					logTop(log, v, cfg.scales)
 				}
 			}
 		}
@@ -305,13 +305,14 @@ func LiveCadence(every int, everySet, live bool) int {
 	return every
 }
 
-func logTop(log *slog.Logger, v *book.View) {
+// logTop logs the best bid and ask at the feed's decimal scales (price, size).
+func logTop(log *slog.Logger, v *book.View, scales [2]int) {
 	bid, ask := "-", "-"
 	if len(v.Bids) > 0 {
-		bid = fmt.Sprintf("%d x %d", v.Bids[0].Price, v.Bids[0].Size)
+		bid = market.FormatScaled(int64(v.Bids[0].Price), scales[0]) + " x " + market.FormatScaled(int64(v.Bids[0].Size), scales[1])
 	}
 	if len(v.Asks) > 0 {
-		ask = fmt.Sprintf("%d x %d", v.Asks[0].Price, v.Asks[0].Size)
+		ask = market.FormatScaled(int64(v.Asks[0].Price), scales[0]) + " x " + market.FormatScaled(int64(v.Asks[0].Size), scales[1])
 	}
 	log.Info("top of book", "seq", uint64(v.LastSeq), "bid", bid, "ask", ask)
 }
