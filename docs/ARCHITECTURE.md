@@ -44,7 +44,7 @@ the symbol's decimal precision, with no `float64` on the book path (ADR-0003).
 A raw venue message enters an ingestion adapter, which normalizes it into a canonical snapshot or delta
 and hands it to the engine through the port. The engine applies it to the venue's book, checking the
 invariants on every update (§5). The engine stores the resulting view atomically, and the run loop in
-`cmd/tickerplant` hands each new view to the in-process fan-out, which delivers the latest to every
+`internal/app` hands each new view to the in-process fan-out, which delivers the latest to every
 consumer without blocking (a per-consumer conflating slot, §7). A sequence gap, a would-cross delta or a
 checksum mismatch short-circuits this flow into a resync (§6) instead of producing a wrong book.
 
@@ -88,7 +88,7 @@ the engine stores a complete top-N view, the run loop hands it to the hub, and e
 size-1 latest slot. Delivery is non-blocking and latest-wins: if a consumer has not taken its previous
 view, the newer one supersedes it, so a lagging consumer always jumps to the freshest book rather than
 replaying stale ones (ADR-0015). A consumer that stays behind past a bound (1024 consecutive supersedes
-in `cmd/tickerplant`) is disconnected, and an SSE client reconnects and starts from the current view, so
+in `internal/app`) is disconnected, and an SSE client reconnects and starts from the current view, so
 one slow consumer cannot stall the engine or the others. The reasoning for dropping over blocking is in
 ADR-0006; for latest-wins conflation over a FIFO buffer, ADR-0015; for an in-process fan-out rather than
 vendoring an SSE broker, ADR-0013.
@@ -135,6 +135,7 @@ The full correctness model and simulation method are in [correctness.md](correct
 
 The README status table is the source of truth for what is implemented. The core is built and tested —
 canonical model, transport port and synthetic source, order-book engine, the in-process fan-out with a
-runnable demo (`cmd/tickerplant`), the metrics and benchmark harness, the Binance and Kraken live
-adapters, the HTTP edge (SSE stream + /metrics, ADR-0017), the dashboard (ADR-0018), CI, and the Docker
-packaging (ADR-0019). There is no OKX adapter (not planned; see [scope.md](scope.md)).
+runnable demo (`internal/app` wires it, `cmd/tickerplant` is the command), the metrics and benchmark
+harness, the Binance and Kraken live adapters, the HTTP edge (SSE stream + /metrics, ADR-0017), the
+dashboard (ADR-0018), CI, and the Docker packaging (ADR-0019). There is no OKX adapter (not planned; see
+[scope.md](scope.md)).
