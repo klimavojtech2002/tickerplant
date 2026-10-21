@@ -14,6 +14,43 @@ import (
 // snapshot fails loudly instead of wedging the writer (ADR-0004).
 const maxBindAttempts = 8
 
+// maxSnapshotRetries is how many times Bootstrap retries a Snapshot call that failed with
+// a transient error (source.IsTransient) before it gives up and returns that error. Only
+// consecutive failures count; a snapshot that arrives resets the count. It is separate
+// from maxBindAttempts, which counts snapshots that arrived but were rejected.
+const maxSnapshotRetries = 5
+
+const (
+	snapshotBackoffMin = 250 * time.Millisecond
+	snapshotBackoffMax = 4 * time.Second
+)
+
+// defaultSnapshotBackoff doubles from snapshotBackoffMin up to snapshotBackoffMax. The app
+// replaces it with a jittered one so that several instances do not retry in step.
+func defaultSnapshotBackoff(attempt int) time.Duration {
+	d := snapshotBackoffMin
+	for i := 0; i < attempt && d < snapshotBackoffMax; i++ {
+		d *= 2
+	}
+	return min(d, snapshotBackoffMax)
+}
+
+// sleepCtx waits for d or until ctx is done, whichever comes first. A delay of zero or less
+// returns at once.
+func sleepCtx(ctx context.Context, d time.Duration) error {
+	if d <= 0 {
+		return ctx.Err()
+	}
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-t.C:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
 // maxConsecutiveResyncs bounds resyncs that make no progress (e.g. a snapshot that
 // stays behind the stream), so a pathological feed fails loudly rather than livelocking.
 const maxConsecutiveResyncs = 16
@@ -60,11 +97,42 @@ type Engine struct {
 	checksum           Checksummer         // nil on sequence venues; set via WithChecksum for checksum venues
 	maxDepth           int                 // 0 = keep every level; >0 = the feed's subscribed window (WithMaxDepth)
 	latencyFn          func(time.Duration) // nil = no latency observation (WithLatencyObserver)
+
+	snapshotErrors atomic.Int64                               // Snapshot calls that failed, other than by the caller's cancellation
+	retryMax       int                                        // retries of a transient Snapshot failure (WithSnapshotRetry)
+	retryBackoff   func(attempt int) time.Duration            // delay before retry number attempt+1
+	retrySleep     func(context.Context, time.Duration) error // waits out a retry delay; ends early on ctx
 }
 
 // New creates an Engine publishing a top-N view of the given depth.
 func New(src source.Source, depth int) *Engine {
-	return &Engine{src: src, depth: depth}
+	return &Engine{
+		src: src, depth: depth,
+		retryMax: maxSnapshotRetries, retryBackoff: defaultSnapshotBackoff, retrySleep: sleepCtx,
+	}
+}
+
+// WithSnapshotBackoff replaces the delay between snapshot retries and keeps the retry
+// count and the sleep. The app uses it to add jitter. Call before Bootstrap/Run.
+func (e *Engine) WithSnapshotBackoff(backoff func(attempt int) time.Duration) *Engine {
+	e.retryBackoff = backoff
+	return e
+}
+
+// WithSnapshotRetry sets how Bootstrap retries a Snapshot call that failed with a transient
+// error: at most max retries (0 disables retrying), waiting backoff(attempt) before retry
+// attempt+1 through sleep. A nil backoff or sleep keeps the default. Tests inject a sleep
+// that records the delays instead of waiting. Call before Bootstrap/Run. Returns the
+// engine for chaining.
+func (e *Engine) WithSnapshotRetry(max int, backoff func(attempt int) time.Duration, sleep func(context.Context, time.Duration) error) *Engine {
+	e.retryMax = max
+	if backoff != nil {
+		e.retryBackoff = backoff
+	}
+	if sleep != nil {
+		e.retrySleep = sleep
+	}
+	return e
 }
 
 // WithChecksum makes the engine verify each snapshot and applied delta against the
@@ -135,7 +203,7 @@ func (e *Engine) Bootstrap(ctx context.Context) error {
 	}
 	lastReason := market.ErrCrossed // why the most recent attempt was rejected
 	for range maxBindAttempts {
-		snap, err := e.src.Snapshot(ctx)
+		snap, err := e.snapshotWithRetry(ctx)
 		if err != nil {
 			return err
 		}
@@ -162,6 +230,28 @@ func (e *Engine) Bootstrap(ctx context.Context) error {
 		return nil
 	}
 	return fmt.Errorf("bootstrap failed after %d unusable snapshots: %w", maxBindAttempts, lastReason)
+}
+
+// snapshotWithRetry fetches a snapshot, retrying while the failure is transient. The caller's
+// cancellation ends it at once, also while waiting out a delay. A failure that is not
+// transient is returned immediately, exactly as before retrying existed.
+func (e *Engine) snapshotWithRetry(ctx context.Context) (market.Snapshot, error) {
+	for attempt := 0; ; attempt++ {
+		snap, err := e.src.Snapshot(ctx)
+		if err == nil {
+			return snap, nil
+		}
+		if ctx.Err() != nil { // shutting down: neither a snapshot failure nor worth a retry
+			return market.Snapshot{}, err
+		}
+		e.snapshotErrors.Add(1)
+		if !source.IsTransient(err) || attempt >= e.retryMax {
+			return market.Snapshot{}, err
+		}
+		if serr := e.retrySleep(ctx, e.retryBackoff(attempt)); serr != nil {
+			return market.Snapshot{}, serr
+		}
+	}
 }
 
 type outcome uint8

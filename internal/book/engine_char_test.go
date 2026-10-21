@@ -83,10 +83,10 @@ func TestResyncsCountOnRejectedResnapshotToday(t *testing.T) {
 	}
 }
 
-// Characterization of today's failure policy for a snapshot that cannot be fetched: the
-// error ends Bootstrap, and with it Step, at once. There is no retry and no backoff, so a
-// single transient failure (a rate limit, a timeout) ends the pipeline. This test records
-// that behaviour; change it together with the policy.
+// Characterization of the failure policy for a snapshot error that is not marked
+// transient: it ends Bootstrap, and with it Step, at once, with no retry and no backoff.
+// Transient failures are retried; see engine_retry_test.go. This test records the
+// non-transient case; change it together with the policy.
 func TestSnapshotErrorIsFatalToday(t *testing.T) {
 	boom := errors.New("snapshot unavailable")
 	m := &mockSource{
