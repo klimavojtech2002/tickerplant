@@ -25,7 +25,7 @@ const (
 )
 
 // BookDepth is the subscribed book depth and therefore the engine's window
-// (WithMaxDepth): Kraken never deletes levels that fall outside it, and its checksum
+// (book.WithMaxDepth): Kraken never deletes levels that fall outside it, and its checksum
 // covers exactly the top 10, so subscribing deeper would only add unmaintained levels
 // the integrity guard cannot see.
 const BookDepth = 10
@@ -63,7 +63,7 @@ func (cfg LiveConfig) resolve() (restBase, wsBase string, client *http.Client) {
 // Live connects the Kraken adapter to the real venue: it reads the symbol's price and
 // quantity scales from AssetPairs, dials the v2 book WebSocket, and returns a Source
 // the engine consumes like any other. Wire the checksum with
-// engine.WithChecksum(kraken.Checksum) — without it Kraken has no integrity guard at
+// book.WithChecksum(kraken.Checksum) when building the engine — without it Kraken has no integrity guard at
 // all, since the feed carries no sequence. The Source's Close tears down the socket.
 func Live(ctx context.Context, cfg LiveConfig) (*Source, error) {
 	if cfg.Symbol == "" {

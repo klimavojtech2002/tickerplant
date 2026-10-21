@@ -46,7 +46,7 @@ type Config struct {
 // Source is the Kraken transport-port adapter. Kraken's book feed carries no sequence
 // numbers — the checksum is the integrity guard (ADR-0007) — so the adapter stamps a
 // synthetic monotonic sequence on the events it emits: the engine's continuity check
-// stays inert and every real integrity decision flows through WithChecksum.
+// stays inert and every real integrity decision flows through book.WithChecksum.
 type Source struct {
 	cfg    Config
 	scales scales

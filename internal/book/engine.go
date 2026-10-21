@@ -138,7 +138,7 @@ func New(src source.Source, depth int, opts ...Option) (*Engine, error) {
 }
 
 // WithSnapshotBackoff replaces the delay between snapshot retries and keeps the retry
-// count and the sleep. The app uses it to add jitter.
+// count and the sleep. The app uses it to add jitter. A nil backoff keeps the default.
 func WithSnapshotBackoff(backoff func(attempt int) time.Duration) Option {
 	return func(e *Engine) {
 		if backoff != nil {
