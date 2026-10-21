@@ -61,7 +61,7 @@ func TestBootstrapRetriesTransientFailures(t *testing.T) {
 	for _, k := range []int{0, 1, 3, 5} {
 		src := &retrySource{script: append(fails(k, errNet), snapResult{snap: goodSnap})}
 		sleep, delays := recordedSleeps()
-		e := New(src, 5).WithSnapshotRetry(5, linearBackoff, sleep)
+		e := mustNew(t, src, 5, WithSnapshotRetry(5, linearBackoff, sleep))
 		if err := e.Bootstrap(context.Background()); err != nil {
 			t.Fatalf("k=%d: %v", k, err)
 		}
@@ -90,7 +90,7 @@ func TestBootstrapGivesUpAfterMaxRetries(t *testing.T) {
 	script := append(fails(5, errNet), snapResult{err: last}) // 6 failures, then more of the same
 	src := &retrySource{script: script}
 	sleep, delays := recordedSleeps()
-	e := New(src, 5).WithSnapshotRetry(5, linearBackoff, sleep)
+	e := mustNew(t, src, 5, WithSnapshotRetry(5, linearBackoff, sleep))
 	err := e.Bootstrap(context.Background())
 	if err != last {
 		t.Fatalf("err = %v, want the last error returned as is", err)
@@ -108,7 +108,7 @@ func TestBootstrapNonTransientErrorReturnsAtOnce(t *testing.T) {
 	boom := errors.New("not retryable")
 	src := &retrySource{script: []snapResult{{err: boom}}}
 	sleep, delays := recordedSleeps()
-	e := New(src, 5).WithSnapshotRetry(5, linearBackoff, sleep)
+	e := mustNew(t, src, 5, WithSnapshotRetry(5, linearBackoff, sleep))
 	if err := e.Bootstrap(context.Background()); err != boom {
 		t.Fatalf("err = %v, want the error unchanged", err)
 	}
@@ -120,7 +120,7 @@ func TestBootstrapNonTransientErrorReturnsAtOnce(t *testing.T) {
 func TestBootstrapRetriesDisabled(t *testing.T) {
 	src := &retrySource{script: []snapResult{{err: errNet}}}
 	sleep, delays := recordedSleeps()
-	e := New(src, 5).WithSnapshotRetry(0, linearBackoff, sleep)
+	e := mustNew(t, src, 5, WithSnapshotRetry(0, linearBackoff, sleep))
 	if err := e.Bootstrap(context.Background()); !source.IsTransient(err) {
 		t.Fatalf("err = %v, want the transient error returned", err)
 	}
@@ -139,7 +139,7 @@ func TestBootstrapRetriesDoNotConsumeBindAttempts(t *testing.T) {
 	}
 	src := &retrySource{script: script}
 	sleep, _ := recordedSleeps()
-	e := New(src, 5).WithSnapshotRetry(1, linearBackoff, sleep) // 1 retry: only works if the count resets
+	e := mustNew(t, src, 5, WithSnapshotRetry(1, linearBackoff, sleep)) // 1 retry: only works if the count resets
 	err := e.Bootstrap(context.Background())
 	if !errors.Is(err, market.ErrCrossed) {
 		t.Fatalf("err = %v, want ErrCrossed after 8 rejected snapshots", err)
@@ -153,7 +153,7 @@ func TestBootstrapRetriesDoNotConsumeBindAttempts(t *testing.T) {
 // The default sleep waits on a timer, and the caller's cancellation ends it at once.
 func TestBootstrapCancelDuringBackoff(t *testing.T) {
 	src := &retrySource{script: []snapResult{{err: errNet}}}
-	e := New(src, 5).WithSnapshotRetry(5, func(int) time.Duration { return time.Hour }, nil)
+	e := mustNew(t, src, 5, WithSnapshotRetry(5, func(int) time.Duration { return time.Hour }, nil))
 	ctx, cancel := context.WithCancel(context.Background())
 	time.AfterFunc(50*time.Millisecond, cancel)
 	done := make(chan error, 1)
@@ -174,7 +174,7 @@ func TestBootstrapCancelledIsNotCountedOrRetried(t *testing.T) {
 	cancel()
 	src := &retrySource{script: []snapResult{{err: source.Transient(context.Canceled)}}}
 	sleep, delays := recordedSleeps()
-	e := New(src, 5).WithSnapshotRetry(5, linearBackoff, sleep)
+	e := mustNew(t, src, 5, WithSnapshotRetry(5, linearBackoff, sleep))
 	if err := e.Bootstrap(ctx); !errors.Is(err, context.Canceled) {
 		t.Fatalf("err = %v, want context.Canceled", err)
 	}
@@ -215,7 +215,7 @@ func TestSleepCtx(t *testing.T) {
 func TestWithSnapshotBackoffReplacesOnlyTheDelay(t *testing.T) {
 	src := &retrySource{script: append(fails(2, errNet), snapResult{snap: goodSnap})}
 	sleep, delays := recordedSleeps()
-	e := New(src, 5).WithSnapshotRetry(5, nil, sleep).WithSnapshotBackoff(linearBackoff)
+	e := mustNew(t, src, 5, WithSnapshotRetry(5, nil, sleep), WithSnapshotBackoff(linearBackoff))
 	if err := e.Bootstrap(context.Background()); err != nil {
 		t.Fatal(err)
 	}

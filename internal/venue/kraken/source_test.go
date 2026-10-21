@@ -224,7 +224,10 @@ func TestEngineRunSyntheticSequenceNoGaps(t *testing.T) {
 	}
 	close(ch)
 	s := newTestSource(ch, nil)
-	eng := book.New(s, 10)
+	eng, err := book.New(s, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := eng.Run(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -248,7 +251,10 @@ func TestSeamGoldenSnapshotBinds(t *testing.T) {
 	ch := make(chan []byte, 1)
 	ch <- wireFrame("snapshot", bids, asks, goldenChecksum)
 	s := newTestSource(ch, nil)
-	eng := book.New(s, 10).WithChecksum(Checksum).WithMaxDepth(BookDepth)
+	eng, err := book.New(s, 10, book.WithChecksum(Checksum), book.WithMaxDepth(BookDepth))
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := eng.Bootstrap(context.Background()); err != nil {
 		t.Fatalf("bootstrap against the golden vector: %v", err)
 	}
@@ -271,7 +277,10 @@ func TestSeamMatchingUpdateApplies(t *testing.T) {
 	ch <- wireFrame("snapshot", bids, asks, goldenChecksum)
 	ch <- wireFrame("update", []market.Level{{Price: 452836, Size: 123456}}, nil, want)
 	s := newTestSource(ch, nil)
-	eng := book.New(s, 10).WithChecksum(Checksum).WithMaxDepth(BookDepth)
+	eng, err := book.New(s, 10, book.WithChecksum(Checksum), book.WithMaxDepth(BookDepth))
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := eng.Bootstrap(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -299,7 +308,10 @@ func TestSeamDriftResyncsViaRedial(t *testing.T) {
 
 	redials := 0
 	s := newTestSource(ch1, func() <-chan []byte { redials++; return ch2 })
-	eng := book.New(s, 10).WithChecksum(Checksum).WithMaxDepth(BookDepth)
+	eng, err := book.New(s, 10, book.WithChecksum(Checksum), book.WithMaxDepth(BookDepth))
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := eng.Bootstrap(context.Background()); err != nil {
 		t.Fatal(err)
 	}

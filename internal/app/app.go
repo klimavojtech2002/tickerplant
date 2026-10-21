@@ -215,7 +215,12 @@ func Run(ctx context.Context, log *slog.Logger, src source.Source, cfg Config) (
 	// Internal latency per ARCHITECTURE §9: adapter frame-dequeue -> view stored for readers,
 	// observed by the engine so no wire-wait is ever inside a sample.
 	lat := metrics.NewHistogram()
-	eng := book.New(src, cfg.depth).WithChecksum(cfg.checksum).WithMaxDepth(cfg.window).WithLatencyObserver(lat.Record).WithSnapshotBackoff(snapshotBackoff)
+	eng, err := book.New(src, cfg.depth,
+		book.WithChecksum(cfg.checksum), book.WithMaxDepth(cfg.window),
+		book.WithLatencyObserver(lat.Record), book.WithSnapshotBackoff(snapshotBackoff))
+	if err != nil {
+		return Result{}, err
+	}
 	hub := delivery.New(1024)
 
 	if cfg.HTTPListener != nil {

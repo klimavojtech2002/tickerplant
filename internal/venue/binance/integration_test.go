@@ -23,7 +23,10 @@ func TestLiveBinanceReconstructs(t *testing.T) {
 	}
 	defer src.Close()
 
-	eng := book.New(src, 10)
+	eng, err := book.New(src, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := eng.Bootstrap(ctx); err != nil {
 		t.Fatalf("bootstrap: %v", err)
 	}

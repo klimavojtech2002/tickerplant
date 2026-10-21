@@ -34,7 +34,11 @@ func main() {
 	defer src.Close()
 	priceScale, _ := src.Scales()
 
-	eng := book.New(src, kraken.BookDepth).WithChecksum(kraken.Checksum).WithMaxDepth(kraken.BookDepth)
+	eng, err := book.New(src, kraken.BookDepth, book.WithChecksum(kraken.Checksum), book.WithMaxDepth(kraken.BookDepth))
+	if err != nil {
+		log.Error("engine setup failed", "err", err)
+		os.Exit(1)
+	}
 	if err := eng.Bootstrap(ctx); err != nil {
 		log.Error("bootstrap failed", "err", err)
 		os.Exit(1)

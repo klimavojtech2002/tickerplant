@@ -25,7 +25,10 @@ func TestLiveKrakenChecksumIntegrity(t *testing.T) {
 	}
 	defer src.Close()
 
-	eng := book.New(src, 10).WithChecksum(Checksum).WithMaxDepth(BookDepth)
+	eng, err := book.New(src, 10, book.WithChecksum(Checksum), book.WithMaxDepth(BookDepth))
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := eng.Bootstrap(ctx); err != nil {
 		t.Fatalf("bootstrap: %v", err)
 	}

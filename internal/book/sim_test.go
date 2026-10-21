@@ -55,7 +55,7 @@ func TestSimulation(t *testing.T) {
 		seed := int64(s)
 		faults := scenarioForSeed(seed)
 		src := source.New(source.Config{Venue: "sim", Symbol: "S", Seed: seed, Steps: 400, Faults: faults})
-		e := New(src, simDepth)
+		e := mustNew(t, src, simDepth)
 		if err := e.Bootstrap(ctx); err != nil {
 			t.Fatalf("seed %d: bootstrap: %v", seed, err)
 		}

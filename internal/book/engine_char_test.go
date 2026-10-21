@@ -56,7 +56,7 @@ func TestResyncsCountOnRejectedResnapshotToday(t *testing.T) {
 		snaps:  []market.Snapshot{good, crossed}, // the first bind is fine, every re-snapshot is crossed
 		events: []source.Event{{Kind: source.EventDisconnected}},
 	}
-	e := New(src, 5)
+	e := mustNew(t, src, 5)
 	if err := e.Bootstrap(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -95,7 +95,7 @@ func TestSnapshotErrorIsFatalToday(t *testing.T) {
 		snapErrAfter: 1, // the first bind succeeds, the resync's snapshot fails
 		events:       []source.Event{{Kind: source.EventDisconnected}},
 	}
-	e := New(m, 5)
+	e := mustNew(t, m, 5)
 	if err := e.Bootstrap(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -121,7 +121,7 @@ func TestChecksumMismatchedSnapshotIsRefetched(t *testing.T) {
 	}
 	const want = 7
 	src := &scriptedSnapshots{snaps: []market.Snapshot{levels(10, 1), levels(11, want)}} // first one disagrees
-	e := New(src, 5).WithChecksum(func([]market.Level, []market.Level) uint32 { return want })
+	e := mustNew(t, src, 5, WithChecksum(func([]market.Level, []market.Level) uint32 { return want }))
 	if err := e.Bootstrap(context.Background()); err != nil {
 		t.Fatal(err)
 	}

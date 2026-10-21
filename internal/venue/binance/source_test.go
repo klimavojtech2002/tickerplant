@@ -154,7 +154,10 @@ func TestEngineReconstructsFromAdapter(t *testing.T) {
 	frames <- depthFrame(102, 102, nil, [][]string{{"102.00", "3.0"}}) // add ask 102
 	close(frames)
 
-	eng := book.New(newSource(t, frames, srv.URL, srv.Client()), 10)
+	eng, err := book.New(newSource(t, frames, srv.URL, srv.Client()), 10)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := eng.Run(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -180,7 +183,10 @@ func TestAdapterStraddleAndStaleDrop(t *testing.T) {
 	frames <- depthFrame(98, 101, [][]string{{"100.00", "5.0"}}, nil) // U=98 < L+1=101 <= u=101: straddles, binds
 	close(frames)
 
-	eng := book.New(newSource(t, frames, srv.URL, srv.Client()), 10)
+	eng, err := book.New(newSource(t, frames, srv.URL, srv.Client()), 10)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := eng.Run(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -202,7 +208,10 @@ func TestGapTriggersResyncThroughAdapter(t *testing.T) {
 	frames <- depthFrame(200, 200, [][]string{{"100.00", "5.0"}}, nil) // gap: 200 > 102 -> resync
 	close(frames)
 
-	eng := book.New(newSource(t, frames, srv.URL, srv.Client()), 10)
+	eng, err := book.New(newSource(t, frames, srv.URL, srv.Client()), 10)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := eng.Run(context.Background()); err != nil {
 		t.Fatal(err)
 	}

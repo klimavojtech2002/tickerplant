@@ -22,7 +22,10 @@ import (
 func drive(tb testing.TB, n int, interval, stall time.Duration, stallAt int) (naive, corrected *metrics.Histogram) {
 	tb.Helper()
 	ctx := context.Background()
-	eng := book.New(source.New(source.Config{Venue: "v", Symbol: "s", Seed: 1, Steps: n + 1}), 10)
+	eng, err := book.New(source.New(source.Config{Venue: "v", Symbol: "s", Seed: 1, Steps: n + 1}), 10)
+	if err != nil {
+		tb.Fatal(err)
+	}
 	// Latency is recorded at the publisher (done.Sub(send) below), and conflation keeps
 	// Publish O(consumers) and non-blocking, so the drain never perturbs the measurement;
 	// the huge maxLag only keeps a momentarily-behind drain from being disconnected.

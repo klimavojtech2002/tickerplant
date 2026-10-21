@@ -2,6 +2,7 @@ package book
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync/atomic"
 	"time"
@@ -104,64 +105,92 @@ type Engine struct {
 	retrySleep     func(context.Context, time.Duration) error // waits out a retry delay; ends early on ctx
 }
 
-// New creates an Engine publishing a top-N view of the given depth.
-func New(src source.Source, depth int) *Engine {
-	return &Engine{
+// ErrConfig marks an Engine configuration New refuses.
+var ErrConfig = errors.New("engine: invalid configuration")
+
+// Option configures an Engine at construction. Options apply in order, so a later one
+// overrides an earlier one.
+type Option func(*Engine)
+
+// New creates an Engine publishing a top-N view of the given depth. It refuses a
+// configuration that could only fail later: a nil source, a depth below 1, a negative
+// feed window, and a checksum venue whose window is narrower than the checksum's own
+// depth (it would checksum fewer levels than the venue expects and resync for ever).
+func New(src source.Source, depth int, opts ...Option) (*Engine, error) {
+	e := &Engine{
 		src: src, depth: depth,
 		retryMax: maxSnapshotRetries, retryBackoff: defaultSnapshotBackoff, retrySleep: sleepCtx,
 	}
+	for _, opt := range opts {
+		opt(e)
+	}
+	switch {
+	case src == nil:
+		return nil, fmt.Errorf("%w: nil source", ErrConfig)
+	case depth < 1:
+		return nil, fmt.Errorf("%w: depth %d, want 1 or more", ErrConfig, depth)
+	case e.maxDepth < 0:
+		return nil, fmt.Errorf("%w: max depth %d, want 0 or more", ErrConfig, e.maxDepth)
+	case e.checksum != nil && e.maxDepth > 0 && e.maxDepth < checksumDepth:
+		return nil, fmt.Errorf("%w: max depth %d is narrower than the checksum depth %d", ErrConfig, e.maxDepth, checksumDepth)
+	}
+	return e, nil
 }
 
 // WithSnapshotBackoff replaces the delay between snapshot retries and keeps the retry
-// count and the sleep. The app uses it to add jitter. Call before Bootstrap/Run.
-func (e *Engine) WithSnapshotBackoff(backoff func(attempt int) time.Duration) *Engine {
-	e.retryBackoff = backoff
-	return e
+// count and the sleep. The app uses it to add jitter.
+func WithSnapshotBackoff(backoff func(attempt int) time.Duration) Option {
+	return func(e *Engine) {
+		if backoff != nil {
+			e.retryBackoff = backoff
+		}
+	}
 }
 
 // WithSnapshotRetry sets how Bootstrap retries a Snapshot call that failed with a transient
 // error: at most retries retries (0 or less disables retrying), waiting backoff(attempt) before retry
 // attempt+1 through sleep. A nil backoff or sleep keeps the default. Tests inject a sleep
-// that records the delays instead of waiting. Call before Bootstrap/Run. Returns the
-// engine for chaining.
-func (e *Engine) WithSnapshotRetry(retries int, backoff func(attempt int) time.Duration, sleep func(context.Context, time.Duration) error) *Engine {
-	e.retryMax = retries
-	if backoff != nil {
-		e.retryBackoff = backoff
+// that records the delays instead of waiting.
+func WithSnapshotRetry(retries int, backoff func(attempt int) time.Duration, sleep func(context.Context, time.Duration) error) Option {
+	return func(e *Engine) {
+		e.retryMax = retries
+		if backoff != nil {
+			e.retryBackoff = backoff
+		}
+		if sleep != nil {
+			e.retrySleep = sleep
+		}
 	}
-	if sleep != nil {
-		e.retrySleep = sleep
-	}
-	return e
 }
 
 // WithChecksum makes the engine verify each snapshot and applied delta against the
 // venue's checksum (for checksum venues like Kraken, ADR-0007); a mismatch is drift and
-// triggers a resync. Call before Bootstrap/Run. Returns the engine for chaining.
-func (e *Engine) WithChecksum(fn Checksummer) *Engine {
-	e.checksum = fn
-	return e
+// triggers a resync.
+func WithChecksum(fn Checksummer) Option {
+	return func(e *Engine) {
+		e.checksum = fn
+	}
 }
 
 // WithMaxDepth bounds the book to the feed's subscribed window (e.g. Kraken's book
 // depth). Such feeds never send deletes for levels that fall out of the window, so a
 // level kept beyond it goes stale and corrupts the top-N when it re-enters; the engine
 // truncates after every bind and apply instead. Zero (the default) keeps every level —
-// correct for full-book feeds like Binance and the synthetic source. Call before
-// Bootstrap/Run. Returns the engine for chaining.
-func (e *Engine) WithMaxDepth(n int) *Engine {
-	e.maxDepth = n
-	return e
+// correct for full-book feeds like Binance and the synthetic source.
+func WithMaxDepth(n int) Option {
+	return func(e *Engine) {
+		e.maxDepth = n
+	}
 }
 
 // WithLatencyObserver reports, for every applied-and-published delta, the span from
 // the adapter taking the raw frame off its frame channel (Event.Received) to the view
 // stored for readers — the internal latency ARCHITECTURE §9 defines, with no
-// wire-wait inside it. Events without a Received stamp are not reported. Call before
-// Bootstrap/Run. Returns the engine for chaining.
-func (e *Engine) WithLatencyObserver(fn func(time.Duration)) *Engine {
-	e.latencyFn = fn
-	return e
+// wire-wait inside it. Events without a Received stamp are not reported.
+func WithLatencyObserver(fn func(time.Duration)) Option {
+	return func(e *Engine) {
+		e.latencyFn = fn
+	}
 }
 
 // View returns the latest published view, or nil before the first bootstrap. Safe to
@@ -202,9 +231,6 @@ func (e *Engine) publish() {
 // Bootstrap binds the book from a fresh snapshot, retrying a bounded number of times
 // if the snapshot is crossed; it surfaces a loud error rather than wedging.
 func (e *Engine) Bootstrap(ctx context.Context) error {
-	if e.checksum != nil && e.maxDepth > 0 && e.maxDepth < checksumDepth {
-		return fmt.Errorf("engine: maxDepth %d narrower than checksum depth %d: misconfigured", e.maxDepth, checksumDepth)
-	}
 	lastReason := market.ErrCrossed // why the most recent attempt was rejected
 	for range maxBindAttempts {
 		snap, err := e.snapshotWithRetry(ctx)

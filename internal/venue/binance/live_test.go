@@ -195,7 +195,10 @@ func TestLiveEndToEndLocal(t *testing.T) {
 		t.Fatalf("Scales() = %d/%d, want the exchangeInfo scales 2/3", p, sz)
 	}
 
-	eng := book.New(src, 10)
+	eng, err := book.New(src, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := eng.Bootstrap(context.Background()); err != nil {
 		t.Fatalf("bootstrap: %v", err)
 	}

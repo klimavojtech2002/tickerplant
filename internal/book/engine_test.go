@@ -76,7 +76,7 @@ func TestApplyDeltaIsAbsoluteNotIncrement(t *testing.T) {
 
 func TestStepBeforeBootstrapReturnsError(t *testing.T) {
 	src := source.New(source.Config{Venue: "v", Symbol: "s", Seed: 1, Steps: 5})
-	e := New(src, 5) // Bootstrap deliberately not called
+	e := mustNew(t, src, 5) // Bootstrap deliberately not called
 	ok, err := e.Step(context.Background())
 	if ok {
 		t.Fatal("Step before Bootstrap must return ok=false")
@@ -88,14 +88,13 @@ func TestStepBeforeBootstrapReturnsError(t *testing.T) {
 
 // A checksum venue whose maxDepth is narrower than the checksum's own depth would
 // silently checksum fewer levels than the venue expects, resyncing forever with no
-// clear cause. Bootstrap must refuse this configuration loudly, before ever touching
-// the source (mockSource.snapCalls proves no Snapshot call was made).
-func TestBootstrapRejectsNarrowerMaxDepthThanChecksum(t *testing.T) {
+// clear cause. New must refuse this configuration loudly, before any engine exists to
+// touch the source (mockSource.snapCalls proves no Snapshot call was made).
+func TestNewRejectsNarrowerMaxDepthThanChecksum(t *testing.T) {
 	m := &mockSource{snap: market.Snapshot{LastUpdateID: 1}}
-	e := New(m, 5).WithChecksum(func([]market.Level, []market.Level) uint32 { return 0 }).WithMaxDepth(5)
-	err := e.Bootstrap(context.Background())
-	if err == nil {
-		t.Fatal("maxDepth narrower than checksumDepth must fail Bootstrap loudly")
+	e, err := New(m, 5, WithChecksum(func([]market.Level, []market.Level) uint32 { return 0 }), WithMaxDepth(5))
+	if !errors.Is(err, ErrConfig) || e != nil {
+		t.Fatalf("New = (%v, %v), want (nil, ErrConfig) for a window narrower than the checksum depth", e, err)
 	}
 	if m.snapCalls != 0 {
 		t.Fatalf("the misconfiguration must be caught before any Snapshot call, got %d calls", m.snapCalls)
@@ -104,7 +103,7 @@ func TestBootstrapRejectsNarrowerMaxDepthThanChecksum(t *testing.T) {
 
 func TestBootstrapCrossingFailsLoud(t *testing.T) {
 	src := source.New(source.Config{Venue: "v", Symbol: "s", Seed: 1, Steps: 1, CrossingSnapshot: true})
-	e := New(src, 5)
+	e := mustNew(t, src, 5)
 	err := e.Bootstrap(context.Background())
 	if err == nil || !errors.Is(err, market.ErrCrossed) {
 		t.Fatalf("crossing bootstrap must fail loudly with ErrCrossed, got %v", err)
@@ -157,7 +156,7 @@ func TestRunHandlesTradeAndDisconnect(t *testing.T) {
 			{Kind: source.EventDelta, Delta: market.Delta{FirstSeq: 11, LastSeq: 11, Asks: []market.Level{{Price: 102, Size: 1}}}},
 		},
 	}
-	e := New(m, 5)
+	e := mustNew(t, m, 5)
 	if err := e.Run(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -180,7 +179,7 @@ func TestTradeIsNoOpOnBookAndView(t *testing.T) {
 			{Kind: source.EventTrade, Trade: market.Trade{Price: 100, Size: 1, Side: market.Bid}},
 		},
 	}
-	e := New(m, 5)
+	e := mustNew(t, m, 5)
 	if err := e.Bootstrap(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -215,7 +214,7 @@ func TestCrossedStateNeverPublishedEvenTransiently(t *testing.T) {
 			{Kind: source.EventDelta, Delta: market.Delta{FirstSeq: 11, LastSeq: 11, Bids: []market.Level{{Price: 101, Size: 1}}}}, // bid at the ask: crosses
 		},
 	}
-	e := New(m, 5)
+	e := mustNew(t, m, 5)
 	if err := e.Bootstrap(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -239,7 +238,7 @@ func TestEngineMetricCounters(t *testing.T) {
 		10: source.FaultGap, 25: source.FaultGap, 40: source.FaultGap,
 		15: source.FaultDisconnect, 50: source.FaultDisconnect,
 	}
-	eng := New(source.New(source.Config{Venue: "v", Symbol: "s", Seed: 5, Steps: 70, Faults: faults}), 5)
+	eng := mustNew(t, source.New(source.Config{Venue: "v", Symbol: "s", Seed: 5, Steps: 70, Faults: faults}), 5)
 	if err := eng.Run(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -276,7 +275,7 @@ func TestChecksumMatchApplies(t *testing.T) {
 			{Kind: source.EventDelta, Delta: market.Delta{FirstSeq: 11, LastSeq: 11, Bids: []market.Level{{Price: 99, Size: 1}}, Checksum: 300}}, // 100+99+101
 		},
 	}
-	e := New(m, 5).WithChecksum(sumChecksum)
+	e := mustNew(t, m, 5, WithChecksum(sumChecksum))
 	if err := e.Run(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -296,7 +295,7 @@ func TestChecksumMismatchResyncs(t *testing.T) {
 			{Kind: source.EventDelta, Delta: market.Delta{FirstSeq: 11, LastSeq: 11, Bids: []market.Level{{Price: 99, Size: 1}}, Checksum: 999}}, // wrong
 		},
 	}
-	e := New(m, 5).WithChecksum(sumChecksum)
+	e := mustNew(t, m, 5, WithChecksum(sumChecksum))
 	if err := e.Run(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -314,7 +313,7 @@ func TestBootstrapChecksumMismatchFailsLoud(t *testing.T) {
 	m := &mockSource{
 		snap: market.Snapshot{LastUpdateID: 10, Bids: []market.Level{{Price: 100, Size: 1}}, Asks: []market.Level{{Price: 101, Size: 1}}, Checksum: 999}, // never matches 201
 	}
-	e := New(m, 5).WithChecksum(sumChecksum)
+	e := mustNew(t, m, 5, WithChecksum(sumChecksum))
 	err := e.Bootstrap(context.Background())
 	if err == nil || !errors.Is(err, market.ErrChecksumMismatch) {
 		t.Fatalf("a checksum-mismatched snapshot must fail with ErrChecksumMismatch, got %v", err)
@@ -340,7 +339,7 @@ func TestChecksumCoversTopTen(t *testing.T) {
 		want += uint32(100-i) + uint32(200+i)
 	}
 	m := &mockSource{snap: market.Snapshot{LastUpdateID: 10, Bids: bids, Asks: asks, Checksum: want}}
-	if err := New(m, 5).WithChecksum(sumChecksum).Bootstrap(context.Background()); err != nil {
+	if err := mustNew(t, m, 5, WithChecksum(sumChecksum)).Bootstrap(context.Background()); err != nil {
 		t.Fatalf("a top-10 checksum must bind a deeper book (depth-independent), got %v", err)
 	}
 }
@@ -358,7 +357,7 @@ func TestEngineRecoversFromStaleSnapshot(t *testing.T) {
 			t.Fatal("source ended during pre-consume")
 		}
 	}
-	e := New(src, 5)
+	e := mustNew(t, src, 5)
 	if err := e.Run(ctx); err != nil {
 		t.Fatal(err)
 	}
@@ -393,7 +392,7 @@ func TestLatencyObserverReportsAppliedStampedDeltas(t *testing.T) {
 		},
 	}
 	var got []time.Duration
-	e := New(m, 5).WithLatencyObserver(func(d time.Duration) { got = append(got, d) })
+	e := mustNew(t, m, 5, WithLatencyObserver(func(d time.Duration) { got = append(got, d) }))
 	if err := e.Run(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -455,7 +454,7 @@ func TestMaxDepthDropsOutOfWindowGhosts(t *testing.T) {
 			{Kind: source.EventDelta, Delta: market.Delta{FirstSeq: 12, LastSeq: 12, Bids: up2Bids, Checksum: pqChecksum(window2, snap.Asks)}},
 		},
 	}
-	e := New(m, 10).WithChecksum(pqChecksum).WithMaxDepth(10)
+	e := mustNew(t, m, 10, WithChecksum(pqChecksum), WithMaxDepth(10))
 	if err := e.Run(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -476,7 +475,7 @@ func TestMaxDepthTruncatesBootstrapSnapshot(t *testing.T) {
 	snap.Bids = append(snap.Bids, market.Level{Price: 89, Size: 1})  // an 11th bid
 	snap.Asks = append(snap.Asks, market.Level{Price: 210, Size: 1}) // an 11th ask
 	snap.Checksum = 0
-	e := New(&mockSource{snap: snap}, 10).WithMaxDepth(10)
+	e := mustNew(t, &mockSource{snap: snap}, 10, WithMaxDepth(10))
 	if err := e.Bootstrap(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -502,10 +501,10 @@ func staleSource(n int) *mockSource {
 // A pathological no-progress feed must fail loudly after exactly the bound, never
 // livelock — and not one resync sooner (pins the > vs >= boundary).
 func TestResyncLivelockBoundary(t *testing.T) {
-	if err := New(staleSource(maxConsecutiveResyncs), 5).Run(context.Background()); err != nil {
+	if err := mustNew(t, staleSource(maxConsecutiveResyncs), 5).Run(context.Background()); err != nil {
 		t.Fatalf("at the bound (%d no-progress resyncs) it must not yet fail: %v", maxConsecutiveResyncs, err)
 	}
-	if err := New(staleSource(maxConsecutiveResyncs+1), 5).Run(context.Background()); !errors.Is(err, market.ErrStaleSnapshot) {
+	if err := mustNew(t, staleSource(maxConsecutiveResyncs+1), 5).Run(context.Background()); !errors.Is(err, market.ErrStaleSnapshot) {
 		t.Fatalf("one past the bound must fail with ErrStaleSnapshot, got %v", err)
 	}
 }
@@ -517,7 +516,7 @@ func TestResyncResetsOnProgress(t *testing.T) {
 	for s := 10; s <= 200; s += 10 {
 		faults[s] = source.FaultDisconnect
 	}
-	e := New(source.New(source.Config{Venue: "v", Symbol: "s", Seed: 7, Steps: 250, Faults: faults}), 5)
+	e := mustNew(t, source.New(source.Config{Venue: "v", Symbol: "s", Seed: 7, Steps: 250, Faults: faults}), 5)
 	if err := e.Run(context.Background()); err != nil {
 		t.Fatalf("spread-out disconnects on a healthy feed must not trip the livelock guard: %v", err)
 	}
@@ -528,7 +527,7 @@ func TestResyncResetsOnProgress(t *testing.T) {
 
 func TestBootstrapPublishesUncrossedView(t *testing.T) {
 	src := source.New(source.Config{Venue: "v", Symbol: "s", Seed: 1, Steps: 0})
-	e := New(src, 5)
+	e := mustNew(t, src, 5)
 	if err := e.Bootstrap(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -571,7 +570,7 @@ func TestViewReflectsLastSeq(t *testing.T) {
 		snap:   market.Snapshot{LastUpdateID: 42, Bids: []market.Level{{Price: 100, Size: 1}}, Asks: []market.Level{{Price: 101, Size: 1}}},
 		events: []source.Event{{Kind: source.EventDelta, Delta: market.Delta{FirstSeq: 43, LastSeq: 43, Bids: []market.Level{{Price: 99, Size: 1}}}}},
 	}
-	e := New(m, 5)
+	e := mustNew(t, m, 5)
 	if err := e.Bootstrap(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -594,7 +593,7 @@ func TestConcurrentReaders(t *testing.T) {
 	// one crossing delta while the readers race it.
 	src := source.New(source.Config{Venue: "v", Symbol: "s", Seed: 3, Steps: 400,
 		Faults: map[int]source.Fault{100: source.FaultDisconnect, 250: source.FaultGap, 320: source.FaultCross}})
-	e := New(src, 10)
+	e := mustNew(t, src, 10)
 	if err := e.Bootstrap(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -649,10 +648,10 @@ func TestCrossesSnapshotDefensiveUnsorted(t *testing.T) {
 
 func TestBootstrapAndRunPropagateSnapshotError(t *testing.T) {
 	boom := errors.New("snapshot failed")
-	if err := New(&mockSource{snapErr: boom}, 5).Bootstrap(context.Background()); err == nil {
+	if err := mustNew(t, &mockSource{snapErr: boom}, 5).Bootstrap(context.Background()); err == nil {
 		t.Fatal("Bootstrap must propagate a Snapshot error")
 	}
-	if err := New(&mockSource{snapErr: boom}, 5).Run(context.Background()); err == nil {
+	if err := mustNew(t, &mockSource{snapErr: boom}, 5).Run(context.Background()); err == nil {
 		t.Fatal("Run must propagate a bootstrap error")
 	}
 }
@@ -664,14 +663,14 @@ func TestDisconnectResyncErrorPropagates(t *testing.T) {
 		snapErrAfter: 1, // bootstrap succeeds; the disconnect's resync snapshot fails
 		events:       []source.Event{{Kind: source.EventDisconnected}},
 	}
-	if err := New(m, 5).Run(context.Background()); err == nil {
+	if err := mustNew(t, m, 5).Run(context.Background()); err == nil {
 		t.Fatal("a disconnect whose resync snapshot fails must surface the error")
 	}
 }
 
 func TestStepContextCancelled(t *testing.T) {
 	src := source.New(source.Config{Venue: "v", Symbol: "s", Seed: 1, Steps: 50})
-	e := New(src, 5)
+	e := mustNew(t, src, 5)
 	if err := e.Bootstrap(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -680,4 +679,14 @@ func TestStepContextCancelled(t *testing.T) {
 	if ok, _ := e.Step(ctx); ok {
 		t.Fatal("a cancelled context must stop Step")
 	}
+}
+
+// mustNew builds an Engine for a test whose configuration is known to be valid.
+func mustNew(tb testing.TB, src source.Source, depth int, opts ...Option) *Engine {
+	tb.Helper()
+	e, err := New(src, depth, opts...)
+	if err != nil {
+		tb.Fatal(err)
+	}
+	return e
 }
