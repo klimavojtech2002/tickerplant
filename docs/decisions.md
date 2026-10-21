@@ -596,6 +596,8 @@ startup for ever.
 - Kraken's wait for its in-band snapshot has one 15 s timer (heartbeats do not restart it). On expiry
   the adapter marks the connection as owing no snapshot, so the retry redials. Subscribe writes on the
   WebSocket have a 10 s write timeout.
+- The scale fetch at startup runs before the engine exists and is not retried in the process; a transient
+  failure there ends the start and only the compose restart recovers it.
 - `Retry-After` is not read: the capped, jittered delay already spaces the retries.
 - After the retries are used up the process exits non-zero. Under compose `restart: on-failure:5` runs
   it a few more times; the cap also stops a bad-flag exit from looping.
@@ -604,7 +606,8 @@ startup for ever.
 - A stalled venue delays the engine by at most about 6 attempts of 15 s plus the delays (roughly 105 s),
   then the process stops. While it waits, the old view stays published and the frame channel is not
   drained, so the venue may drop the socket; the transport reconnects and the engine resyncs.
-- Each failed `Snapshot` call is counted by the engine; shutdown is not counted.
+- Each failed `Snapshot` call is counted by the engine and shown as `snapshot-errors` in the final log line;
+  shutdown is not counted.
 - A wrong symbol fails on the first call instead of after the retries.
 
 ## Verified against

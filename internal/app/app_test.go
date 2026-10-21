@@ -508,8 +508,8 @@ func TestPrepareUnknownVenue(t *testing.T) {
 
 func TestResultLog(t *testing.T) {
 	var buf bytes.Buffer
-	Result{resyncs: 2, gaps: 3, disconnects: 4, wouldCrosses: 5}.Log(slog.New(slog.NewTextHandler(&buf, nil)))
-	for _, want := range []string{"msg=done", "resyncs=2", "gaps=3", "disconnects=4", "would-cross=5"} {
+	Result{resyncs: 2, gaps: 3, disconnects: 4, wouldCrosses: 5, snapshotErrors: 6}.Log(slog.New(slog.NewTextHandler(&buf, nil)))
+	for _, want := range []string{"msg=done", "resyncs=2", "gaps=3", "disconnects=4", "would-cross=5", "snapshot-errors=6"} {
 		if !strings.Contains(buf.String(), want) {
 			t.Errorf("done line lacks %q:\n%s", want, buf.String())
 		}

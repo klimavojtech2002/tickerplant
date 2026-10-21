@@ -120,12 +120,12 @@ func (e *Engine) WithSnapshotBackoff(backoff func(attempt int) time.Duration) *E
 }
 
 // WithSnapshotRetry sets how Bootstrap retries a Snapshot call that failed with a transient
-// error: at most max retries (0 disables retrying), waiting backoff(attempt) before retry
+// error: at most retries retries (0 disables retrying), waiting backoff(attempt) before retry
 // attempt+1 through sleep. A nil backoff or sleep keeps the default. Tests inject a sleep
 // that records the delays instead of waiting. Call before Bootstrap/Run. Returns the
 // engine for chaining.
-func (e *Engine) WithSnapshotRetry(max int, backoff func(attempt int) time.Duration, sleep func(context.Context, time.Duration) error) *Engine {
-	e.retryMax = max
+func (e *Engine) WithSnapshotRetry(retries int, backoff func(attempt int) time.Duration, sleep func(context.Context, time.Duration) error) *Engine {
+	e.retryMax = retries
 	if backoff != nil {
 		e.retryBackoff = backoff
 	}
@@ -182,6 +182,10 @@ func (e *Engine) Disconnects() int { return int(e.disconnects.Load()) }
 
 // ChecksumMismatches returns how many checksum drifts the engine has detected (a metric).
 func (e *Engine) ChecksumMismatches() int { return int(e.checksumMismatches.Load()) }
+
+// SnapshotErrors returns how many Snapshot calls failed, transient or not. A cancellation
+// by the caller is not a failure and is not counted (a metric).
+func (e *Engine) SnapshotErrors() int { return int(e.snapshotErrors.Load()) }
 
 // WouldCrosses returns how many deltas the engine rejected because applying them would
 // have crossed the book — the never-crosses invariant firing on a bad update (ADR-0004).

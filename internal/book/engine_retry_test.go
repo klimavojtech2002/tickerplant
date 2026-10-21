@@ -68,7 +68,7 @@ func TestBootstrapRetriesTransientFailures(t *testing.T) {
 		if src.calls != k+1 {
 			t.Errorf("k=%d: Snapshot calls = %d, want %d", k, src.calls, k+1)
 		}
-		if got := int(e.snapshotErrors.Load()); got != k {
+		if got := int(e.SnapshotErrors()); got != k {
 			t.Errorf("k=%d: snapshotErrors = %d, want %d", k, got, k)
 		}
 		if len(*delays) != k {
@@ -96,8 +96,8 @@ func TestBootstrapGivesUpAfterMaxRetries(t *testing.T) {
 		t.Fatalf("err = %v, want the last error returned as is", err)
 	}
 	// Literals on purpose: 1 attempt + 5 retries.
-	if src.calls != 6 || e.snapshotErrors.Load() != 6 || len(*delays) != 5 {
-		t.Fatalf("calls = %d, snapshotErrors = %d, sleeps = %d; want 6, 6, 5", src.calls, e.snapshotErrors.Load(), len(*delays))
+	if src.calls != 6 || e.SnapshotErrors() != 6 || len(*delays) != 5 {
+		t.Fatalf("calls = %d, snapshotErrors = %d, sleeps = %d; want 6, 6, 5", src.calls, e.SnapshotErrors(), len(*delays))
 	}
 	if e.View() != nil {
 		t.Fatal("a failed bootstrap must publish nothing")
@@ -112,8 +112,8 @@ func TestBootstrapNonTransientErrorReturnsAtOnce(t *testing.T) {
 	if err := e.Bootstrap(context.Background()); err != boom {
 		t.Fatalf("err = %v, want the error unchanged", err)
 	}
-	if src.calls != 1 || len(*delays) != 0 || e.snapshotErrors.Load() != 1 {
-		t.Fatalf("calls = %d, sleeps = %d, snapshotErrors = %d; want 1, 0, 1", src.calls, len(*delays), e.snapshotErrors.Load())
+	if src.calls != 1 || len(*delays) != 0 || e.SnapshotErrors() != 1 {
+		t.Fatalf("calls = %d, sleeps = %d, snapshotErrors = %d; want 1, 0, 1", src.calls, len(*delays), e.SnapshotErrors())
 	}
 }
 
@@ -145,8 +145,8 @@ func TestBootstrapRetriesDoNotConsumeBindAttempts(t *testing.T) {
 		t.Fatalf("err = %v, want ErrCrossed after 8 rejected snapshots", err)
 	}
 	// Literals on purpose: 8 crossed snapshots, each preceded by one transport failure.
-	if src.calls != 16 || e.Resyncs() != 8 || e.snapshotErrors.Load() != 8 {
-		t.Fatalf("calls = %d, resyncs = %d, snapshotErrors = %d; want 16, 8, 8", src.calls, e.Resyncs(), e.snapshotErrors.Load())
+	if src.calls != 16 || e.Resyncs() != 8 || e.SnapshotErrors() != 8 {
+		t.Fatalf("calls = %d, resyncs = %d, snapshotErrors = %d; want 16, 8, 8", src.calls, e.Resyncs(), e.SnapshotErrors())
 	}
 }
 
@@ -178,8 +178,8 @@ func TestBootstrapCancelledIsNotCountedOrRetried(t *testing.T) {
 	if err := e.Bootstrap(ctx); !errors.Is(err, context.Canceled) {
 		t.Fatalf("err = %v, want context.Canceled", err)
 	}
-	if src.calls != 1 || len(*delays) != 0 || e.snapshotErrors.Load() != 0 {
-		t.Fatalf("calls = %d, sleeps = %d, snapshotErrors = %d; want 1, 0, 0", src.calls, len(*delays), e.snapshotErrors.Load())
+	if src.calls != 1 || len(*delays) != 0 || e.SnapshotErrors() != 0 {
+		t.Fatalf("calls = %d, sleeps = %d, snapshotErrors = %d; want 1, 0, 0", src.calls, len(*delays), e.SnapshotErrors())
 	}
 }
 
