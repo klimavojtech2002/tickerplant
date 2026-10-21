@@ -101,6 +101,9 @@ func (o options) validate() error {
 	case o.pace < 0:
 		return fmt.Errorf("-pace %v is negative: want 0 or more", o.pace)
 	}
+	if o.live && o.venue != "binance" && o.venue != "kraken" {
+		return fmt.Errorf("-venue %q is not one of binance, kraken", o.venue)
+	}
 	if _, err := parseLevel(o.logLevel); err != nil {
 		return err
 	}
@@ -173,6 +176,7 @@ func main() {
 		ln, err := net.Listen("tcp", opts.httpAddr)
 		if err != nil {
 			log.Error("http listen failed", "addr", opts.httpAddr, "err", err)
+			_ = src.Close() // os.Exit skips defers; release the source (a live WebSocket) first
 			os.Exit(1)
 		}
 		log.Info("http edge listening", "addr", ln.Addr().String())

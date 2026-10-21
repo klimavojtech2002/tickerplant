@@ -558,7 +558,7 @@ SIGTERM, so `docker stop` waits for the kill timeout. Command-line values were u
   the source is closed. An interrupt during source setup is a clean exit, not a setup failure.
 - The pace wait is a timer raced against the context, not `time.Sleep`.
 - Flags are checked before anything starts: `-depth` 1 to 1000, `-steps`, `-every` and `-pace` not negative,
-  `-log-level` one of debug, info, warn, error, `-log-format` text or json. A bad value prints the flag, the
+  `-venue` (with `-live`) one of binance, kraken, `-log-level` one of debug, info, warn, error, `-log-format` text or json. A bad value prints the flag, the
   value and the allowed range, and exits 2, like a parse error. Values are refused, never clamped.
   The 1000 ceiling is far above the 10 levels a dashboard shows and keeps one stream frame small.
 - `-version` prints the version injected at link time (`ARG VERSION` in the Dockerfile), or what the Go
