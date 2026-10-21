@@ -43,7 +43,7 @@ func TestLiveCadence(t *testing.T) {
 }
 
 func TestNewSourceSynthetic(t *testing.T) {
-	src, vs, err := newSource(context.Background(), quietLog(), false, "", "", 1, 10, 5*time.Millisecond)
+	src, vs, err := newSource(context.Background(), quietLog(), Options{Seed: 1, Steps: 10, Pace: 5 * time.Millisecond})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -60,7 +60,7 @@ func TestNewSourceSynthetic(t *testing.T) {
 }
 
 func TestNewSourceUnknownVenue(t *testing.T) {
-	if _, _, err := newSource(context.Background(), quietLog(), true, "okx", "X", 1, 10, 0); err == nil {
+	if _, _, err := newSource(context.Background(), quietLog(), Options{Live: true, Venue: "okx", Symbol: "X", Seed: 1, Steps: 10}); err == nil {
 		t.Fatal("an unknown live venue must error")
 	}
 }
@@ -523,7 +523,7 @@ func TestNewSourceLiveSetupFailsOnCancelledContext(t *testing.T) {
 	cancel()
 	for _, venue := range []string{"binance", "kraken"} {
 		t.Run(venue, func(t *testing.T) {
-			src, _, err := newSource(ctx, quietLog(), true, venue, "BTCUSDT", 1, 10, 0)
+			src, _, err := newSource(ctx, quietLog(), Options{Live: true, Venue: venue, Symbol: "BTCUSDT", Seed: 1, Steps: 10})
 			if err == nil {
 				src.Close()
 				t.Fatal("live setup with a cancelled context must error")

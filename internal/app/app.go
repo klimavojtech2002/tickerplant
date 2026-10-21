@@ -60,7 +60,7 @@ type Options struct {
 // Prepare builds the source for o and the pipeline Config that source implies, and logs the
 // mode. The caller adds HTTPListener if it wants the HTTP edge, then calls Run.
 func Prepare(ctx context.Context, log *slog.Logger, o Options) (source.Source, Config, error) {
-	src, vs, err := newSource(ctx, log, o.Live, o.Venue, o.Symbol, o.Seed, o.Steps, o.Pace)
+	src, vs, err := newSource(ctx, log, o)
 	if err != nil {
 		log.Error("source setup failed", "err", err)
 		return nil, Config{}, err
@@ -116,27 +116,27 @@ type venueSetup struct {
 }
 
 // newSource builds the synthetic source, or a live venue adapter when -live is set.
-func newSource(ctx context.Context, log *slog.Logger, live bool, venueName, symbol string, seed int64, steps int, pace time.Duration) (source.Source, venueSetup, error) {
-	if !live {
-		return source.New(source.Config{Venue: "synthetic", Symbol: "DEMO", Seed: seed, Steps: steps}), venueSetup{pace: pace}, nil
+func newSource(ctx context.Context, log *slog.Logger, o Options) (source.Source, venueSetup, error) {
+	if !o.Live {
+		return source.New(source.Config{Venue: "synthetic", Symbol: "DEMO", Seed: o.Seed, Steps: o.Steps}), venueSetup{pace: o.Pace}, nil
 	}
-	switch venueName {
+	switch o.Venue {
 	case "binance":
-		s, err := binance.Live(ctx, binance.LiveConfig{Symbol: symbol, Logger: log})
+		s, err := binance.Live(ctx, binance.LiveConfig{Symbol: o.Symbol, Logger: log})
 		if err != nil {
 			return nil, venueSetup{}, err
 		}
 		p, sz := s.Scales()
 		return s, venueSetup{scales: [2]int{p, sz}}, nil
 	case "kraken":
-		s, err := kraken.Live(ctx, kraken.LiveConfig{Symbol: symbol, Logger: log})
+		s, err := kraken.Live(ctx, kraken.LiveConfig{Symbol: o.Symbol, Logger: log})
 		if err != nil {
 			return nil, venueSetup{}, err
 		}
 		p, q := s.Scales()
 		return s, venueSetup{checksum: kraken.Checksum, window: kraken.BookDepth, scales: [2]int{p, q}}, nil
 	default:
-		return nil, venueSetup{}, fmt.Errorf("unknown venue %q", venueName)
+		return nil, venueSetup{}, fmt.Errorf("unknown venue %q", o.Venue)
 	}
 }
 
