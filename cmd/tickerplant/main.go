@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/klimavojtech2002/tickerplant/internal/app"
+	"github.com/klimavojtech2002/tickerplant/internal/version"
 )
 
 // shutdownSignals end the run cleanly. SIGTERM is what `docker stop` sends; as PID 1 the
@@ -25,16 +26,19 @@ var shutdownSignals = []os.Signal{os.Interrupt, syscall.SIGTERM}
 
 // options is everything main reads from the command line.
 type options struct {
-	seed     int64
-	steps    int
-	depth    int
-	every    int
-	everySet bool // -every given explicitly, even if equal to the default
-	pace     time.Duration
-	live     bool
-	venue    string
-	symbol   string
-	httpAddr string
+	seed      int64
+	steps     int
+	depth     int
+	every     int
+	everySet  bool // -every given explicitly, even if equal to the default
+	pace      time.Duration
+	live      bool
+	venue     string
+	symbol    string
+	httpAddr  string
+	version   bool
+	logLevel  string
+	logFormat string
 }
 
 // parseFlags parses argv (without the program name) on a private FlagSet, so tests can
@@ -56,6 +60,9 @@ func parseFlags(args []string, out io.Writer) (options, error) {
 	fs.StringVar(&o.venue, "venue", app.DefaultVenue, "live venue (with -live): binance|kraken")
 	fs.StringVar(&o.symbol, "symbol", app.DefaultSymbol, "live symbol (with -live)")
 	fs.StringVar(&o.httpAddr, "http", "", "serve the SSE stream and /metrics on this address (e.g. :8080); empty = off")
+	fs.BoolVar(&o.version, "version", false, "print the version and exit")
+	fs.StringVar(&o.logLevel, "log-level", "info", "log level: debug|info|warn|error")
+	fs.StringVar(&o.logFormat, "log-format", "text", "log format: text|json")
 	if err := fs.Parse(args); err != nil {
 		return options{}, err
 	}
@@ -66,6 +73,9 @@ func parseFlags(args []string, out io.Writer) (options, error) {
 			o.everySet = true
 		}
 	})
+	if o.version { // nothing else matters when only the version is wanted
+		return o, nil
+	}
 	if err := o.validate(); err != nil {
 		fmt.Fprintf(out, "tickerplant: %v\n", err)
 		return options{}, err
@@ -91,7 +101,41 @@ func (o options) validate() error {
 	case o.pace < 0:
 		return fmt.Errorf("-pace %v is negative: want 0 or more", o.pace)
 	}
+	if _, err := parseLevel(o.logLevel); err != nil {
+		return err
+	}
+	if o.logFormat != "text" && o.logFormat != "json" {
+		return fmt.Errorf("-log-format %q is not one of text, json", o.logFormat)
+	}
 	return nil
+}
+
+func parseLevel(s string) (slog.Level, error) {
+	switch s {
+	case "debug":
+		return slog.LevelDebug, nil
+	case "info":
+		return slog.LevelInfo, nil
+	case "warn":
+		return slog.LevelWarn, nil
+	case "error":
+		return slog.LevelError, nil
+	}
+	return 0, fmt.Errorf("-log-level %q is not one of debug, info, warn, error", s)
+}
+
+// newLogger builds the process logger. level and format were checked by validate, so an
+// unknown value falls back to the defaults rather than failing here.
+func newLogger(level, format string, w io.Writer) *slog.Logger {
+	lv, err := parseLevel(level)
+	if err != nil {
+		lv = slog.LevelInfo
+	}
+	opts := &slog.HandlerOptions{Level: lv}
+	if format == "json" {
+		return slog.New(slog.NewJSONHandler(w, opts))
+	}
+	return slog.New(slog.NewTextHandler(w, opts))
 }
 
 func main() {
@@ -103,7 +147,11 @@ func main() {
 		os.Exit(2) // the FlagSet already printed the error and usage
 	}
 
-	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
+	if opts.version {
+		fmt.Println("tickerplant", version.String())
+		return
+	}
+	log := newLogger(opts.logLevel, opts.logFormat, os.Stderr)
 	ctx, stop := signal.NotifyContext(context.Background(), shutdownSignals...)
 	defer stop()
 	go func() { // after the first signal, restore the default so a second one kills the process

@@ -29,42 +29,42 @@ func TestParseFlags(t *testing.T) {
 			name: "defaults",
 			args: nil,
 			want: options{seed: 1, steps: 5000, depth: 10, every: 500, everySet: false,
-				pace: 150 * time.Millisecond, live: false, venue: "binance", symbol: "BTCUSDT"},
+				pace: 150 * time.Millisecond, live: false, venue: "binance", symbol: "BTCUSDT", logLevel: "info", logFormat: "text"},
 			wantCadence: 500,
 		},
 		{
 			name: "live with default cadence logs every update",
 			args: []string{"-live"},
 			want: options{seed: 1, steps: 5000, depth: 10, every: 500, everySet: false,
-				pace: 150 * time.Millisecond, live: true, venue: "binance", symbol: "BTCUSDT"},
+				pace: 150 * time.Millisecond, live: true, venue: "binance", symbol: "BTCUSDT", logLevel: "info", logFormat: "text"},
 			wantCadence: 1,
 		},
 		{
 			name: "explicit -every at the default value is honoured on a live run",
 			args: []string{"-live", "-every", "500"},
 			want: options{seed: 1, steps: 5000, depth: 10, every: 500, everySet: true,
-				pace: 150 * time.Millisecond, live: true, venue: "binance", symbol: "BTCUSDT"},
+				pace: 150 * time.Millisecond, live: true, venue: "binance", symbol: "BTCUSDT", logLevel: "info", logFormat: "text"},
 			wantCadence: 500,
 		},
 		{
 			name: "explicit -every",
 			args: []string{"-every", "7"},
 			want: options{seed: 1, steps: 5000, depth: 10, every: 7, everySet: true,
-				pace: 150 * time.Millisecond, live: false, venue: "binance", symbol: "BTCUSDT"},
+				pace: 150 * time.Millisecond, live: false, venue: "binance", symbol: "BTCUSDT", logLevel: "info", logFormat: "text"},
 			wantCadence: 7,
 		},
 		{
 			name: "typed values parse",
 			args: []string{"-seed", "42", "-steps", "100", "-pace", "1ms", "-depth", "3", "-venue", "binance", "-symbol", "ETHUSDT"},
 			want: options{seed: 42, steps: 100, depth: 3, every: 500, everySet: false,
-				pace: time.Millisecond, live: false, venue: "binance", symbol: "ETHUSDT"},
+				pace: time.Millisecond, live: false, venue: "binance", symbol: "ETHUSDT", logLevel: "info", logFormat: "text"},
 			wantCadence: 500,
 		},
 		{
 			name: "http edge address",
 			args: []string{"-http", ":8080"},
 			want: options{seed: 1, steps: 5000, depth: 10, every: 500, everySet: false,
-				pace: 150 * time.Millisecond, live: false, venue: "binance", symbol: "BTCUSDT", httpAddr: ":8080"},
+				pace: 150 * time.Millisecond, live: false, venue: "binance", symbol: "BTCUSDT", logLevel: "info", logFormat: "text", httpAddr: ":8080"},
 			wantCadence: 500,
 		},
 		{
@@ -103,7 +103,7 @@ func TestParseFlagsHelpIsErrHelp(t *testing.T) {
 }
 
 func TestValidate(t *testing.T) {
-	ok := options{depth: 10, steps: 5000, every: 500, pace: 150 * time.Millisecond}
+	ok := options{depth: 10, steps: 5000, every: 500, pace: 150 * time.Millisecond, logLevel: "info", logFormat: "text"}
 	cases := []struct {
 		name    string
 		mut     func(*options)
@@ -121,6 +121,12 @@ func TestValidate(t *testing.T) {
 		{"every negative", func(o *options) { o.every = -1 }, "-every -1"},
 		{"pace zero", func(o *options) { o.pace = 0 }, ""},
 		{"pace negative", func(o *options) { o.pace = -time.Second }, "-pace -1s"},
+		{"log level debug", func(o *options) { o.logLevel = "debug" }, ""},
+		{"log level warn", func(o *options) { o.logLevel = "warn" }, ""},
+		{"log level error", func(o *options) { o.logLevel = "error" }, ""},
+		{"log level unknown", func(o *options) { o.logLevel = "loud" }, "-log-level \"loud\""},
+		{"log format json", func(o *options) { o.logFormat = "json" }, ""},
+		{"log format unknown", func(o *options) { o.logFormat = "xml" }, "-log-format \"xml\""},
 		{"pace just below zero", func(o *options) { o.pace = -1 }, "-pace -1ns"},
 	}
 	for _, c := range cases {
@@ -156,6 +162,7 @@ func TestParseFlagsRefusesOutOfRange(t *testing.T) {
 func TestMainRefusesBadFlags(t *testing.T) {
 	cases := [][]string{
 		{"-depth", "-1"}, {"-depth", "99999"}, {"-steps", "-5"}, {"-every", "-1"}, {"-pace", "-1s"},
+		{"-log-level", "loud"}, {"-log-format", "xml"},
 	}
 	for _, args := range cases {
 		cmd := exec.Command(os.Args[0], args...)
@@ -170,5 +177,46 @@ func TestMainRefusesBadFlags(t *testing.T) {
 		if !strings.Contains(stderr.String(), args[0]) {
 			t.Errorf("%v: stderr = %q, want it to name the flag", args, stderr.String())
 		}
+	}
+}
+
+func TestParseFlagsVersionSkipsValidation(t *testing.T) {
+	o, err := parseFlags([]string{"-version", "-depth", "-1"}, io.Discard)
+	if err != nil || !o.version {
+		t.Fatalf("parseFlags(-version) = %+v, %v; want version set and no error", o, err)
+	}
+}
+
+func TestNewLogger(t *testing.T) {
+	var buf bytes.Buffer
+	log := newLogger("warn", "json", &buf)
+	log.Info("quiet")
+	log.Warn("loud", "k", 1)
+	out := buf.String()
+	if strings.Contains(out, "quiet") || !strings.Contains(out, `"msg":"loud"`) || !strings.Contains(out, `"k":1`) {
+		t.Fatalf("warn+json logger wrote %q", out)
+	}
+	buf.Reset()
+	newLogger("info", "text", &buf).Info("hello", "k", 1)
+	if !strings.Contains(buf.String(), "msg=hello") || !strings.Contains(buf.String(), "k=1") {
+		t.Fatalf("default text logger wrote %q", buf.String())
+	}
+	buf.Reset()
+	newLogger("debug", "text", &buf).Debug("deep")
+	if !strings.Contains(buf.String(), "msg=deep") {
+		t.Fatalf("debug level did not pass a debug line: %q", buf.String())
+	}
+}
+
+// The built command prints the version and exits 0 before touching any other flag.
+func TestMainPrintsVersion(t *testing.T) {
+	cmd := exec.Command(os.Args[0], "-version")
+	cmd.Env = append(os.Environ(), "TICKERPLANT_AS_MAIN=1")
+	out, err := cmd.Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(string(out), "tickerplant ") {
+		t.Fatalf("output = %q, want \"tickerplant <version>\"", out)
 	}
 }
