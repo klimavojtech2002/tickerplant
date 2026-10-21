@@ -158,7 +158,7 @@ The Go build needs Go 1.21 or newer: with the default `GOTOOLCHAIN=auto` the `go
 | Fan-out delivery (`internal/delivery`, in-process, bounded backpressure) | Done — tested |
 | Runnable demo (`cmd/tickerplant`: source → engine → fan-out) | Done |
 | Dashboard (Next.js, `web/`: live book + health from the HTTP edge, no floats on the price path) | Done — tested |
-| Metrics: engine counters (gaps/resyncs/disconnects) + latency histogram | Done — tested |
+| Metrics: engine counters (gaps/resyncs/disconnects/refused snapshots) + latency histogram | Done — tested |
 | HTTP edge: SSE `/stream` (complete top-N views) + `/metrics` JSON (`-http :8080`) | Done — tested |
 | Benchmark harness (open-loop, coordinated-omission-aware) | Done — tested (no published figures) |
 | CI (`.github/workflows/ci.yml`: gofmt / vet / staticcheck / build / `-race`, plus a front-end lint/type-check/test/build job) | Done |

@@ -13,8 +13,8 @@ checks.
   defined; no adapter emits trades).
 - Non-blocking fan-out of the normalized stream to consumers, with bounded backpressure.
 - A live dashboard fed by the HTTP edge (SSE), one fan-out consumer per connected client.
-- Metrics: gap, resync and disconnect counts, delivery and drop counts, internal processing latency
-  (p50/p99/p99.9/max).
+- Metrics: gap, resync, disconnect, refused-snapshot and snapshot-error counts, delivery and drop counts,
+  internal processing latency (p50/p99/p99.9/max).
 - Deterministic fault-injection tests (a seeded simulation) that exercise the failure model instead of
   asserting it.
 
