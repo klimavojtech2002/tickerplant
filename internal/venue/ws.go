@@ -35,7 +35,8 @@ type StreamConfig struct {
 	DialTimeout time.Duration // bound the handshake (0 = none)
 	ReadTimeout time.Duration // reconnect if no frame arrives within this, to catch a dead-but-open
 	// connection (0 = none). Must exceed the venue's heartbeat interval.
-	Logger *slog.Logger
+	WriteTimeout time.Duration // bound each subscribe write (0 = none)
+	Logger       *slog.Logger
 
 	dial dialer // unexported test seam; nil = the real WebSocket dialer
 }
@@ -126,7 +127,7 @@ func (s *Stream) session(ctx context.Context) (delivered bool, err error) {
 	defer c.close()
 
 	for _, msg := range s.cfg.Subscribe {
-		if err := c.write(ctx, msg); err != nil {
+		if err := s.writeFrame(ctx, c, msg); err != nil {
 			return delivered, err
 		}
 	}
@@ -144,6 +145,17 @@ func (s *Stream) session(ctx context.Context) (delivered bool, err error) {
 			return delivered, ctx.Err()
 		}
 	}
+}
+
+// writeFrame sends one message, applying the write deadline if configured, so a peer that
+// stops reading cannot hold the session in its subscribe step.
+func (s *Stream) writeFrame(ctx context.Context, c conn, msg []byte) error {
+	if s.cfg.WriteTimeout <= 0 {
+		return c.write(ctx, msg)
+	}
+	wctx, cancel := context.WithTimeout(ctx, s.cfg.WriteTimeout)
+	defer cancel()
+	return c.write(wctx, msg)
 }
 
 // readFrame reads one frame, applying the read deadline if configured. A timeout on a

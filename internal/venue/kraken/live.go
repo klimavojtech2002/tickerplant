@@ -80,12 +80,13 @@ func Live(ctx context.Context, cfg LiveConfig) (*Source, error) {
 	sub := fmt.Appendf(nil, `{"method":"subscribe","params":{"channel":"book","symbol":[%q],"depth":%d}}`, cfg.Symbol, BookDepth)
 	dial := func() *venue.Stream {
 		return venue.Dial(ctx, venue.StreamConfig{
-			URL:         wsBase + "/v2",
-			Subscribe:   [][]byte{sub},
-			Backoff:     venue.Backoff{Min: time.Second, Max: 30 * time.Second, Factor: 2, Jitter: venue.FullJitter},
-			DialTimeout: 10 * time.Second,
-			ReadTimeout: 10 * time.Second, // Kraken heartbeats every second; a longer silence is a dead socket
-			Logger:      cfg.Logger,
+			URL:          wsBase + "/v2",
+			Subscribe:    [][]byte{sub},
+			Backoff:      venue.Backoff{Min: time.Second, Max: 30 * time.Second, Factor: 2, Jitter: venue.FullJitter},
+			DialTimeout:  10 * time.Second,
+			WriteTimeout: 10 * time.Second,
+			ReadTimeout:  10 * time.Second, // Kraken heartbeats every second; a longer silence is a dead socket
+			Logger:       cfg.Logger,
 		})
 	}
 

@@ -17,6 +17,13 @@ var _ source.Source = (*Source)(nil)
 // to obtain one (no snapshot pending and no Redial configured).
 var ErrNoSnapshot = errors.New("kraken: no snapshot available")
 
+// ErrSnapshotTimeout is returned when the in-band snapshot does not arrive within the
+// snapshot timeout. It is transient: the next Snapshot call redials.
+var ErrSnapshotTimeout = errors.New("kraken: timed out waiting for the in-band snapshot")
+
+// DefaultSnapshotTimeout bounds the wait for the first snapshot of a subscription.
+const DefaultSnapshotTimeout = 15 * time.Second
+
 // Config configures a Kraken adapter. Frames is the stream of raw v2 frames — fed by
 // the WebSocket layer in production, by a channel in tests. Kraken serves the book
 // snapshot in-band (the first book frame after subscribing), so there is no snapshot
@@ -30,6 +37,10 @@ type Config struct {
 	QtyScale   int
 	Frames     <-chan []byte
 	Redial     func() <-chan []byte
+	// SnapshotTimeout bounds one wait for the in-band snapshot (0 = DefaultSnapshotTimeout).
+	// It is one timer for the whole wait: the feed sends a heartbeat every second, so a
+	// timer that restarted on each frame would never fire on a connection with no book.
+	SnapshotTimeout time.Duration
 }
 
 // Source is the Kraken transport-port adapter. Kraken's book feed carries no sequence
@@ -123,12 +134,23 @@ func (s *Source) Snapshot(ctx context.Context) (market.Snapshot, error) {
 		s.frames = s.cfg.Redial()
 		s.snapshotExpected = true
 	}
+	timeout := s.cfg.SnapshotTimeout
+	if timeout <= 0 {
+		timeout = DefaultSnapshotTimeout
+	}
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
 	for {
 		select {
 		case <-ctx.Done():
 			return market.Snapshot{}, ctx.Err()
 		case <-s.done:
 			return market.Snapshot{}, ErrNoSnapshot
+		case <-timer.C:
+			// This subscription never delivered its snapshot. Waiting on the same channel
+			// again would wait for nothing, so the retry must redial.
+			s.snapshotExpected = false
+			return market.Snapshot{}, source.Transient(ErrSnapshotTimeout)
 		case raw, ok := <-s.frames:
 			if !ok {
 				return market.Snapshot{}, fmt.Errorf("kraken: frame stream closed: %w", ErrNoSnapshot)
