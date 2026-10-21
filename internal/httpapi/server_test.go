@@ -46,6 +46,7 @@ func TestMain(m *testing.M) {
 type stubEngine struct {
 	view                                            *book.View
 	gaps, resyncs, disconnects, crosses, mismatches int
+	rejects, snapErrors                             int
 	// onView runs once, inside the first View() call. The stream handler subscribes to the
 	// hub before it reads the engine's view, so a hook that publishes to the hub here
 	// reproduces, deterministically, a view landing in the consumer's slot at the seam
@@ -65,6 +66,8 @@ func (e *stubEngine) Resyncs() int            { return e.resyncs }
 func (e *stubEngine) Disconnects() int        { return e.disconnects }
 func (e *stubEngine) WouldCrosses() int       { return e.crosses }
 func (e *stubEngine) ChecksumMismatches() int { return e.mismatches }
+func (e *stubEngine) SnapshotRejects() int    { return e.rejects }
+func (e *stubEngine) SnapshotErrors() int     { return e.snapErrors }
 
 func view(seq market.Sequence) *book.View {
 	return &book.View{
@@ -336,7 +339,7 @@ func TestMetricsExact(t *testing.T) {
 	for range 100 {
 		lat.Record(100 * time.Microsecond)
 	}
-	eng := &stubEngine{gaps: 1, resyncs: 2, disconnects: 3, crosses: 4, mismatches: 5}
+	eng := &stubEngine{gaps: 1, resyncs: 2, disconnects: 3, crosses: 4, mismatches: 5, rejects: 6, snapErrors: 7}
 	srv := newEdge(t, hub, eng, lat, 0)
 
 	resp, err := http.Get(srv.URL + "/metrics")
@@ -360,7 +363,7 @@ func TestMetricsExact(t *testing.T) {
 	if doc.Delivery.Consumers != 1 || doc.Delivery.Delivered != 1 || doc.Delivery.Dropped != 1 {
 		t.Fatalf("delivery = %+v, want 1/1/1", doc.Delivery)
 	}
-	if doc.Engine != (engineJSON{Gaps: 1, Resyncs: 2, Disconnects: 3, WouldCrosses: 4, ChecksumMismatches: 5}) {
+	if doc.Engine != (engineJSON{Gaps: 1, Resyncs: 2, Disconnects: 3, WouldCrosses: 4, ChecksumMismatches: 5, SnapshotRejects: 6, SnapshotErrors: 7}) {
 		t.Fatalf("engine = %+v", doc.Engine)
 	}
 	if doc.Latency == nil || doc.Latency.Count != 100 {

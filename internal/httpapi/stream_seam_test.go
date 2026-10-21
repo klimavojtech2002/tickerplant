@@ -118,7 +118,7 @@ func TestMetricsBytes(t *testing.T) {
 	_ = hub.Subscribe()
 	hub.Publish(view(1)) // delivered = 1
 	hub.Publish(view(2)) // superseded: dropped = 1
-	srv := newEdge(t, hub, &stubEngine{gaps: 1, resyncs: 2, disconnects: 3, crosses: 4, mismatches: 5}, nil, 0)
+	srv := newEdge(t, hub, &stubEngine{gaps: 1, resyncs: 2, disconnects: 3, crosses: 4, mismatches: 5, rejects: 6, snapErrors: 7}, nil, 0)
 
 	resp, err := http.Get(srv.URL + "/metrics")
 	if err != nil {
@@ -131,7 +131,8 @@ func TestMetricsBytes(t *testing.T) {
 	}
 	want := `{"venue":"kraken","symbol":"BTC/USD",` +
 		`"delivery":{"consumers":1,"delivered":1,"dropped":1},` +
-		`"engine":{"gaps":1,"resyncs":2,"disconnects":3,"wouldCrosses":4,"checksumMismatches":5}}` + "\n"
+		`"engine":{"gaps":1,"resyncs":2,"disconnects":3,"wouldCrosses":4,"checksumMismatches":5,` +
+		`"snapshotRejects":6,"snapshotErrors":7}}` + "\n"
 	if string(body) != want {
 		t.Fatalf("/metrics body =\n%s\nwant\n%s", body, want)
 	}

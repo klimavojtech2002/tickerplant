@@ -28,6 +28,8 @@ type Engine interface {
 	Disconnects() int
 	WouldCrosses() int
 	ChecksumMismatches() int
+	SnapshotRejects() int
+	SnapshotErrors() int
 }
 
 // Config wires the edge. PriceScale/SizeScale render ticks back to the venue's
@@ -180,6 +182,8 @@ type engineJSON struct {
 	Disconnects        int `json:"disconnects"`
 	WouldCrosses       int `json:"wouldCrosses"`
 	ChecksumMismatches int `json:"checksumMismatches"`
+	SnapshotRejects    int `json:"snapshotRejects"`
+	SnapshotErrors     int `json:"snapshotErrors"`
 }
 
 type latencyJSON struct {
@@ -201,6 +205,8 @@ func (s *server) metrics(w http.ResponseWriter, _ *http.Request) {
 			Disconnects:        s.cfg.Engine.Disconnects(),
 			WouldCrosses:       s.cfg.Engine.WouldCrosses(),
 			ChecksumMismatches: s.cfg.Engine.ChecksumMismatches(),
+			SnapshotRejects:    s.cfg.Engine.SnapshotRejects(),
+			SnapshotErrors:     s.cfg.Engine.SnapshotErrors(),
 		},
 	}
 	if s.cfg.Latency != nil {
