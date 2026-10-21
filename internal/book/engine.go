@@ -67,6 +67,9 @@ type Checksummer func(bids, asks []market.Level) uint32
 
 // View is an immutable top-N snapshot of the book, published atomically for readers.
 type View struct {
+	// Gen counts publishes: the first view is 1, every later one is one higher, and a
+	// resync does not reset it. LastSeq can repeat or go back across a resync; Gen cannot.
+	Gen     uint64
 	LastSeq market.Sequence
 	Bids    []market.Level
 	Asks    []market.Level
@@ -95,6 +98,8 @@ type Engine struct {
 	checksumMismatches atomic.Int64        // checksum drifts detected (checksum venues)
 	wouldCrosses       atomic.Int64        // deltas rejected because applying them would cross the book (ADR-0004)
 	consecutiveResyncs int                 // writer-goroutine only; reset on progress to bound a livelock
+	gen                uint64              // writer-goroutine only; copied into each published View
+	resyncing          atomic.Bool         // true from the start of a resync until its new view is published
 	checksum           Checksummer         // nil on sequence venues; set via WithChecksum for checksum venues
 	maxDepth           int                 // 0 = keep every level; >0 = the feed's subscribed window (WithMaxDepth)
 	latencyFn          func(time.Duration) // nil = no latency observation (WithLatencyObserver)
@@ -203,6 +208,12 @@ func (e *Engine) View() *View { return e.view.Load() }
 // reads the same as the book having gone live and drifted.
 func (e *Engine) Resyncs() int { return int(e.resyncs.Load()) }
 
+// Ready reports whether the book is usable now: false before the first bootstrap and
+// while a resync the engine started is in progress. It reads the resync flag before the
+// view; a caller that races a resync start may still see true, which is the state just
+// before it.
+func (e *Engine) Ready() bool { return !e.resyncing.Load() && e.view.Load() != nil }
+
 // Gaps returns how many sequence gaps the engine has detected (a metric).
 func (e *Engine) Gaps() int { return int(e.gaps.Load()) }
 
@@ -225,7 +236,8 @@ func (e *Engine) WouldCrosses() int { return int(e.wouldCrosses.Load()) }
 // would silently void them.
 func (e *Engine) publish() {
 	bids, asks := e.book.topN(e.depth)
-	e.view.Store(&View{LastSeq: e.lastSeq, Bids: bids, Asks: asks})
+	e.gen++
+	e.view.Store(&View{Gen: e.gen, LastSeq: e.lastSeq, Bids: bids, Asks: asks})
 }
 
 // Bootstrap binds the book from a fresh snapshot, retrying a bounded number of times
@@ -257,6 +269,7 @@ func (e *Engine) Bootstrap(ctx context.Context) error {
 			}
 		}
 		e.publish()
+		e.resyncing.Store(false) // after publish: cleared first, Ready would be true over the old view
 		return nil
 	}
 	return fmt.Errorf("bootstrap failed after %d unusable snapshots: %w", maxBindAttempts, lastReason)
@@ -364,6 +377,7 @@ func (e *Engine) Step(ctx context.Context) (bool, error) {
 }
 
 func (e *Engine) resync(ctx context.Context) error {
+	e.resyncing.Store(true)
 	e.resyncs.Add(1)
 	e.consecutiveResyncs++
 	if e.consecutiveResyncs > maxConsecutiveResyncs {

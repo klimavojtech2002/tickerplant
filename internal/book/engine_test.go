@@ -196,6 +196,9 @@ func TestTradeIsNoOpOnBookAndView(t *testing.T) {
 	if e.View() != after {
 		t.Fatal("a trade must not publish: the view pointer changed")
 	}
+	if e.View().Gen != after.Gen {
+		t.Fatal("a trade must not move Gen")
+	}
 	if e.Resyncs() != 0 || e.Disconnects() != 0 {
 		t.Fatalf("a trade must not resync or count a disconnect: resyncs=%d disconnects=%d", e.Resyncs(), e.Disconnects())
 	}
@@ -610,6 +613,7 @@ func TestConcurrentReaders(t *testing.T) {
 						t.Error("reader observed a crossed view")
 					}
 					_ = e.Resyncs()
+					_ = e.Ready()
 					_ = e.WouldCrosses()
 				}
 			}
