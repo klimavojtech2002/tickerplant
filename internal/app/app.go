@@ -176,25 +176,27 @@ func symbolName(live bool, symbol string) string {
 // is a value snapshot taken at return, so a caller gets exactly what it needs to report
 // and cannot accidentally drive the engine further — by then the source is already closed.
 type Result struct {
-	view           *book.View
-	stats          delivery.Stats
-	resyncs        int
-	gaps           int
-	disconnects    int
-	wouldCrosses   int
-	snapshotErrors int
+	view            *book.View
+	stats           delivery.Stats
+	resyncs         int
+	gaps            int
+	disconnects     int
+	wouldCrosses    int
+	snapshotRejects int
+	snapshotErrors  int
 }
 
 // resultOf snapshots the finished engine and hub into a Result.
 func resultOf(eng *book.Engine, hub *delivery.Hub) Result {
 	return Result{
-		view:           eng.View(),
-		stats:          hub.Stats(),
-		resyncs:        eng.Resyncs(),
-		gaps:           eng.Gaps(),
-		disconnects:    eng.Disconnects(),
-		wouldCrosses:   eng.WouldCrosses(),
-		snapshotErrors: eng.SnapshotErrors(),
+		view:            eng.View(),
+		stats:           hub.Stats(),
+		resyncs:         eng.Resyncs(),
+		gaps:            eng.Gaps(),
+		disconnects:     eng.Disconnects(),
+		wouldCrosses:    eng.WouldCrosses(),
+		snapshotRejects: eng.SnapshotRejects(),
+		snapshotErrors:  eng.SnapshotErrors(),
 	}
 }
 
@@ -203,7 +205,7 @@ func (r Result) Log(log *slog.Logger) {
 	log.Info("done",
 		"delivered", r.stats.Delivered, "dropped", r.stats.Dropped,
 		"resyncs", r.resyncs, "gaps", r.gaps, "disconnects", r.disconnects,
-		"would-cross", r.wouldCrosses, "snapshot-errors", r.snapshotErrors)
+		"would-cross", r.wouldCrosses, "snapshot-rejects", r.snapshotRejects, "snapshot-errors", r.snapshotErrors)
 }
 
 // Run wires the pipeline (source -> engine -> fan-out), drives it to completion or
