@@ -18,6 +18,7 @@ import (
 	"github.com/klimavojtech2002/tickerplant/internal/market"
 	"github.com/klimavojtech2002/tickerplant/internal/metrics"
 	"github.com/klimavojtech2002/tickerplant/internal/source"
+	"github.com/klimavojtech2002/tickerplant/internal/venue"
 	"github.com/klimavojtech2002/tickerplant/internal/venue/binance"
 	"github.com/klimavojtech2002/tickerplant/internal/venue/kraken"
 )
@@ -29,6 +30,10 @@ const (
 	DefaultVenue  = "binance"
 	DefaultSymbol = "BTCUSDT"
 )
+
+// snapshotBackoff spaces the engine's snapshot retries: exponential from 500 ms to 8 s with
+// full jitter, so several instances recovering from one outage do not retry in step.
+var snapshotBackoff = venue.Backoff{Min: 500 * time.Millisecond, Max: 8 * time.Second, Factor: 2, Jitter: venue.FullJitter}.Next
 
 // Limits on the HTTP edge. edgeShutdownTimeout is a variable so a test can shorten it.
 var edgeShutdownTimeout = 5 * time.Second
@@ -208,7 +213,7 @@ func Run(ctx context.Context, log *slog.Logger, src source.Source, cfg Config) (
 	// Internal latency per ARCHITECTURE §9: adapter frame-dequeue -> view stored for readers,
 	// observed by the engine so no wire-wait is ever inside a sample.
 	lat := metrics.NewHistogram()
-	eng := book.New(src, cfg.depth).WithChecksum(cfg.checksum).WithMaxDepth(cfg.window).WithLatencyObserver(lat.Record)
+	eng := book.New(src, cfg.depth).WithChecksum(cfg.checksum).WithMaxDepth(cfg.window).WithLatencyObserver(lat.Record).WithSnapshotBackoff(snapshotBackoff)
 	hub := delivery.New(1024)
 
 	if cfg.HTTPListener != nil {

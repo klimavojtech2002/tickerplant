@@ -18,6 +18,9 @@ services:
     # over 170 days, effectively indefinite); it still exits cleanly (never wedges)
     # once exhausted.
     command: ["-http", ":8080", "-steps", "100000000"]
+    # A fatal exit (for example a venue that stays down past the snapshot retries) is
+    # retried a few times; on-failure also caps a bad-flag exit, which unless-stopped would loop on.
+    restart: on-failure:5
     ports:
       - "8080:8080"
 

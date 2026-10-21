@@ -714,3 +714,17 @@ func TestPrepareLogsRealFailureEvenIfCancelled(t *testing.T) {
 		t.Fatalf("a real failure was not logged: %s", buf.String())
 	}
 }
+
+// The app's retry delay is jittered and capped: every value falls in [0, 8s].
+func TestSnapshotBackoffIsBounded(t *testing.T) {
+	for attempt := 0; attempt < 40; attempt++ {
+		for i := 0; i < 50; i++ {
+			if d := snapshotBackoff(attempt); d < 0 || d > 8*time.Second {
+				t.Fatalf("snapshotBackoff(%d) = %v, want within [0, 8s]", attempt, d)
+			}
+		}
+	}
+	if d := snapshotBackoff(0); d > 500*time.Millisecond {
+		t.Fatalf("first retry delay %v exceeds the 500ms minimum bound", d)
+	}
+}
