@@ -1,4 +1,4 @@
-package main
+package app
 
 import (
 	"bufio"
@@ -31,8 +31,8 @@ func TestRunShutdownWithLiveSSEClient(t *testing.T) {
 	}
 	runDone := make(chan error, 1)
 	go func() {
-		_, err := run(context.Background(), quietLog(), gs, config{
-			depth: 5, venue: "synthetic", symbol: "DEMO", httpLn: ln,
+		_, err := Run(context.Background(), quietLog(), gs, Config{
+			depth: 5, venue: "synthetic", symbol: "DEMO", HTTPListener: ln,
 		})
 		runDone <- err
 	}()
