@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"flag"
+	"fmt"
 	"io"
 	"log/slog"
 	"net"
@@ -65,7 +66,32 @@ func parseFlags(args []string, out io.Writer) (options, error) {
 			o.everySet = true
 		}
 	})
+	if err := o.validate(); err != nil {
+		fmt.Fprintf(out, "tickerplant: %v\n", err)
+		return options{}, err
+	}
 	return o, nil
+}
+
+// maxDepth bounds -depth. Venues publish at most a few thousand levels per side, and a view
+// of 1000 levels per side is already far more than a client renders; the bound keeps one
+// SSE frame small and refuses nonsense such as -depth 99999 instead of clamping it.
+const maxDepth = 1000
+
+// validate refuses values the pipeline cannot use. Each message names the flag, the value
+// and what is allowed, and main prints it and exits 2, like any other bad command line.
+func (o options) validate() error {
+	switch {
+	case o.depth < 1 || o.depth > maxDepth:
+		return fmt.Errorf("-depth %d is out of range: want 1 to %d", o.depth, maxDepth)
+	case o.steps < 0:
+		return fmt.Errorf("-steps %d is negative: want 0 or more", o.steps)
+	case o.every < 0:
+		return fmt.Errorf("-every %d is negative: want 0 (never) or more", o.every)
+	case o.pace < 0:
+		return fmt.Errorf("-pace %v is negative: want 0 or more", o.pace)
+	}
+	return nil
 }
 
 func main() {

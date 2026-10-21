@@ -14,16 +14,6 @@ import (
 	"time"
 )
 
-// With TICKERPLANT_AS_MAIN set, the test binary runs main, so the test below can start a
-// real tickerplant process and signal it.
-func TestMain(m *testing.M) {
-	if os.Getenv("TICKERPLANT_AS_MAIN") == "1" {
-		main()
-		os.Exit(0)
-	}
-	os.Exit(m.Run())
-}
-
 // A SIGTERM must end a paced run promptly with exit code 0 and the "interrupted" line.
 func TestSIGTERMEndsRun(t *testing.T) {
 	cmd := exec.Command(os.Args[0], "-steps", "1000000", "-pace", "1h", "-every", "0")

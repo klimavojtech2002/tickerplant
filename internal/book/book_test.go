@@ -104,3 +104,16 @@ func TestBuildFromDeduplicates(t *testing.T) {
 		t.Fatalf("dedup failed: bids len = %d, want 2", len(b.bids))
 	}
 }
+
+// A negative depth must publish an empty side, not panic on a negative slice bound.
+func TestClipNegativeDepth(t *testing.T) {
+	levels := []market.Level{{Price: 1, Size: 1}, {Price: 2, Size: 1}}
+	for _, n := range []int{-1, -1000, 0} {
+		if got := clip(levels, n); len(got) != 0 {
+			t.Errorf("clip(_, %d) = %v, want empty", n, got)
+		}
+	}
+	if got := clip(levels, 5); len(got) != 2 {
+		t.Errorf("clip(_, 5) = %v, want both levels", got)
+	}
+}

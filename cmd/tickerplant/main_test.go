@@ -1,9 +1,13 @@
 package main
 
 import (
+	"bytes"
 	"errors"
 	"flag"
 	"io"
+	"os"
+	"os/exec"
+	"strings"
 	"testing"
 	"time"
 
@@ -95,5 +99,76 @@ func TestParseFlags(t *testing.T) {
 func TestParseFlagsHelpIsErrHelp(t *testing.T) {
 	if _, err := parseFlags([]string{"-h"}, io.Discard); !errors.Is(err, flag.ErrHelp) {
 		t.Fatalf("parseFlags(-h) = %v, want flag.ErrHelp", err)
+	}
+}
+
+func TestValidate(t *testing.T) {
+	ok := options{depth: 10, steps: 5000, every: 500, pace: 150 * time.Millisecond}
+	cases := []struct {
+		name    string
+		mut     func(*options)
+		wantErr string // substring naming the flag; empty = valid
+	}{
+		{"defaults", func(*options) {}, ""},
+		{"depth min", func(o *options) { o.depth = 1 }, ""},
+		{"depth max", func(o *options) { o.depth = maxDepth }, ""},
+		{"depth zero", func(o *options) { o.depth = 0 }, "-depth 0"},
+		{"depth negative", func(o *options) { o.depth = -1 }, "-depth -1"},
+		{"depth too big", func(o *options) { o.depth = maxDepth + 1 }, "-depth 1001"},
+		{"steps zero", func(o *options) { o.steps = 0 }, ""},
+		{"steps negative", func(o *options) { o.steps = -5 }, "-steps -5"},
+		{"every zero", func(o *options) { o.every = 0 }, ""},
+		{"every negative", func(o *options) { o.every = -1 }, "-every -1"},
+		{"pace zero", func(o *options) { o.pace = 0 }, ""},
+		{"pace negative", func(o *options) { o.pace = -time.Second }, "-pace -1s"},
+		{"pace just below zero", func(o *options) { o.pace = -1 }, "-pace -1ns"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			o := ok
+			c.mut(&o)
+			err := o.validate()
+			if c.wantErr == "" {
+				if err != nil {
+					t.Fatalf("validate() = %v, want nil", err)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), c.wantErr) {
+				t.Fatalf("validate() = %v, want an error containing %q", err, c.wantErr)
+			}
+		})
+	}
+}
+
+// parseFlags prints the refusal on its output and returns the error, so main exits 2.
+func TestParseFlagsRefusesOutOfRange(t *testing.T) {
+	var out bytes.Buffer
+	if _, err := parseFlags([]string{"-depth", "99999"}, &out); err == nil {
+		t.Fatal("-depth 99999 must be refused")
+	}
+	if !strings.Contains(out.String(), "-depth 99999 is out of range") {
+		t.Fatalf("message = %q, want it to name the flag and value", out.String())
+	}
+}
+
+// The built command, not just parseFlags, must exit 2 with the message on stderr.
+func TestMainRefusesBadFlags(t *testing.T) {
+	cases := [][]string{
+		{"-depth", "-1"}, {"-depth", "99999"}, {"-steps", "-5"}, {"-every", "-1"}, {"-pace", "-1s"},
+	}
+	for _, args := range cases {
+		cmd := exec.Command(os.Args[0], args...)
+		cmd.Env = append(os.Environ(), "TICKERPLANT_AS_MAIN=1")
+		var stderr bytes.Buffer
+		cmd.Stderr = &stderr
+		err := cmd.Run()
+		var ee *exec.ExitError
+		if !errors.As(err, &ee) || ee.ExitCode() != 2 {
+			t.Errorf("%v: err = %v, want exit status 2", args, err)
+		}
+		if !strings.Contains(stderr.String(), args[0]) {
+			t.Errorf("%v: stderr = %q, want it to name the flag", args, stderr.String())
+		}
 	}
 }
