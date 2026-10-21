@@ -500,7 +500,7 @@ running demo) and the Next.js dashboard.
 - **Go service: `gcr.io/distroless/static-debian12:nonroot`.** The binary is `CGO_ENABLED=0`, so it
   needs nothing from the OS but CA certificates (for live `wss://`) — which the `nonroot` distroless
   variant already ships, along with a non-root user (uid 65532), with no shell and no package
-  manager in the final image. A multi-stage build (`golang:1.25-alpine` builder → distroless final)
+  manager in the final image. A multi-stage build (a digest-pinned `golang` alpine builder → distroless final)
   keeps the toolchain out of what ships.
 - **Dashboard: a static export, not a Next.js server.** The page is entirely client-side (one `"use
   client"` component, no API routes, no server actions, ADR-0018) — `next.config.ts`'s `output:

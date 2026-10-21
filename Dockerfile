@@ -1,9 +1,11 @@
 # syntax=docker/dockerfile:1
 
-# Builder: go.mod/go.sum first so dependency downloads cache independently of source
-# changes.
-FROM golang:1.25-alpine AS builder
+# The image tag fixes the Go that builds the binary; keep it equal to the toolchain line in
+# go.mod. GOTOOLCHAIN=local only stops the build from downloading another Go.
+FROM golang:1.26.10-alpine@sha256:9ce231b28998b32e116927c61aa5c406183061d4f3f2d61b292c88e7f6bdf7ca AS builder
+ENV GOTOOLCHAIN=local
 WORKDIR /src
+# go.mod/go.sum first so dependency downloads cache independently of source changes.
 COPY go.mod go.sum ./
 RUN go mod download
 COPY cmd ./cmd
