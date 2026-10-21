@@ -9,7 +9,7 @@ page never parses them into floats (ADR-0018).
 
 ```bash
 # terminal 1: the pipeline with its HTTP edge (synthetic feed, no account needed)
-go run ./cmd/tickerplant -http :8080
+go run ./cmd/tickerplant -http :8080 -steps 100000000   # the default 5000 steps ends after about 12.5 minutes
 
 # or live:
 go run ./cmd/tickerplant -live -venue kraken -symbol BTC/USD -http :8080
