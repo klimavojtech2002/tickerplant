@@ -93,7 +93,7 @@ consumer that can't keep up is disconnected.
 Each venue's book has exactly one writer goroutine; readers get a consistent view through an
 atomically published snapshot, so reads take no lock on the writer's hot path. The reasoning, and the
 alternative it was weighed against (a reader-writer lock on the hot update path), is ADR-0008 in
-[docs/decisions.md](docs/decisions.md) — 19 decisions in total.
+[docs/decisions.md](docs/decisions.md) — 20 decisions in total.
 
 ## Scope
 

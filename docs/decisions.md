@@ -542,6 +542,34 @@ lines on stderr) and the Next.js dashboard.
   binary); the dashboard is **74.7 MB**, dominated by the `nginx:1.27-alpine` base rather than the
   handful of static files it serves.
 
+## ADR-0020 — The process stops on SIGINT and SIGTERM and refuses bad flags
+
+**Status:** Accepted
+
+**Context.** In the container the binary runs as PID 1, and a PID 1 process with no handler ignores
+SIGTERM, so `docker stop` waits for the kill timeout. Command-line values were unchecked: a negative
+`-depth` would reach the book, and `-depth 99999` would build views far larger than any client renders.
+
+**Decision.**
+- `SIGINT` and `SIGTERM` cancel the run's context. After the first signal the handler is released, so a
+  second one kills the process.
+- Shutdown order is fixed: the source ends or the context is cancelled, the hub is closed (which ends every
+  SSE handler), the edge is stopped with `Shutdown` under a 5 s bound and `Close` if that expires, then
+  the source is closed. An interrupt during source setup is a clean exit, not a setup failure.
+- The pace wait is a timer raced against the context, not `time.Sleep`.
+- Flags are checked before anything starts: `-depth` 1 to 1000, `-steps`, `-every` and `-pace` not negative,
+  `-log-level` one of debug, info, warn, error, `-log-format` text or json. A bad value prints the flag, the
+  value and the allowed range, and exits 2, like a parse error. Values are refused, never clamped.
+  The 1000 ceiling is far above the 10 levels a dashboard shows and keeps one stream frame small.
+- `-version` prints the version injected at link time (`ARG VERSION` in the Dockerfile), or what the Go
+  toolchain recorded about the build, or `dev`.
+
+**Consequences.**
+- `docker stop` ends the run as soon as the pipeline unwinds instead of after the kill timeout.
+- A signal test sends a real SIGTERM to a real process on Unix; on Windows, where a console signal cannot be
+  sent to a child, only the signal list is checked.
+- A slow client cannot hold shutdown past 5 s: `Close` drops it.
+
 ## Verified against
 
 - Go language specification — `internal` package import rule (ADR-0002).
