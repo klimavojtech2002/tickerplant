@@ -269,15 +269,15 @@ func TestRunContextCancelled(t *testing.T) {
 	if err == nil {
 		t.Fatal("a cancelled context must surface an error")
 	}
-	// reportOutcome relies on this specific error surfacing unwrapped: it is what
+	// ReportOutcome relies on this specific error surfacing unwrapped: it is what
 	// lets Ctrl-C during a live demo exit clean instead of reading as a crash.
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("run on a cancelled context must surface context.Canceled, got %v", err)
 	}
 }
 
-// reportOutcome must treat a cancelled context (Ctrl-C, the only signal wired) as a
-// clean shutdown, not a crash — that is the one interruption every demo hits.
+// ReportOutcome must treat a cancelled context (Ctrl-C or SIGTERM) as a clean shutdown,
+// not a crash — that is the interruption every demo hits.
 func TestReportOutcome(t *testing.T) {
 	cases := []struct {
 		name string
@@ -697,5 +697,20 @@ func TestLogTopScaled(t *testing.T) {
 		if !strings.Contains(buf.String(), want) {
 			t.Errorf("log lacks %s:\n%s", want, buf.String())
 		}
+	}
+}
+
+// A real setup failure that happens to coincide with a cancelled context is still logged:
+// only context.Canceled itself is treated as an interrupt.
+func TestPrepareLogsRealFailureEvenIfCancelled(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	var buf bytes.Buffer
+	_, _, err := Prepare(ctx, slog.New(slog.NewTextHandler(&buf, nil)), Options{Live: true, Venue: "okx", Symbol: "X", Steps: 1})
+	if err == nil || errors.Is(err, context.Canceled) {
+		t.Fatalf("Prepare error = %v, want the unknown-venue error", err)
+	}
+	if !strings.Contains(buf.String(), "source setup failed") {
+		t.Fatalf("a real failure was not logged: %s", buf.String())
 	}
 }

@@ -3,56 +3,62 @@
 package main
 
 import (
-	"bufio"
 	"bytes"
 	"errors"
 	"os"
 	"os/exec"
 	"strings"
+	"sync"
 	"syscall"
 	"testing"
 	"time"
 )
 
+// lockedBuffer is a bytes.Buffer that the child's stderr copier can write while the test
+// polls it. exec waits for that copier before Wait returns, so the final read is complete.
+type lockedBuffer struct {
+	mu sync.Mutex
+	b  bytes.Buffer
+}
+
+func (l *lockedBuffer) Write(p []byte) (int, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.b.Write(p)
+}
+
+func (l *lockedBuffer) String() string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.b.String()
+}
+
 // A SIGTERM must end a paced run promptly with exit code 0 and the "interrupted" line.
 func TestSIGTERMEndsRun(t *testing.T) {
 	cmd := exec.Command(os.Args[0], "-steps", "1000000", "-pace", "1h", "-every", "0")
 	cmd.Env = append(os.Environ(), "TICKERPLANT_AS_MAIN=1")
-	var stderr bytes.Buffer
-	pr, pw, err := os.Pipe()
-	if err != nil {
-		t.Fatal(err)
-	}
-	cmd.Stderr = pw
+	var stderr lockedBuffer
+	cmd.Stderr = &stderr
 	if err := cmd.Start(); err != nil {
-		t.Fatal(err)
-	}
-	pw.Close()
-	ready := make(chan struct{})
-	go func() { // copy stderr, and note when the process has started the run
-		sc := bufio.NewScanner(pr)
-		signalled := false
-		for sc.Scan() {
-			stderr.WriteString(sc.Text() + "\n")
-			if !signalled && strings.Contains(sc.Text(), "msg=mode") {
-				signalled = true
-				close(ready)
-			}
-		}
-	}()
-	select {
-	case <-ready:
-	case <-time.After(10 * time.Second):
-		cmd.Process.Kill()
-		t.Fatal("the process never logged its mode line")
-	}
-	time.Sleep(200 * time.Millisecond) // let it reach the pace wait
-	start := time.Now()
-	if err := cmd.Process.Signal(syscall.SIGTERM); err != nil {
 		t.Fatal(err)
 	}
 	done := make(chan error, 1)
 	go func() { done <- cmd.Wait() }()
+
+	deadline := time.Now().Add(10 * time.Second)
+	for !strings.Contains(stderr.String(), "msg=mode") { // the run has started
+		if time.Now().After(deadline) {
+			cmd.Process.Kill()
+			t.Fatal("the process never logged its mode line")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	time.Sleep(200 * time.Millisecond) // let it reach the pace wait
+
+	start := time.Now()
+	if err := cmd.Process.Signal(syscall.SIGTERM); err != nil {
+		t.Fatal(err)
+	}
 	select {
 	case err := <-done:
 		var ee *exec.ExitError

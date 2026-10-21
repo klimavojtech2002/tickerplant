@@ -71,7 +71,7 @@ type Options struct {
 func Prepare(ctx context.Context, log *slog.Logger, o Options) (source.Source, Config, error) {
 	src, vs, err := newSource(ctx, log, o)
 	if err != nil {
-		if ctx.Err() == nil { // an interrupt during setup is a shutdown, not a failure
+		if !errors.Is(err, context.Canceled) { // an interrupt during setup is a shutdown, not a failure
 			log.Error("source setup failed", "err", err)
 		}
 		return nil, Config{}, err

@@ -83,9 +83,9 @@ func parseFlags(args []string, out io.Writer) (options, error) {
 	return o, nil
 }
 
-// maxDepth bounds -depth. Venues publish at most a few thousand levels per side, and a view
-// of 1000 levels per side is already far more than a client renders; the bound keeps one
-// SSE frame small and refuses nonsense such as -depth 99999 instead of clamping it.
+// maxDepth bounds -depth. A view of 1000 levels per side is already far more than a client
+// renders; the bound keeps one SSE frame small and refuses nonsense such as -depth 99999
+// instead of clamping it.
 const maxDepth = 1000
 
 // validate refuses values the pipeline cannot use. Each message names the flag, the value
