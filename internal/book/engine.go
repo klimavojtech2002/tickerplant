@@ -120,7 +120,7 @@ func (e *Engine) WithSnapshotBackoff(backoff func(attempt int) time.Duration) *E
 }
 
 // WithSnapshotRetry sets how Bootstrap retries a Snapshot call that failed with a transient
-// error: at most retries retries (0 disables retrying), waiting backoff(attempt) before retry
+// error: at most retries retries (0 or less disables retrying), waiting backoff(attempt) before retry
 // attempt+1 through sleep. A nil backoff or sleep keeps the default. Tests inject a sleep
 // that records the delays instead of waiting. Call before Bootstrap/Run. Returns the
 // engine for chaining.
