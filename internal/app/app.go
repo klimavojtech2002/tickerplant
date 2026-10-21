@@ -30,6 +30,15 @@ const (
 	DefaultSymbol = "BTCUSDT"
 )
 
+// Limits on the HTTP edge. edgeShutdownTimeout is a variable so a test can shorten it.
+var edgeShutdownTimeout = 5 * time.Second
+
+const (
+	edgeReadHeaderTimeout = 10 * time.Second
+	edgeIdleTimeout       = 2 * time.Minute
+	edgeMaxHeaderBytes    = 64 << 10
+)
+
 // Config is everything Run needs once the source is chosen. Only HTTPListener is set by the
 // caller; Prepare fills in the rest.
 type Config struct {
@@ -62,7 +71,9 @@ type Options struct {
 func Prepare(ctx context.Context, log *slog.Logger, o Options) (source.Source, Config, error) {
 	src, vs, err := newSource(ctx, log, o)
 	if err != nil {
-		log.Error("source setup failed", "err", err)
+		if ctx.Err() == nil { // an interrupt during setup is a shutdown, not a failure
+			log.Error("source setup failed", "err", err)
+		}
 		return nil, Config{}, err
 	}
 	cfg := Config{
@@ -78,7 +89,7 @@ func Prepare(ctx context.Context, log *slog.Logger, o Options) (source.Source, C
 }
 
 // ReportOutcome logs the pipeline's result and returns the process exit code. A
-// context-cancellation error (Ctrl-C, the only signal wired via signal.NotifyContext)
+// context-cancellation error (Ctrl-C or SIGTERM, wired via signal.NotifyContext)
 // is a clean shutdown, not a failure — it must not read as a crash on the one
 // interruption every demo hits.
 func ReportOutcome(log *slog.Logger, err error) int {
@@ -202,21 +213,32 @@ func Run(ctx context.Context, log *slog.Logger, src source.Source, cfg Config) (
 
 	if cfg.HTTPListener != nil {
 		// ReadHeaderTimeout bounds a client that connects and never finishes its
-		// request; response-side stalls are the handler's write deadline's job.
-		edge := &http.Server{ReadHeaderTimeout: 10 * time.Second, Handler: httpapi.New(httpapi.Config{
-			Hub: hub, Engine: eng,
-			Venue: market.Venue(cfg.venue), Symbol: market.Symbol(cfg.symbol),
-			PriceScale: cfg.scales[0], SizeScale: cfg.scales[1],
-			Latency: lat, Log: log,
-		})}
+		// request, IdleTimeout an idle keep-alive connection; response-side stalls are
+		// the handler's write deadline's job.
+		edge := &http.Server{
+			ReadHeaderTimeout: edgeReadHeaderTimeout, IdleTimeout: edgeIdleTimeout, MaxHeaderBytes: edgeMaxHeaderBytes,
+			Handler: httpapi.New(httpapi.Config{
+				Hub: hub, Engine: eng,
+				Venue: market.Venue(cfg.venue), Symbol: market.Symbol(cfg.symbol),
+				PriceScale: cfg.scales[0], SizeScale: cfg.scales[1],
+				Latency: lat, Log: log,
+			}),
+		}
 		go func() {
 			if err := edge.Serve(cfg.HTTPListener); err != nil && !errors.Is(err, http.ErrServerClosed) {
 				log.Error("http edge failed", "err", err)
 			}
 		}()
-		// Close, not Shutdown: open SSE streams never drain on their own, and by the
-		// time this runs the hub is closed, so every handler is already exiting.
-		defer func() { _ = edge.Close() }()
+		// By the time this runs the hub is closed, so every stream handler is already
+		// leaving and Shutdown returns quickly. If it does not within the bound, Close
+		// drops whatever is left.
+		defer func() {
+			sctx, cancel := context.WithTimeout(context.Background(), edgeShutdownTimeout)
+			defer cancel()
+			if err := edge.Shutdown(sctx); err != nil {
+				_ = edge.Close()
+			}
+		}()
 	}
 
 	c := hub.Subscribe()
@@ -263,7 +285,12 @@ func Run(ctx context.Context, log *slog.Logger, src source.Source, cfg Config) (
 		}
 		publish()
 		if cfg.pace > 0 {
-			time.Sleep(cfg.pace)
+			t := time.NewTimer(cfg.pace)
+			select {
+			case <-t.C:
+			case <-ctx.Done(): // the next Step reports the cancellation
+				t.Stop()
+			}
 		}
 	}
 }

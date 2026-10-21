@@ -433,9 +433,9 @@ un-mis-parseable by accident — the no-float discipline extends across the wire
 
 The layer adds no second backpressure mechanism. A slow SSE client lags its Hub consumer, the Hub
 conflates and eventually disconnects it (ADR-0006/0015), and the handler's only own guard is a
-per-event write deadline so a dead connection cannot wedge a goroutine. Shutdown is `Close`, not
-`Shutdown`: open SSE streams never drain on their own, and the hub closing has already ended every
-handler loop.
+per-event write deadline so a dead connection cannot wedge a goroutine. On exit the hub is closed
+first, which ends every stream handler, and then the edge is stopped with `Shutdown` under a 5 s bound;
+if that expires, `Close` drops what is left.
 
 **Consequences.**
 - The client stays thin; the server stays the single source of truth.

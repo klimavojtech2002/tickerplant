@@ -596,3 +596,92 @@ func (s *syncBuffer) String() string {
 	defer s.mu.Unlock()
 	return s.b.String()
 }
+
+// An interrupt during source setup is a shutdown, not a failure: the cause is returned for
+// the caller to treat as a clean exit, and Prepare does not log it as an error.
+func TestPrepareCancelledIsNotLoggedAsFailure(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	var buf bytes.Buffer
+	log := slog.New(slog.NewTextHandler(&buf, nil))
+	_, _, err := Prepare(ctx, log, Options{Live: true, Venue: "binance", Symbol: "BTCUSDT", Steps: 1})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("Prepare error = %v, want it to wrap context.Canceled", err)
+	}
+	if strings.Contains(buf.String(), "source setup failed") {
+		t.Fatalf("an interrupt was logged as a setup failure:\n%s", buf.String())
+	}
+}
+
+// The pace wait must end when the context is cancelled, not after the whole pause.
+func TestRunPaceStopsOnCancel(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() {
+		_, err := Run(ctx, quietLog(), synthetic(1, 100), Config{depth: 5, pace: time.Hour})
+		done <- err
+	}()
+	time.Sleep(100 * time.Millisecond) // let it reach the first pace wait
+	cancel()
+	select {
+	case err := <-done:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("Run error = %v, want context.Canceled", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Run did not stop while waiting out the pace")
+	}
+}
+
+// A connection that is mid-request keeps Shutdown waiting. After the (shortened) bound the
+// edge must fall back to Close, which drops that connection, instead of leaving it open.
+func TestRunClosesEdgeWhenShutdownTimesOut(t *testing.T) {
+	old := edgeShutdownTimeout
+	edgeShutdownTimeout = 100 * time.Millisecond
+	t.Cleanup(func() { edgeShutdownTimeout = old })
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	conn, err := net.Dial("tcp", ln.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	gs := &gatedSource{
+		snap:    market.Snapshot{LastUpdateID: 10, Bids: []market.Level{{Price: 100, Size: 1}}, Asks: []market.Level{{Price: 101, Size: 1}}},
+		release: make(chan struct{}),
+	}
+	t.Cleanup(func() {
+		select {
+		case <-gs.release:
+		default:
+			close(gs.release)
+		}
+	})
+	runDone := make(chan error, 1)
+	go func() {
+		_, err := Run(context.Background(), quietLog(), gs, Config{depth: 5, venue: "synthetic", symbol: "DEMO", HTTPListener: ln})
+		runDone <- err
+	}()
+	if _, err := conn.Write([]byte("GET /metrics HTTP/1.1\r\nHost: x\r\n")); err != nil { // headers never finished
+		t.Fatal(err)
+	}
+	time.Sleep(300 * time.Millisecond) // let the edge accept the connection and read the partial request
+	close(gs.release)
+	select {
+	case err := <-runDone:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("Run did not return")
+	}
+	conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	if _, err := conn.Read(make([]byte, 1)); err == nil {
+		t.Fatal("read succeeded on a connection that should have been closed")
+	} else if ne, ok := err.(net.Error); ok && ne.Timeout() {
+		t.Fatal("the stalled connection was still open 2s after Run returned: Close was not used after Shutdown timed out")
+	}
+}

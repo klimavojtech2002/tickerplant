@@ -12,10 +12,15 @@ import (
 	"net"
 	"os"
 	"os/signal"
+	"syscall"
 	"time"
 
 	"github.com/klimavojtech2002/tickerplant/internal/app"
 )
+
+// shutdownSignals end the run cleanly. SIGTERM is what `docker stop` sends; as PID 1 the
+// process would otherwise ignore it and be killed after the grace period.
+var shutdownSignals = []os.Signal{os.Interrupt, syscall.SIGTERM}
 
 // options is everything main reads from the command line.
 type options struct {
@@ -73,14 +78,21 @@ func main() {
 	}
 
 	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	ctx, stop := signal.NotifyContext(context.Background(), shutdownSignals...)
 	defer stop()
+	go func() { // after the first signal, restore the default so a second one kills the process
+		<-ctx.Done()
+		stop()
+	}()
 
 	src, cfg, err := app.Prepare(ctx, log, app.Options{
 		Seed: opts.seed, Steps: opts.steps, Depth: opts.depth, Every: opts.every, EverySet: opts.everySet,
 		Pace: opts.pace, Live: opts.live, Venue: opts.venue, Symbol: opts.symbol,
 	})
 	if err != nil {
+		if errors.Is(err, context.Canceled) {
+			os.Exit(app.ReportOutcome(log, err)) // interrupted during setup: a clean shutdown
+		}
 		os.Exit(1) // Prepare already logged the cause
 	}
 	if opts.httpAddr != "" {
