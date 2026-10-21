@@ -149,7 +149,7 @@ func TestLiveSurfacesFetchError(t *testing.T) {
 
 // Live wired against local servers (REST for exchangeInfo + depth snapshot, a real
 // local WebSocket for the diff stream) must assemble a working source that drives the
-// engine to an uncrossed book — the whole live path proven without touching Binance.
+// engine to an uncrossed book — the whole live path exercised without touching Binance.
 func TestLiveEndToEndLocal(t *testing.T) {
 	rest := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {

@@ -1,4 +1,4 @@
-// Command social regenerates docs/figures/social-preview.svg: a 1280x640 dark-mode
+// Command social regenerates docs/figures/social-preview.svg: a 1280x640
 // card for GitHub's repo social preview / LinkedIn link thumbnails. Same real
 // simulation run as fig1, rendered as a visual-first card with no headline copy —
 // LinkedIn's own title/description fields carry the words.

@@ -12,7 +12,7 @@ import (
 	"github.com/klimavojtech2002/tickerplant/internal/book"
 )
 
-// Hub is an in-process fan-out of *book.View snapshots. The engine is the single
+// Hub is an in-process fan-out of *book.View snapshots. The run loop is the single
 // publisher; each consumer holds a size-1 latest slot plus a doorbell.
 type Hub struct {
 	maxLag int // the consecutive-supersede count at which a consumer is disconnected

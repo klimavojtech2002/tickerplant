@@ -236,7 +236,7 @@ func TestEngineRunSyntheticSequenceNoGaps(t *testing.T) {
 	}
 }
 
-// --- the composed seam (audit 0021 finding 4): engine + the real Kraken CRC ---
+// --- the composed seam: engine + the real Kraken CRC ---
 
 // The engine bootstrapping through WithChecksum(real Kraken CRC) against the guide's
 // worked example must reproduce Kraken's published checksum. This anchors the whole

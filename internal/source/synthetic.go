@@ -53,11 +53,10 @@ type Config struct {
 	StaleSnapshot bool
 }
 
-// Synthetic is a deterministic, seeded order-book feed used to prove the engine
-// correct without a live socket. It owns a truthBook (the oracle) and emits deltas
-// consistent with it; faults perturb the emitted stream, never the truth. It emits
-// deltas and disconnect lifecycle events; trades (EventTrade) are part of the port
-// but not generated here yet — the engine slice exercises the book path first.
+// Synthetic is a deterministic, seeded order-book feed used to check the engine without a live
+// socket. It owns a truthBook (the oracle) and emits deltas consistent with it; faults perturb the
+// emitted stream, never the truth. It emits deltas and disconnect lifecycle events; trades
+// (EventTrade) are part of the port but not generated here.
 type Synthetic struct {
 	cfg     Config
 	rng     *rand.Rand
@@ -208,7 +207,7 @@ func (s *Synthetic) Next(ctx context.Context) (Event, bool) {
 			// the truth or the sequence. When the engine is caught up this is contiguous, so
 			// the engine applies it, sees the book cross, and resyncs from the still-legal
 			// truth; the crossed state is never published. This is the venue-sent lie of
-			// ADR-0004, made observable so the simulation proves never-crosses.
+			// ADR-0004, made observable so the simulation checks never-crosses.
 			return Event{Kind: EventDelta, Received: time.Now(), Delta: market.Delta{
 				Venue: s.cfg.Venue, Symbol: s.cfg.Symbol,
 				FirstSeq: s.seq + 1, LastSeq: s.seq + 1,

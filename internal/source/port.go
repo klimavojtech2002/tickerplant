@@ -1,12 +1,12 @@
 // Package source defines the transport port the order-book engine reads through,
-// and a deterministic synthetic implementation used to prove the engine correct
+// and a deterministic synthetic implementation used to check the engine
 // without any live socket (ADR-0001, ADR-0005).
 //
 // The port is pull-based: the engine asks for the next event and, on bootstrap or
-// resync, for a fresh snapshot. Pull (rather than a channel) keeps a run
-// single-threaded and therefore fully deterministic given a seed — the basis of the
-// deterministic simulation that proves the thesis. Live venue adapters (slice 0004)
-// satisfy the same port by buffering their push socket behind Next.
+// resync, for a fresh snapshot. Pull (rather than a channel) keeps a run single-threaded
+// and therefore fully deterministic given a seed — the basis of the deterministic
+// simulation that checks the thesis. Live venue adapters satisfy the same port by
+// buffering their push socket behind Next.
 package source
 
 import (

@@ -1,9 +1,9 @@
 // Package market is the canonical, venue-neutral order-book and trade model.
 //
 // Every venue's wire format is translated into these types at the adapter edge
-// (slice 0004) so the engine and everything downstream speak one vocabulary.
-// Price and size are integers in the venue's smallest increment — never floating
-// point — so level identity, deletes, the never-crosses comparison, and checksums
+// so the engine and everything downstream speak one vocabulary.
+// Price and size are integers scaled by the symbol's decimal precision — never
+// floating point — so level identity, deletes, the never-crosses comparison, and checksums
 // are all exact (ADR-0003, docs/correctness.md §1–§2).
 package market
 
@@ -18,8 +18,8 @@ type (
 	Symbol string
 )
 
-// Price and Size are integers in the venue's smallest increment (ticks, lot units),
-// parsed from the wire at a per-venue/symbol decimal scale.
+// Price and Size are integers scaled by a per-venue/symbol decimal scale, parsed
+// from the wire decimal string.
 //
 // Invariant: a Price or Size is meaningful only at its scale; two may be compared or
 // combined only at the same scale. A book holds one scale per symbol, so within a book
@@ -62,10 +62,10 @@ func (l Level) IsDelete() bool { return l.Size == 0 }
 
 // Snapshot is a full book at a point in time, current as of LastUpdateID.
 //
-// Snapshot and Delta are raw carriers: they hold levels exactly as the venue sent
-// them. If a venue repeats a price on one side, resolution is last-writer-wins, and
-// it is applied where the book is built (slice 0003), not here — the model does not
-// dedup. Keeping the model a carrier keeps it pure and the dedup in one place.
+// Snapshot and Delta are raw carriers: they hold levels exactly as the venue sent them. If a venue
+// repeats a price on one side, resolution is last-writer-wins, and it is applied where the book is
+// built, not here — the model does not dedup. Keeping the model a carrier keeps it pure and the
+// dedup in one place.
 //
 // Treat a constructed value (and its Bids/Asks slices) as immutable: a published
 // book view is read by many goroutines without a lock (ADR-0008), so once a value is

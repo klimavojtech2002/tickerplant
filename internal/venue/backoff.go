@@ -1,6 +1,6 @@
 // Package venue holds the live-transport pieces shared by the exchange adapters: a
 // reconnecting WebSocket stream over the one third-party dependency (ADR-0014) and the
-// reconnect backoff. The adapters themselves (binance, kraken, okx) consume a frame
+// reconnect backoff. The adapters themselves (binance, kraken) consume a frame
 // channel from here, so the WebSocket library is isolated to this package.
 package venue
 

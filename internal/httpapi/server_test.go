@@ -21,9 +21,9 @@ import (
 	"github.com/klimavojtech2002/tickerplant/internal/metrics"
 )
 
-// TestMain is the goroutine-leak gate (plan 0007 acceptance): after every test and
-// with idle HTTP connections dropped, the goroutine count must return to the
-// baseline — a wedged SSE handler or an unreleased hub consumer fails the package.
+// TestMain is the goroutine-leak gate: after every test and with idle HTTP connections dropped, the
+// goroutine count must return to the baseline — a wedged SSE handler or an unreleased hub consumer
+// fails the package.
 func TestMain(m *testing.M) {
 	base := runtime.NumGoroutine()
 	code := m.Run()

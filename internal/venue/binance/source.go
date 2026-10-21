@@ -115,7 +115,7 @@ func (s *Source) Snapshot(ctx context.Context) (market.Snapshot, error) {
 }
 
 // Close releases the source; further Next calls return false. Safe to call once; the
-// WebSocket layer (added with the live transport) owns the underlying connection.
+// WebSocket layer owns the underlying connection.
 func (s *Source) Close() error {
 	s.once.Do(func() {
 		close(s.done)

@@ -321,7 +321,7 @@ func TestRunReconstructsUncrossedBook(t *testing.T) {
 // A faulted run (gap, reorder, duplicate, disconnect injected mid-stream) still ends
 // with an uncrossed book, and the engine is observed to have actually resynced through
 // the faults — the gap and reorder each surface as a sequence gap, the disconnect as a
-// disconnect, and all three force a resync. This proves the wired pipeline recovers end
+// disconnect, and all three force a resync. This exercises the wired pipeline's recovery end
 // to end, not merely that a clean stream finishes.
 func TestRunWithFaultsStaysUncrossed(t *testing.T) {
 	res, err := run(context.Background(), quietLog(), faultedSynthetic(3, 600), config{depth: 10})

@@ -51,7 +51,7 @@ type Engine struct {
 	book               *book
 	lastSeq            market.Sequence
 	view               atomic.Pointer[View]
-	resyncs            atomic.Int64        // metrics; read lock-free from any goroutine (ADR-0008, slice 0006)
+	resyncs            atomic.Int64        // metrics; read lock-free from any goroutine (ADR-0008)
 	gaps               atomic.Int64        // sequence gaps detected
 	disconnects        atomic.Int64        // disconnect events seen
 	checksumMismatches atomic.Int64        // checksum drifts detected (checksum venues)
@@ -87,8 +87,8 @@ func (e *Engine) WithMaxDepth(n int) *Engine {
 }
 
 // WithLatencyObserver reports, for every applied-and-published delta, the span from
-// the adapter taking the raw message off its transport (Event.Received) to the view
-// leaving for the fan-out — the internal latency ARCHITECTURE §9 defines, with no
+// the adapter taking the raw frame off its frame channel (Event.Received) to the view
+// stored for readers — the internal latency ARCHITECTURE §9 defines, with no
 // wire-wait inside it. Events without a Received stamp are not reported. Call before
 // Bootstrap/Run. Returns the engine for chaining.
 func (e *Engine) WithLatencyObserver(fn func(time.Duration)) *Engine {
@@ -100,11 +100,10 @@ func (e *Engine) WithLatencyObserver(fn func(time.Duration)) *Engine {
 // call from any goroutine.
 func (e *Engine) View() *View { return e.view.Load() }
 
-// Resyncs returns how many times the engine has resynced (a metric, slice 0006). This
-// counts cold-start bootstrap-retry attempts (an unusable first snapshot) together
-// with genuine post-bind resyncs — both are Bootstrap calls that discarded a rejected
-// snapshot — so a string of bind-time rejections reads the same as the book having
-// gone live and drifted.
+// Resyncs returns how many times the engine has resynced (a metric). This counts every
+// resync (gap, would-cross delta, checksum drift, disconnect) plus every snapshot Bootstrap rejects
+// (crossed or checksum-mismatched), including at cold start, so a string of bind-time rejections
+// reads the same as the book having gone live and drifted.
 func (e *Engine) Resyncs() int { return int(e.resyncs.Load()) }
 
 // Gaps returns how many sequence gaps the engine has detected (a metric).
@@ -239,7 +238,7 @@ func (e *Engine) Step(ctx context.Context) (bool, error) {
 			return false, err
 		}
 	case source.EventTrade:
-		// trades are not part of the book; delivery (slice 0005) forwards them
+		// trades are not part of the book; the engine ignores them
 	}
 	return true, nil
 }

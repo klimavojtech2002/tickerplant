@@ -1,7 +1,7 @@
 //go:build integration
 
 // Live integration test against the real Binance feed. Excluded from the default suite
-// (the deterministic proof lives in the offline tests and the synthetic source); run it
+// (the deterministic checks live in the offline tests and the synthetic source); run it
 // manually with: go test -tags integration ./internal/venue/binance
 package binance
 

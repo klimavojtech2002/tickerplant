@@ -86,7 +86,7 @@ func TestLiveSurfacesPairsErrors(t *testing.T) {
 // Live wired against local servers (REST for AssetPairs, a real local WebSocket for
 // the book) must assemble a source whose checksum seam drives the engine to a bound,
 // verified book, recover from drift by redialing for a fresh in-band snapshot, and
-// tear the socket down on Close — the whole live path proven without touching Kraken.
+// tear the socket down on Close — the whole live path exercised without touching Kraken.
 func TestLiveEndToEndLocal(t *testing.T) {
 	rest := pairsServer(t, btcusdPairs, http.StatusOK)
 

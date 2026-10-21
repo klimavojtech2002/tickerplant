@@ -64,7 +64,7 @@ func drive(tb testing.TB, n int, interval, stall time.Duration, stallAt int) (na
 	return naive, corrected
 }
 
-// TestCoordinatedOmissionCorrection proves the correction is real, not cosmetic: under
+// TestCoordinatedOmissionCorrection shows the correction is real, not cosmetic: under
 // a single 40ms stall at a 1ms arrival rate, ~40 events queue behind it. The corrected
 // tail must capture that backlog; the naive tail (service time) sees only the one slow
 // event and stays low. Without coordinated-omission correction the tail would lie.

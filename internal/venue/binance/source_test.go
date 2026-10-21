@@ -169,7 +169,7 @@ func TestEngineReconstructsFromAdapter(t *testing.T) {
 
 // The bind boundary through the adapter: a stale first event (u <= snapshot id) is
 // dropped, and a straddling event whose U is below the snapshot id (U <= L+1 <= u)
-// binds without a resync — Binance's procedure (correctness.md §3), proven end to end.
+// binds without a resync — Binance's procedure (correctness.md §3), exercised end to end.
 func TestAdapterStraddleAndStaleDrop(t *testing.T) {
 	srv, _ := snapshotServer(t, depthBody) // lastUpdateId = 100, bid 100@1, ask 101@1
 	frames := make(chan []byte, 2)

@@ -1,6 +1,6 @@
-// Command tickerplant runs the order-book engine against the deterministic synthetic
-// source and fans the live book out to a consumer — a runnable, no-account demo of
-// the whole pipeline: source -> engine -> delivery.
+// Command tickerplant runs the order-book engine against a synthetic or live source and fans
+// the book out to a log consumer and, with -http, the SSE and metrics edge: source -> engine
+// -> delivery. The synthetic source needs no account.
 package main
 
 import (
@@ -71,10 +71,9 @@ func parseFlags(args []string, out io.Writer) (options, error) {
 	fs.IntVar(&o.steps, "steps", 5000, "number of source steps to run")
 	fs.IntVar(&o.depth, "depth", 10, "published book depth")
 	fs.IntVar(&o.every, "every", 500, "log the top of book every N updates")
-	// 150ms (~6.7/s) sits in the range a real top-of-book feed updates at; the prior
-	// 200us default (~5000/s) was fast enough that a browser watching the dashboard's
-	// SSE stream would see real reconnect cycling under the sustained load, not just a
-	// cosmetically fast demo.
+	// 150ms (~6.7/s) is a modest feed rate; with
+	// -pace 0 the source floods, and the hub disconnects any consumer after 1024
+	// consecutive supersedes.
 	fs.DurationVar(&o.pace, "pace", 150*time.Millisecond, "delay between updates (mimics a live feed; 0 floods to stress backpressure)")
 	fs.BoolVar(&o.live, "live", false, "connect to a live venue instead of the synthetic source")
 	fs.StringVar(&o.venue, "venue", defaultVenue, "live venue (with -live): binance|kraken")
@@ -246,12 +245,11 @@ func resultOf(eng *book.Engine, hub *delivery.Hub) runResult {
 
 // run wires the pipeline (source -> engine -> fan-out), drives it to completion or
 // cancellation, and returns a runResult: the final view, the fan-out stats, and the
-// resync/gap/disconnect counters. It takes the Source as a parameter so it is
-// source-agnostic (synthetic now, a live adapter later) and testable end to end with a
-// scripted source.
+// resync/gap/disconnect counters. It takes the Source as a parameter so it is source-agnostic
+// (synthetic or live) and testable end to end with a scripted source.
 func run(ctx context.Context, log *slog.Logger, src source.Source, cfg config) (runResult, error) {
 	defer src.Close() // release the source (e.g. a live WebSocket) on exit
-	// Internal latency per ARCHITECTURE §9: adapter frame-dequeue -> view published,
+	// Internal latency per ARCHITECTURE §9: adapter frame-dequeue -> view stored for readers,
 	// observed by the engine so no wire-wait is ever inside a sample.
 	lat := metrics.NewHistogram()
 	eng := book.New(src, cfg.depth).WithChecksum(cfg.checksum).WithMaxDepth(cfg.window).WithLatencyObserver(lat.Record)
@@ -325,9 +323,9 @@ func run(ctx context.Context, log *slog.Logger, src source.Source, cfg config) (
 	}
 }
 
-// liveCadence picks the top-of-book log cadence. A live feed trickles (~1/s) where the
-// synthetic source floods (thousands/s), so when -every is left at its default a live
-// run logs every update rather than every 500th. An explicit -every is always honoured.
+// liveCadence picks the top-of-book log cadence. When -every is left at its
+// default, a live run logs every update rather than every 500th. An explicit -every is
+// always honoured.
 func liveCadence(every int, everySet, live bool) int {
 	if live && !everySet {
 		return 1

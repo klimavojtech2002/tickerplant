@@ -1,6 +1,6 @@
-# Keep the build context small. The Dockerfile's explicit COPY list (go.mod, go.sum,
-# cmd, internal) is the real boundary on what enters the image; this just keeps
-# everything else from being sent to the daemon at all.
+# The Dockerfile's explicit COPY list (go.mod, go.sum, cmd, internal) is the real boundary
+# on what enters the image; this file only keeps the bulkiest paths (.git, the dashboard,
+# build output) out of the context sent to the daemon.
 .git
 web
 bin
