@@ -728,3 +728,16 @@ func TestSnapshotBackoffIsBounded(t *testing.T) {
 		t.Fatalf("first retry delay %v exceeds the 500ms minimum bound", d)
 	}
 }
+
+// A configuration the engine refuses comes back from Run as that error, and the source is
+// still released.
+func TestRunRefusesInvalidEngineConfig(t *testing.T) {
+	ct := &closeTracker{Source: synthetic(1, 5)}
+	_, err := Run(context.Background(), quietLog(), ct, Config{depth: 0})
+	if !errors.Is(err, book.ErrConfig) {
+		t.Fatalf("Run error = %v, want book.ErrConfig", err)
+	}
+	if !ct.closed {
+		t.Fatal("the source must be closed when the engine cannot be built")
+	}
+}
