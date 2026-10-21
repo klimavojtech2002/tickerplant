@@ -1,6 +1,7 @@
 package binance
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/klimavojtech2002/tickerplant/internal/market"
 	"github.com/klimavojtech2002/tickerplant/internal/source"
+	"github.com/klimavojtech2002/tickerplant/internal/venue"
 )
 
 var _ source.Source = (*Source)(nil)
@@ -19,10 +21,14 @@ var _ source.Source = (*Source)(nil)
 // (e.g. a 429 rate limit); the caller decides whether to back off and retry.
 var ErrSnapshotStatus = errors.New("binance: unexpected snapshot status")
 
+// snapshotBodyLimit bounds a depth reply. A limit=5000 snapshot is about 0.3 MB, so 4 MiB is
+// far above any real reply and still small enough to hold in memory.
+const snapshotBodyLimit = 4 << 20
+
 // Config configures a Binance adapter. Frames is the stream of raw depthUpdate JSON
 // frames — fed by the WebSocket layer in production, by a channel in tests — so the
 // adapter's logic is testable without a socket. SnapshotURL is the REST /api/v3/depth
-// endpoint for the symbol; Client defaults to http.DefaultClient.
+// endpoint for the symbol; Client defaults to one with venue.DefaultHTTPTimeout.
 type Config struct {
 	Venue       market.Venue
 	Symbol      market.Symbol
@@ -48,7 +54,7 @@ type Source struct {
 func New(cfg Config) *Source {
 	c := cfg.Client
 	if c == nil {
-		c = http.DefaultClient
+		c = venue.NewHTTPClient(venue.DefaultHTTPTimeout)
 	}
 	return &Source{
 		cfg:    cfg,
@@ -95,20 +101,15 @@ func (s *Source) Next(ctx context.Context) (source.Event, bool) {
 // Snapshot fetches a fresh REST depth snapshot. Bootstrap and every resync call it, so
 // it must return the current book; a non-200 is a loud error (ErrSnapshotStatus).
 func (s *Source) Snapshot(ctx context.Context) (market.Snapshot, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, s.cfg.SnapshotURL, nil)
-	if err != nil {
-		return market.Snapshot{}, fmt.Errorf("binance snapshot request: %w", err)
-	}
-	resp, err := s.client.Do(req)
+	body, status, err := venue.Get(ctx, s.client, s.cfg.SnapshotURL, snapshotBodyLimit)
 	if err != nil {
 		return market.Snapshot{}, fmt.Errorf("binance snapshot: %w", err)
 	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return market.Snapshot{}, fmt.Errorf("%w: %d", ErrSnapshotStatus, resp.StatusCode)
+	if status != http.StatusOK {
+		return market.Snapshot{}, venue.StatusErr(ErrSnapshotStatus, status)
 	}
 	var d restDepth
-	if err := json.NewDecoder(resp.Body).Decode(&d); err != nil {
+	if err := json.NewDecoder(bytes.NewReader(body)).Decode(&d); err != nil {
 		return market.Snapshot{}, fmt.Errorf("binance snapshot decode: %w", err)
 	}
 	return toSnapshot(s.cfg.Venue, s.cfg.Symbol, s.scales, d)

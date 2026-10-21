@@ -15,6 +15,8 @@ import (
 
 	"github.com/klimavojtech2002/tickerplant/internal/book"
 	"github.com/klimavojtech2002/tickerplant/internal/market"
+	"github.com/klimavojtech2002/tickerplant/internal/source"
+	"github.com/klimavojtech2002/tickerplant/internal/venue"
 )
 
 func pairsServer(t *testing.T, body string, status int) *httptest.Server {
@@ -39,7 +41,7 @@ func TestLiveEmptySymbol(t *testing.T) {
 
 func TestResolveDefaults(t *testing.T) {
 	rest, ws, client := LiveConfig{}.resolve()
-	if rest != defaultRESTBase || ws != defaultWSBase || client != http.DefaultClient {
+	if rest != defaultRESTBase || ws != defaultWSBase || client == nil || client == http.DefaultClient || client.Timeout != venue.DefaultHTTPTimeout {
 		t.Fatalf("resolve() = %q %q %v, want the documented defaults", rest, ws, client)
 	}
 }
@@ -214,5 +216,37 @@ func TestLiveEndToEndLocal(t *testing.T) {
 	// a redial after Close must dial nothing and surface an error, not leak a stream
 	if _, err := src.Snapshot(context.Background()); err == nil {
 		t.Fatal("Snapshot after Close must fail: nothing may redial a closed source")
+	}
+}
+
+func TestLivePairsStatusClassification(t *testing.T) {
+	for _, c := range []struct {
+		status    int
+		transient bool
+	}{{429, true}, {503, true}, {400, false}} {
+		srv := pairsServer(t, "", c.status)
+		_, err := Live(context.Background(), LiveConfig{Symbol: "BTC/USD", RESTBase: srv.URL, Client: srv.Client()})
+		if !errors.Is(err, ErrPairsStatus) {
+			t.Errorf("%d: err = %v, want ErrPairsStatus", c.status, err)
+		}
+		if got := source.IsTransient(err); got != c.transient {
+			t.Errorf("%d: IsTransient = %v, want %v", c.status, got, c.transient)
+		}
+	}
+}
+
+// A hung AssetPairs endpoint ends at the client timeout instead of blocking startup.
+func TestLivePairsHungServerTimesOut(t *testing.T) {
+	release := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { <-release }))
+	defer srv.Close()
+	defer close(release)
+	start := time.Now()
+	_, err := Live(context.Background(), LiveConfig{Symbol: "BTC/USD", RESTBase: srv.URL, Client: venue.NewHTTPClient(50 * time.Millisecond)})
+	if !source.IsTransient(err) {
+		t.Fatalf("err = %v, want a transient timeout", err)
+	}
+	if took := time.Since(start); took > 2*time.Second {
+		t.Fatalf("took %v, want about the 50ms client timeout", took)
 	}
 }

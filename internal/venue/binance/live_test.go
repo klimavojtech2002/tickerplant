@@ -12,6 +12,7 @@ import (
 	"github.com/coder/websocket"
 	"github.com/klimavojtech2002/tickerplant/internal/book"
 	"github.com/klimavojtech2002/tickerplant/internal/market"
+	"github.com/klimavojtech2002/tickerplant/internal/venue"
 )
 
 func TestScaleOf(t *testing.T) {
@@ -115,7 +116,7 @@ func TestLiveRejectsEmptySymbol(t *testing.T) {
 }
 
 func TestLiveConfigResolve(t *testing.T) {
-	if r, w, c := (LiveConfig{}).resolve(); r != defaultRESTBase || w != defaultWSBase || c != http.DefaultClient {
+	if r, w, c := (LiveConfig{}).resolve(); r != defaultRESTBase || w != defaultWSBase || c == nil || c == http.DefaultClient || c.Timeout != venue.DefaultHTTPTimeout {
 		t.Fatalf("empty config must default, got %q %q %v", r, w, c)
 	}
 	cl := &http.Client{}

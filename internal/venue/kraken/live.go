@@ -1,6 +1,7 @@
 package kraken
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -29,6 +30,9 @@ const (
 // the integrity guard cannot see.
 const BookDepth = 10
 
+// assetPairsBodyLimit bounds the one-pair AssetPairs reply (a few KB in practice).
+const assetPairsBodyLimit = 1 << 20
+
 // ErrPairsStatus is returned when the AssetPairs endpoint replies non-200.
 var ErrPairsStatus = errors.New("kraken: unexpected AssetPairs status")
 
@@ -51,7 +55,7 @@ func (cfg LiveConfig) resolve() (restBase, wsBase string, client *http.Client) {
 		wsBase = defaultWSBase
 	}
 	if client == nil {
-		client = http.DefaultClient
+		client = venue.NewHTTPClient(venue.DefaultHTTPTimeout)
 	}
 	return restBase, wsBase, client
 }
@@ -137,20 +141,15 @@ type assetPairs struct {
 // from AssetPairs, so normalization and the checksum need no hardcoded precision.
 func fetchScales(ctx context.Context, client *http.Client, restBase, symbol string) (priceScale, qtyScale int, err error) {
 	url := restBase + "/0/public/AssetPairs?pair=" + symbol
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-	if err != nil {
-		return 0, 0, fmt.Errorf("kraken AssetPairs request: %w", err)
-	}
-	resp, err := client.Do(req)
+	body, status, err := venue.Get(ctx, client, url, assetPairsBodyLimit)
 	if err != nil {
 		return 0, 0, fmt.Errorf("kraken AssetPairs: %w", err)
 	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return 0, 0, fmt.Errorf("%w: %d", ErrPairsStatus, resp.StatusCode)
+	if status != http.StatusOK {
+		return 0, 0, venue.StatusErr(ErrPairsStatus, status)
 	}
 	var pairs assetPairs
-	if err := json.NewDecoder(resp.Body).Decode(&pairs); err != nil {
+	if err := json.NewDecoder(bytes.NewReader(body)).Decode(&pairs); err != nil {
 		return 0, 0, fmt.Errorf("kraken AssetPairs decode: %w", err)
 	}
 	if len(pairs.Error) > 0 {
