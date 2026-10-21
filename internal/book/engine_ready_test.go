@@ -150,7 +150,32 @@ func TestLivelockExitCountsEveryResyncAndIsNotReady(t *testing.T) {
 	if got := e.Resyncs(); got != maxConsecutiveResyncs+1 {
 		t.Fatalf("Resyncs = %d, want %d", got, maxConsecutiveResyncs+1)
 	}
+	if e.SnapshotRejects() != 0 {
+		t.Fatalf("SnapshotRejects = %d, want 0: the stale-snapshot refusal is not a refused bind snapshot", e.SnapshotRejects())
+	}
 	if e.Ready() {
 		t.Fatal("ready after the livelock exit")
+	}
+}
+
+// Bind-time rejections followed by a good snapshot: each refusal is counted once as a
+// snapshot reject, none as a resync, and the book ends up published and ready.
+func TestColdStartRejectsThenBindsWithoutAResync(t *testing.T) {
+	for _, k := range []int{1, 3, 7} {
+		script := make([]snapResult, 0, k+1)
+		for range k {
+			script = append(script, snapResult{snap: crossedSnap})
+		}
+		script = append(script, snapResult{snap: goodSnap})
+		e := mustNew(t, &retrySource{script: script}, 5)
+		if err := e.Bootstrap(context.Background()); err != nil {
+			t.Fatalf("k=%d: %v", k, err)
+		}
+		if e.SnapshotRejects() != k || e.Resyncs() != 0 {
+			t.Errorf("k=%d: SnapshotRejects = %d, Resyncs = %d, want %d and 0", k, e.SnapshotRejects(), e.Resyncs(), k)
+		}
+		if !e.Ready() || e.View().Gen != 1 {
+			t.Errorf("k=%d: want a ready engine with Gen 1 after the bind", k)
+		}
 	}
 }

@@ -145,8 +145,9 @@ func TestBootstrapRetriesDoNotConsumeBindAttempts(t *testing.T) {
 		t.Fatalf("err = %v, want ErrCrossed after 8 rejected snapshots", err)
 	}
 	// Literals on purpose: 8 crossed snapshots, each preceded by one transport failure.
-	if src.calls != 16 || e.Resyncs() != 8 || e.SnapshotErrors() != 8 {
-		t.Fatalf("calls = %d, resyncs = %d, snapshotErrors = %d; want 16, 8, 8", src.calls, e.Resyncs(), e.SnapshotErrors())
+	if src.calls != 16 || e.SnapshotRejects() != 8 || e.SnapshotErrors() != 8 || e.Resyncs() != 0 {
+		t.Fatalf("calls = %d, snapshotRejects = %d, snapshotErrors = %d, resyncs = %d; want 16, 8, 8, 0",
+			src.calls, e.SnapshotRejects(), e.SnapshotErrors(), e.Resyncs())
 	}
 }
 

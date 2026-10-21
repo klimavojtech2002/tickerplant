@@ -108,8 +108,11 @@ func TestBootstrapCrossingFailsLoud(t *testing.T) {
 	if err == nil || !errors.Is(err, market.ErrCrossed) {
 		t.Fatalf("crossing bootstrap must fail loudly with ErrCrossed, got %v", err)
 	}
-	if e.Resyncs() != maxBindAttempts {
-		t.Fatalf("bootstrap must retry exactly %d times then fail loudly, got %d", maxBindAttempts, e.Resyncs())
+	if e.SnapshotRejects() != maxBindAttempts {
+		t.Fatalf("bootstrap must retry exactly %d times then fail loudly, got %d", maxBindAttempts, e.SnapshotRejects())
+	}
+	if e.Resyncs() != 0 {
+		t.Fatalf("a cold start that never binds is not a resync, got %d", e.Resyncs())
 	}
 	if e.View() != nil {
 		t.Fatal("a failed bootstrap must publish nothing: no crossed snapshot may leak to readers")
@@ -323,6 +326,9 @@ func TestBootstrapChecksumMismatchFailsLoud(t *testing.T) {
 	}
 	if e.ChecksumMismatches() != maxBindAttempts {
 		t.Fatalf("ChecksumMismatches() = %d, want %d (one per rejected attempt)", e.ChecksumMismatches(), maxBindAttempts)
+	}
+	if e.SnapshotRejects() != maxBindAttempts || e.Resyncs() != 0 {
+		t.Fatalf("SnapshotRejects() = %d, Resyncs() = %d, want %d and 0", e.SnapshotRejects(), e.Resyncs(), maxBindAttempts)
 	}
 	if e.View() != nil {
 		t.Fatal("a failed bootstrap must publish nothing: no unverified snapshot may leak to readers")

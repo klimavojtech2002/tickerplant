@@ -154,7 +154,7 @@ func TestRunWiresWindowIntoEngine(t *testing.T) {
 		t.Fatalf("windowed run must bind and apply cleanly: %v", err)
 	}
 	if res.resyncs != 0 {
-		t.Fatalf("resyncs = %d, want 0 (a dropped window wiring makes every checksum mismatch)", res.resyncs)
+		t.Fatalf("resyncs = %d, want 0 after a clean windowed run", res.resyncs)
 	}
 }
 

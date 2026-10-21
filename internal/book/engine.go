@@ -104,10 +104,11 @@ type Engine struct {
 	maxDepth           int                 // 0 = keep every level; >0 = the feed's subscribed window (WithMaxDepth)
 	latencyFn          func(time.Duration) // nil = no latency observation (WithLatencyObserver)
 
-	snapshotErrors atomic.Int64                               // Snapshot calls that failed, other than by the caller's cancellation
-	retryMax       int                                        // retries of a transient Snapshot failure (WithSnapshotRetry)
-	retryBackoff   func(attempt int) time.Duration            // delay before retry number attempt+1
-	retrySleep     func(context.Context, time.Duration) error // waits out a retry delay; ends early on ctx
+	snapshotRejects atomic.Int64                               // snapshots Bootstrap refused (crossed or checksum mismatch), at cold start or in a resync
+	snapshotErrors  atomic.Int64                               // Snapshot calls that failed, other than by the caller's cancellation
+	retryMax        int                                        // retries of a transient Snapshot failure (WithSnapshotRetry)
+	retryBackoff    func(attempt int) time.Duration            // delay before retry number attempt+1
+	retrySleep      func(context.Context, time.Duration) error // waits out a retry delay; ends early on ctx
 }
 
 // ErrConfig marks an Engine configuration New refuses.
@@ -202,10 +203,11 @@ func WithLatencyObserver(fn func(time.Duration)) Option {
 // call from any goroutine.
 func (e *Engine) View() *View { return e.view.Load() }
 
-// Resyncs returns how many times the engine has resynced (a metric). This counts every
-// resync (gap, would-cross delta, checksum drift, disconnect) plus every snapshot Bootstrap rejects
-// (crossed or checksum-mismatched), including at cold start, so a string of bind-time rejections
-// reads the same as the book having gone live and drifted.
+// Resyncs returns how many times the engine has started a resync after it was bound
+// (a metric): a gap, a would-cross delta, checksum drift or a disconnect, one each. A snapshot
+// refused while binding is counted by SnapshotRejects, not here, so a cold start that struggles
+// does not look like a live book that drifted. A resync that trips the livelock guard is
+// counted too, though it never reaches Bootstrap.
 func (e *Engine) Resyncs() int { return int(e.resyncs.Load()) }
 
 // Ready reports whether the book is usable now: false before the first bootstrap and
@@ -220,8 +222,13 @@ func (e *Engine) Gaps() int { return int(e.gaps.Load()) }
 // Disconnects returns how many disconnect events the engine has seen (a metric).
 func (e *Engine) Disconnects() int { return int(e.disconnects.Load()) }
 
-// ChecksumMismatches returns how many checksum drifts the engine has detected (a metric).
+// ChecksumMismatches returns how many times a checksum failed to match (a metric): a delta
+// that drifted, or a snapshot that Bootstrap then refused, which SnapshotRejects counts too.
 func (e *Engine) ChecksumMismatches() int { return int(e.checksumMismatches.Load()) }
+
+// SnapshotRejects returns how many snapshots Bootstrap refused because they were crossed or
+// failed the checksum, at cold start and during a resync alike (a metric).
+func (e *Engine) SnapshotRejects() int { return int(e.snapshotRejects.Load()) }
 
 // SnapshotErrors returns how many Snapshot calls failed, transient or not. A cancellation
 // by the caller is not a failure and is not counted (a metric).
@@ -250,7 +257,7 @@ func (e *Engine) Bootstrap(ctx context.Context) error {
 			return err
 		}
 		if crossesSnapshot(snap) {
-			e.resyncs.Add(1)
+			e.snapshotRejects.Add(1)
 			lastReason = market.ErrCrossed
 			continue
 		}
@@ -263,7 +270,7 @@ func (e *Engine) Bootstrap(ctx context.Context) error {
 			bids, asks := e.book.topN(checksumDepth)
 			if e.checksum(bids, asks) != snap.Checksum {
 				e.checksumMismatches.Add(1)
-				e.resyncs.Add(1)
+				e.snapshotRejects.Add(1)
 				lastReason = market.ErrChecksumMismatch
 				continue // a snapshot we cannot reproduce: refetch a fresh one
 			}
