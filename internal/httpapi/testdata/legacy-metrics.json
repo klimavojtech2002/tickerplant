@@ -1,0 +1,1 @@
+{"venue":"synthetic","symbol":"DEMO","delivery":{"consumers":1,"delivered":197,"dropped":1},"engine":{"gaps":0,"resyncs":0,"disconnects":0,"wouldCrosses":0,"checksumMismatches":0},"latency":{"count":197,"p50":"1ns","p99":"77.481µs","p99_9":"100.23µs","max":"100.6µs"}}

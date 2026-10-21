@@ -46,9 +46,20 @@ func TestMain(m *testing.M) {
 type stubEngine struct {
 	view                                            *book.View
 	gaps, resyncs, disconnects, crosses, mismatches int
+	// onView runs once, inside the first View() call. The stream handler subscribes to the
+	// hub before it reads the engine's view, so a hook that publishes to the hub here
+	// reproduces, deterministically, a view landing in the consumer's slot at the seam
+	// between the two. It is set before the client connects and cleared by the first call.
+	onView func()
 }
 
-func (e *stubEngine) View() *book.View        { return e.view }
+func (e *stubEngine) View() *book.View {
+	if h := e.onView; h != nil {
+		e.onView = nil
+		h()
+	}
+	return e.view
+}
 func (e *stubEngine) Gaps() int               { return e.gaps }
 func (e *stubEngine) Resyncs() int            { return e.resyncs }
 func (e *stubEngine) Disconnects() int        { return e.disconnects }
@@ -88,6 +99,9 @@ func openStream(t *testing.T, url string) (*http.Response, *bufio.Scanner) {
 	}
 	if ao := resp.Header.Get("Access-Control-Allow-Origin"); ao != "*" {
 		t.Fatalf("Allow-Origin = %q; without it a browser EventSource on another origin cannot connect", ao)
+	}
+	if cc := resp.Header.Get("Cache-Control"); cc != "no-cache" {
+		t.Fatalf("Cache-Control = %q; an intermediary must not cache a live stream", cc)
 	}
 	return resp, bufio.NewScanner(resp.Body)
 }
