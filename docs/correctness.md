@@ -62,7 +62,8 @@ message, so there is no race — see §7. The separate-source procedure, in the 
 (`S` is the snapshot's last update id, `firstID` and `lastID` are a delta's sequence bounds):
 
 1. Open the stream and **buffer** deltas immediately (the buffer is bounded). Do not apply them yet.
-2. Fetch the snapshot; note its last update id, `S`.
+2. Fetch the snapshot; note its last update id, `S`. A fetch that fails for a transient reason (a
+   timeout, a 429, a 5xx) is retried a bounded number of times before the engine gives up (ADR-0021).
 3. Discard every buffered delta whose `lastID` is at or before `S` — it is already in the snapshot.
 4. Apply the remaining buffered deltas, then live ones. The first applied delta must cover `S+1` (its
    range spans `S+1`, i.e. `firstID <= S+1 <= lastID`); each subsequent delta must continue from

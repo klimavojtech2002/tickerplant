@@ -335,6 +335,8 @@ maintained. The dependency is isolated behind a thin `internal/venue.Stream`: th
   injected fake connection, and the real dial against a local in-process server.
 - Trade-off: a dependency to track for security and version updates. Accepted: it is small, zero-dep, vetted, and
   isolated; the alternative (hand-rolled RFC 6455) is more code and more risk for no real gain.
+- Subscribe writes have a write timeout, and the REST calls the adapters make have a client timeout and
+  a body bound (ADR-0021).
 
 ## ADR-0015 — Latest-wins conflation in the fan-out (refines ADR-0006)
 
@@ -569,6 +571,41 @@ SIGTERM, so `docker stop` waits for the kill timeout. Command-line values were u
 - A signal test sends a real SIGTERM to a real process on Unix; on Windows, where a console signal cannot be
   sent to a child, only the signal list is checked.
 - A slow client cannot hold shutdown past 5 s: `Close` drops it.
+
+## ADR-0021 — Snapshot failures: bound the call, retry what is transient, then stop loudly
+
+**Status:** Accepted
+
+**Context.** A snapshot can fail without the book being wrong: a venue rate-limits (429), a connection
+drops, a reply never comes. Before this decision the REST calls used `http.DefaultClient`, which never
+times out, decoded replies without a size bound, and the first failed `Snapshot` ended the process.
+Kraken's in-band snapshot wait had no deadline at all, so a subscription that never sent a book blocked
+startup for ever.
+
+**Decision.**
+- Every REST call uses a client with a 15 s timeout (`venue.NewHTTPClient`) and reads at most 4 MiB (1
+  MiB for the one-symbol info replies). A reply over the bound is refused, not truncated.
+- A failure is marked transient (`source.Transient`) when it is a transport failure, a failure reading
+  the body, a body over the bound, a 429 or a 5xx. Any other status (a 400 for a bad symbol) and
+  anything the caller's own cancellation caused is permanent. Decode errors and malformed snapshots are
+  permanent.
+- `Bootstrap` retries a transient `Snapshot` failure up to 5 times, waiting 0.5 s doubling to 8 s with
+  full jitter between tries, and then returns the last error. The wait ends when the context is
+  cancelled. Retries do not use up the 8 bind attempts, which count snapshots that arrived but were
+  rejected.
+- Kraken's wait for its in-band snapshot has one 15 s timer (heartbeats do not restart it). On expiry
+  the adapter marks the connection as owing no snapshot, so the retry redials. Subscribe writes on the
+  WebSocket have a 10 s write timeout.
+- `Retry-After` is not read: the capped, jittered delay already spaces the retries.
+- After the retries are used up the process exits non-zero. Under compose `restart: on-failure:5` runs
+  it a few more times; the cap also stops a bad-flag exit from looping.
+
+**Consequences.**
+- A stalled venue delays the engine by at most about 6 attempts of 15 s plus the delays (roughly 105 s),
+  then the process stops. While it waits, the old view stays published and the frame channel is not
+  drained, so the venue may drop the socket; the transport reconnects and the engine resyncs.
+- Each failed `Snapshot` call is counted by the engine; shutdown is not counted.
+- A wrong symbol fails on the first call instead of after the retries.
 
 ## Verified against
 
