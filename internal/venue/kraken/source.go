@@ -4,11 +4,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/klimavojtech2002/tickerplant/internal/market"
 	"github.com/klimavojtech2002/tickerplant/internal/source"
+	"github.com/klimavojtech2002/tickerplant/internal/venue"
 )
 
 var _ source.Source = (*Source)(nil)
@@ -41,6 +44,8 @@ type Config struct {
 	// It is one timer for the whole wait: the feed sends a heartbeat every second, so a
 	// timer that restarted on each frame would never fire on a connection with no book.
 	SnapshotTimeout time.Duration
+	// Logger receives a sample line for rejected frames, at most one a second (nil discards).
+	Logger *slog.Logger
 }
 
 // Source is the Kraken transport-port adapter. Kraken's book feed carries no sequence
@@ -56,6 +61,9 @@ type Source struct {
 	pending          *market.Snapshot // in-band snapshot cached by Next, consumed by Snapshot
 	snapshotExpected bool             // the current frames channel still owes us its first snapshot
 
+	rejected  atomic.Uint64   // frames meant to be book data that could not be used
+	rejectLog *venue.LogEvery // paces the reject log; used only by Next
+
 	done    chan struct{}
 	once    sync.Once
 	onClose func() // optional teardown (closing the live WebSocket), set by Live
@@ -70,7 +78,22 @@ func New(cfg Config) *Source {
 		scales:           scales{price: cfg.PriceScale, qty: cfg.QtyScale},
 		frames:           cfg.Frames,
 		snapshotExpected: true,
+		rejectLog:        venue.NewLogEvery(time.Second, nil),
 		done:             make(chan struct{}),
+	}
+}
+
+// Rejected returns how many frames were meant to be book data and could not be used: they
+// did not decode, were a book frame of an unknown type or without data, or had levels
+// that did not parse. Acks, heartbeats and status frames are not counted. Safe to call
+// from any goroutine.
+func (s *Source) Rejected() uint64 { return s.rejected.Load() }
+
+// reject counts a frame Next could not use and logs a sample of why.
+func (s *Source) reject(err error) {
+	n := s.rejected.Add(1)
+	if s.cfg.Logger != nil && s.rejectLog.Allow() {
+		s.cfg.Logger.Warn("kraken: frame rejected", "reason", venue.CutRunes(err.Error(), 200), "rejected-total", n)
 	}
 }
 
@@ -82,9 +105,10 @@ func (s *Source) Scales() (price, qty int) { return s.cfg.PriceScale, s.cfg.QtyS
 // sequence. An in-band snapshot arriving mid-stream (the transport reconnected and
 // re-subscribed) is cached for Snapshot and surfaced as a disconnect, so the engine
 // rebinds instead of applying updates onto a stale book. Non-book frames (acks,
-// heartbeats, status) and frames that fail to normalize are skipped — with no wire
-// sequence a bad frame cannot leave a detectable hole, so the checksum on the next
-// applied delta is what catches any divergence.
+// heartbeats, status) are skipped, and frames that were meant to be book data but fail
+// to normalize are skipped and counted (Rejected) — with no wire sequence a bad frame
+// cannot leave a detectable hole, so the checksum on the next applied delta is what
+// catches any divergence.
 func (s *Source) Next(ctx context.Context) (source.Event, bool) {
 	for {
 		select {
@@ -98,7 +122,11 @@ func (s *Source) Next(ctx context.Context) (source.Event, bool) {
 				return source.Event{}, false
 			}
 			p, ok, err := parseBook(raw, s.scales)
-			if !ok || err != nil {
+			if err != nil {
+				s.reject(err)
+				continue
+			}
+			if !ok {
 				continue
 			}
 			if p.isSnapshot {

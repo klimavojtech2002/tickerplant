@@ -102,6 +102,7 @@ func Live(ctx context.Context, cfg LiveConfig) (*Source, error) {
 		Symbol:     market.Symbol(cfg.Symbol),
 		PriceScale: priceScale,
 		QtyScale:   qtyScale,
+		Logger:     cfg.Logger,
 		Frames:     stream.Frames(),
 		// A drift resync needs a fresh in-band snapshot, which only a new subscription
 		// serves; reconnecting is the documented recovery shape (correctness.md §8) and

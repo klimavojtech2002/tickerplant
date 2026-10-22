@@ -6,8 +6,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/klimavojtech2002/tickerplant/internal/market"
@@ -37,6 +39,8 @@ type Config struct {
 	Frames      <-chan []byte
 	SnapshotURL string
 	Client      *http.Client
+	// Logger receives a sample line for rejected frames, at most one a second (nil discards).
+	Logger *slog.Logger
 }
 
 // Source is the Binance transport-port adapter. It implements source.Source so the
@@ -48,6 +52,9 @@ type Source struct {
 	done    chan struct{}
 	once    sync.Once
 	onClose func() // optional teardown (e.g. closing the live WebSocket), set by Live
+
+	rejected  atomic.Uint64   // frames meant to be depth updates that could not be used
+	rejectLog *venue.LogEvery // paces the reject log; used only by Next
 }
 
 // New builds a Binance adapter from cfg.
@@ -61,6 +68,21 @@ func New(cfg Config) *Source {
 		scales: scales{price: cfg.PriceScale, size: cfg.SizeScale},
 		client: c,
 		done:   make(chan struct{}),
+
+		rejectLog: venue.NewLogEvery(time.Second, nil),
+	}
+}
+
+// Rejected returns how many frames could not be used: they did not decode as JSON, or a
+// depth update failed to normalize. Frames that decode but are not depth updates
+// (subscription acks) are not counted. Safe to call from any goroutine.
+func (s *Source) Rejected() uint64 { return s.rejected.Load() }
+
+// reject counts a frame Next could not use and logs a sample of why.
+func (s *Source) reject(err error) {
+	n := s.rejected.Add(1)
+	if s.cfg.Logger != nil && s.rejectLog.Allow() {
+		s.cfg.Logger.Warn("binance: frame rejected", "reason", venue.CutRunes(err.Error(), 200), "rejected-total", n)
 	}
 }
 
@@ -69,10 +91,11 @@ func New(cfg Config) *Source {
 func (s *Source) Scales() (price, size int) { return s.cfg.PriceScale, s.cfg.SizeScale }
 
 // Next returns the next book update. It skips frames that are not depthUpdates
-// (subscription acks, pings) and frames that fail to normalize — a skipped frame
-// leaves a sequence hole, which the engine's gap check turns into a resync, so a bad
-// frame degrades to a correct rebuild rather than a wrong book. It returns false when
-// the frame channel closes, the context is cancelled, or the source is closed.
+// (subscription acks, pings), and skips and counts (Rejected) frames that do not decode
+// or fail to normalize — a skipped frame leaves a sequence hole, which the engine's gap
+// check turns into a resync, so a bad frame degrades to a correct rebuild rather than a
+// wrong book. It returns false when the frame channel closes, the context is cancelled,
+// or the source is closed.
 func (s *Source) Next(ctx context.Context) (source.Event, bool) {
 	for {
 		select {
@@ -86,11 +109,16 @@ func (s *Source) Next(ctx context.Context) (source.Event, bool) {
 				return source.Event{}, false
 			}
 			var u depthUpdate
-			if err := json.Unmarshal(raw, &u); err != nil || u.Event != "depthUpdate" {
+			if err := json.Unmarshal(raw, &u); err != nil {
+				s.reject(err)
 				continue
+			}
+			if u.Event != "depthUpdate" {
+				continue // a subscription ack or other control frame: not book data
 			}
 			d, err := toDelta(s.cfg.Venue, s.cfg.Symbol, s.scales, u)
 			if err != nil {
+				s.reject(err)
 				continue
 			}
 			return source.Event{Kind: source.EventDelta, Received: received, Delta: d}, true

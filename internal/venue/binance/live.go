@@ -77,6 +77,7 @@ func Live(ctx context.Context, cfg LiveConfig) (*Source, error) {
 		Symbol:      market.Symbol(cfg.Symbol),
 		PriceScale:  priceScale,
 		SizeScale:   sizeScale,
+		Logger:      cfg.Logger,
 		Frames:      stream.Frames(),
 		SnapshotURL: restBase + "/api/v3/depth?symbol=" + cfg.Symbol + "&limit=5000",
 		Client:      client,
