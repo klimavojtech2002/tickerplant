@@ -197,3 +197,48 @@ func TestMeanCountMaxExact(t *testing.T) {
 		t.Fatalf("max = %v, want 30µs", h.Max())
 	}
 }
+
+// Sum is the exact total of the samples, each clamped to the histogram's range.
+func TestSumIsExact(t *testing.T) {
+	h := NewHistogram()
+	if got := h.Sum(); got != 0 {
+		t.Fatalf("empty Sum = %v, want 0", got)
+	}
+	for _, d := range []time.Duration{1000, 2000, 50_000} {
+		h.Record(d)
+	}
+	if got := h.Sum(); got != 53_000 {
+		t.Fatalf("Sum = %v, want 53µs exactly", got)
+	}
+	h.Record(-5)            // ignored, like in the count
+	h.Record(3 * time.Hour) // clamped to the one-hour ceiling
+	if got, want := h.Sum(), 53_000*time.Nanosecond+time.Hour; got != want {
+		t.Fatalf("Sum = %v, want %v after a clamped sample", got, want)
+	}
+	if h.Count() != 4 {
+		t.Fatalf("Count = %d, want 4", h.Count())
+	}
+}
+
+// Reads and writes may overlap: under -race this fails if Sum, Max or Count skip the lock.
+func TestReadersRaceWithRecord(t *testing.T) {
+	h := NewHistogram()
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for range 20000 {
+			h.Record(time.Microsecond)
+		}
+	}()
+	for {
+		select {
+		case <-done:
+			if h.Count() != 20000 || h.Sum() != 20000*time.Microsecond || h.Max() != time.Microsecond {
+				t.Fatalf("after the writer finished: count %d sum %v max %v", h.Count(), h.Sum(), h.Max())
+			}
+			return
+		default:
+			_, _, _ = h.Sum(), h.Max(), h.Count()
+		}
+	}
+}

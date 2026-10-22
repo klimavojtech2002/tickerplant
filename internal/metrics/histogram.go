@@ -116,6 +116,13 @@ func (h *Histogram) Max() time.Duration {
 	return time.Duration(h.max)
 }
 
+// Sum returns the exact total of the samples (each clamped to one hour), or 0 if none.
+func (h *Histogram) Sum() time.Duration {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return time.Duration(h.sum)
+}
+
 // Mean returns the arithmetic mean of the samples, or 0 if none. It is computed from
 // the exact running sum, not the buckets, so it carries no bucketing error.
 func (h *Histogram) Mean() time.Duration {
