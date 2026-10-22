@@ -103,6 +103,9 @@ type Engine struct {
 	checksum           Checksummer         // nil on sequence venues; set via WithChecksum for checksum venues
 	maxDepth           int                 // 0 = keep every level; >0 = the feed's subscribed window (WithMaxDepth)
 	latencyFn          func(time.Duration) // nil = no latency observation (WithLatencyObserver)
+	clock              func() time.Time    // nil = time.Now; read only on the writer goroutine (WithClock)
+	lastEventNanos     atomic.Int64        // clock time of the last processed source event, Unix nanoseconds
+	lastEventSet       atomic.Bool         // true once lastEventNanos holds a real value
 
 	snapshotRejects atomic.Int64                               // snapshots Bootstrap refused (crossed or checksum mismatch), at cold start or in a resync
 	snapshotErrors  atomic.Int64                               // Snapshot calls that failed, other than by the caller's cancellation
@@ -197,6 +200,42 @@ func WithLatencyObserver(fn func(time.Duration)) Option {
 	return func(e *Engine) {
 		e.latencyFn = fn
 	}
+}
+
+// WithClock sets the time source the engine uses to stamp events. A nil function keeps
+// time.Now. The engine reads the clock only on the goroutine that drives it, never from
+// the read-side getters, so a clock that is not safe for concurrent use is fine.
+func WithClock(fn func() time.Time) Option {
+	return func(e *Engine) {
+		e.clock = fn
+	}
+}
+
+// now reads the engine clock. An Engine built without New has no clock set and uses
+// time.Now.
+func (e *Engine) now() time.Time {
+	if e.clock == nil {
+		return time.Now()
+	}
+	return e.clock()
+}
+
+// stampEvent records that the engine just processed a source event.
+func (e *Engine) stampEvent() {
+	e.lastEventNanos.Store(e.now().UnixNano())
+	e.lastEventSet.Store(true)
+}
+
+// LastEventAt returns the engine clock's time, in UTC, at the last source event the
+// engine processed (a delta, a dropped duplicate, a trade or a disconnect), or the zero
+// time before the first one. It is wall time without a monotonic reading, so a step of
+// the system clock skews an age computed from it, and it only covers what the engine
+// processed: a feed that delivers nothing but rejected frames never moves it.
+func (e *Engine) LastEventAt() time.Time {
+	if !e.lastEventSet.Load() {
+		return time.Time{}
+	}
+	return time.Unix(0, e.lastEventNanos.Load()).UTC()
 }
 
 // View returns the latest published view, or nil before the first bootstrap. Safe to
@@ -356,6 +395,7 @@ func (e *Engine) Step(ctx context.Context) (bool, error) {
 	if !ok {
 		return false, ctx.Err()
 	}
+	e.stampEvent()
 	switch ev.Kind {
 	case source.EventDelta:
 		switch e.applyDelta(ev.Delta) {
