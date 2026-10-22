@@ -425,9 +425,10 @@ needs a network stream and the system's health counters.
   strictly one-way, EventSource reconnects natively, and no client->server protocol exists to need
   a socket. Complete views over deltas: ADR-0015 already made every published view whole, so a
   client is a pure renderer — no reducer, no join protocol, and reconnect is just "the first event
-  is the engine's current view" (with a sequence dedupe on the opener/subscription seam). No
-  `Last-Event-ID`: replaying superseded views would undo the conflation the delivery layer exists
-  to provide.
+  is the engine's current view" (with a dedupe on the opener/subscription seam, by the generation the
+  engine raises on every publish, not by the venue's sequence number: a view rebuilt after a resync can
+  carry a lower or equal sequence and must still be shown). No `Last-Event-ID`: replaying
+  superseded views would undo the conflation the delivery layer exists to provide.
 - `GET /metrics` — a JSON snapshot of the delivery stats (HTTP viewers only: the in-process log reader
   is not counted), the engine counters, and the internal
   latency histogram (p50/p99/p99.9/max as duration strings): one sample per applied delta, spanning
