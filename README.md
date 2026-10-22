@@ -141,7 +141,8 @@ non-root; 15.9 MB), the dashboard as a static export on `nginx:1.27-alpine` (74.
 The edge answers `/healthz` (the process is up) and `/readyz` (the book has a view and is not being
 rebuilt). `tickerplant -healthcheck -http :8080` asks `/healthz` from inside the container, where there is
 no curl, and exits 0 or 1. `-cors-origin https://app.example` limits which origin a browser lets read the
-edge (the default `*` lets any).
+edge (the default `*` lets any). `-max-streams` (default 256) caps the stream clients; the next one gets
+a 503.
 
 Without Docker: `go run ./cmd/tickerplant -http :8080 -steps 100000000` for the edge, then
 `cd web && pnpm install && pnpm dev` for the dashboard.

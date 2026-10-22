@@ -454,6 +454,14 @@ nosniff` and the cross-origin policy on every response, error responses included
 the response writer passes flushes and write deadlines through to the connection, which the stream
 needs.
 
+The edge serves at most `-max-streams` stream consumers at once (default 256, 1 to 10000). The handler
+asks the hub for a slot before it writes the 200; when the hub is full the answer is `503` with
+`Retry-After: 5`, and when the hub is closed (the process is stopping) it is `503` without the hint. Both
+go through the chain, so they carry the cross-origin headers a browser needs to read them; a refused
+request starts no ticker and sends no event. The in-process log reader is not counted. The flag requires
+a value from 1 up, while the setting inside the edge treats 0 as "use the default"; the flag always
+passes an explicit number.
+
 The cross-origin policy is `-cors-origin`: `*` (the default, for the demo) lets any origin read the
 edge; one origin such as `https://app.example` lets only that origin, with `Vary: Origin`. The origin
 must be written the way a browser sends it (lowercase, no path, no default port), because the value is
@@ -493,6 +501,17 @@ if that expires, `Close` drops what is left.
 - A quiet feed sends only telemetry after the opener, once a second; EventSource keeps the connection
   open, and an idle proxy does not time the stream out. If a connection does drop, EventSource reconnects
   and starts from the current view.
+- The cap counts stream consumers, not sockets. A peer that vanishes without closing keeps its slot until
+  its request context ends or a write blocks (the write deadline fires only when the kernel buffer is
+  full, which at one frame a second can take a long time), and a consumer the hub disconnects for lagging frees
+  its slot at once while its handler may sit in a blocked write for up to the write timeout, so the open
+  sockets can briefly exceed the cap. The cap protects the process; it does not stop one client from
+  filling it, and limits per address belong to the proxy. A flood of refused requests costs one cheap
+  response and one access-log line each.
+- A browser's `EventSource` treats any answer other than a 200 event stream as a failed connection and does
+  not retry by itself, and it cannot tell the two 503s apart. The dashboard has no backoff yet, so a
+  refused user sees "disconnected" until the client side adds one; `Retry-After` is a hint for other
+  clients and for people.
 - `HEAD /stream` is routed like `GET /stream` (a `GET` pattern also matches `HEAD`) and stays open until
   the client leaves; nothing uses it.
 - The counters travel as JSON numbers (small ints); only prices/sizes and durations need the
