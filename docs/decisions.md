@@ -449,7 +449,7 @@ needs a network stream and the system's health counters.
   the process, so injecting different clocks would skew the age. Uptime is the client's to derive: the
   telemetry timestamp minus `startedAtUnixMs`. The document is built from separate reads, so each field
   is exact but it is not one atomic snapshot. The exact bytes of one document are pinned by
-  `internal/httpapi/testdata/status.json`, which the dashboard's tests are to read. The route is polled,
+  `internal/httpapi/testdata/status.json`, which the dashboard's tests read. The route is polled,
   so it is logged at debug level like the probes.
 - `GET /healthz` — 200 `ok` whenever the process serves requests. `GET /readyz` — 200 `ok` when the
   book is usable and 503 `not ready` when it is not. Usable means the engine has a view and is not
@@ -498,7 +498,7 @@ page, so a named event is the only way for a client to tell a quiet market from 
 is also the keepalive. The cadence is fixed, not a flag, because the dashboard is designed to treat
 three missed beats as lost contact. A frame is built from separate reads, so each field is exact but
 the frame is not one atomic snapshot. The exact bytes of a frame are pinned by
-`internal/httpapi/testdata/telemetry.json`, which the dashboard's tests are to read.
+`internal/httpapi/testdata/telemetry.json`, which the dashboard's tests read.
 
 Prices and sizes cross the wire as the venue's decimal strings, rendered server-side from the
 scaled integers at the venue scales. int64 values do not fit JS's float64 past 2^53, and a string is

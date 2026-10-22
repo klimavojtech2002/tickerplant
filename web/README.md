@@ -2,7 +2,7 @@
 
 A thin renderer over the pipeline's HTTP edge: the live top-of-book and depth from
 `GET /stream` (one complete view per `view` event, and a `telemetry` event each second) and the
-health counters from `GET /metrics`. Prices and sizes are the venue's decimal strings end to end — this
+health counters from `GET /api/status`. Prices and sizes are the venue's decimal strings end to end — this
 page never parses them into floats (ADR-0018).
 
 ## Run
@@ -30,3 +30,20 @@ pnpm type-check
 pnpm test
 pnpm build
 ```
+
+## What the page trusts
+
+Every body from the edge is checked before it is used: `parseStatus`, `parseTelemetry` and `parseView`
+in `lib/types.ts` return null for anything the contract does not allow, and the tests read the same
+golden files as the Go tests (`internal/httpapi/testdata`), so a renamed field fails on both sides.
+Run the tests from a full checkout for that reason.
+
+- **Health.** `/api/status` is polled every 2 s with a 1.5 s limit on each request (headers and
+  body). The tiles keep the last good numbers through one or two failed polls and are dimmed and
+  marked unavailable after three in a row.
+- **Latency** is shown with one decimal and is cut, not rounded, so a figure never reads better than
+  it is (1999 ns shows as 1.9 µs).
+- **`mode`** must be `synthetic`, `live` or `unknown`; a new mode needs a change here.
+- **A bad view frame** (a side out of order, a repeated price, mixed decimal widths, a bad `seq`) is
+  logged and dropped, and the book on screen stays as it was. The page does not yet say that frames
+  are being dropped.
