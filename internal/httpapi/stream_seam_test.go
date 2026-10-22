@@ -170,7 +170,10 @@ func TestStreamSuppressesAViewWithoutAGeneration(t *testing.T) {
 func TestViewEventBytes(t *testing.T) {
 	hub := delivery.New(8)
 	defer hub.Close()
-	srv := newEdge(t, hub, &stubEngine{view: view(5)}, nil, 0)
+	v := viewGen(5, 5)
+	v.Bids = []market.Level{{Price: 627217, Size: 135823999}, {Price: 627216, Size: 5000000}, {Price: 627210, Size: 1}}
+	v.Asks = []market.Level{{Price: 627218, Size: 114202}, {Price: 627219, Size: 250000000}, {Price: 627230, Size: 7}}
+	srv := newEdge(t, hub, &stubEngine{view: v}, nil, 0)
 
 	resp, err := http.Get(srv.URL + "/stream")
 	if err != nil {
@@ -179,9 +182,9 @@ func TestViewEventBytes(t *testing.T) {
 	defer resp.Body.Close()
 
 	// The first frame of a stream is telemetry (its bytes belong to the telemetry contract
-	// test); the second is the opener, whose bytes are pinned here.
-	want := "event: view\n" +
-		`data: {"venue":"kraken","symbol":"BTC/USD","seq":5,"bids":[["62721.7","1.35823999"]],"asks":[["62721.8","0.00114202"]]}` + "\n\n"
+	// test); the second is the opener, whose payload is the committed view.json that the
+	// dashboard's tests also read. The file ends with a newline; the payload does not.
+	const path = "testdata/view.json"
 	frames := make(chan string, 2)
 	go func() {
 		rd := bufio.NewReader(resp.Body)
@@ -208,8 +211,40 @@ func TestViewEventBytes(t *testing.T) {
 	if !strings.HasPrefix(got[0], "event: telemetry\ndata: {") {
 		t.Fatalf("first frame = %q, want a telemetry event", got[0])
 	}
-	if got[1] != want {
-		t.Fatalf("second frame =\n%q\nwant\n%q", got[1], want)
+	payload, ok := strings.CutPrefix(got[1], "event: view\ndata: ")
+	payload, ok2 := strings.CutSuffix(payload, "\n\n")
+	if !ok || !ok2 {
+		t.Fatalf("second frame = %q, want event: view, one data line and a blank line", got[1])
+	}
+	if *update {
+		if err := os.WriteFile(path, []byte(payload+"\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	want, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("%v (run the test with -update to write it)", err)
+	}
+	if payload+"\n" != string(want) {
+		t.Fatalf("view payload differs from %s (run with -update to rewrite it if the change is intended):\n got %s\nwant %s", path, payload, want)
+	}
+
+	// The dashboard rejects a side that is out of order or repeats a price, so the golden
+	// must itself be strictly ordered; the engine's own guarantee is tested in internal/book.
+	var doc struct {
+		Bids [][2]string `json:"bids"`
+		Asks [][2]string `json:"asks"`
+	}
+	if err := json.Unmarshal([]byte(payload), &doc); err != nil {
+		t.Fatal(err)
+	}
+	if len(doc.Bids) != 3 || len(doc.Asks) != 3 {
+		t.Fatalf("golden has %d bids and %d asks, want 3 of each", len(doc.Bids), len(doc.Asks))
+	}
+	for i := 1; i < 3; i++ {
+		if doc.Bids[i-1][0] <= doc.Bids[i][0] || doc.Asks[i-1][0] >= doc.Asks[i][0] {
+			t.Fatalf("golden is not strictly ordered: bids %v asks %v", doc.Bids, doc.Asks)
+		}
 	}
 }
 
