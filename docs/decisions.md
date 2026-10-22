@@ -420,7 +420,7 @@ component would fork its logic for one venue.
 (ADR-0015); nothing exposed the pipeline outside the process. The dashboard (and anything else)
 needs a network stream and the system's health counters.
 
-**Decision.** A thin `internal/httpapi` handler with two endpoints.
+**Decision.** A thin `internal/httpapi` handler with four endpoints and one middleware chain.
 - `GET /stream` — Server-Sent Events, one complete view per event. SSE over WebSocket: the flow is
   strictly one-way, EventSource reconnects natively, and no client->server protocol exists to need
   a socket. Complete views over deltas: ADR-0015 already made every published view whole, so a
@@ -433,6 +433,34 @@ needs a network stream and the system's health counters.
   latency histogram (p50/p99/p99.9/max as duration strings): one sample per applied delta, spanning
   the adapter's raw-message dequeue to the applied view being stored for readers (correctness of the
   span is the engine's job — WithLatencyObserver — so no wire-wait can enter a sample).
+- `GET /healthz` — 200 `ok` whenever the process serves requests. `GET /readyz` — 200 `ok` when the
+  book is usable and 503 `not ready` when it is not. Usable means the engine has a view and is not
+  rebuilding, so `/readyz` is 503 from the start until the first view, and during a resync, snapshot
+  retry delays included. A feed that has really failed ends the process (ADR-0021), so there is no
+  failed-but-running state to report, and a quiet market does not make `/readyz` false: how old the last
+  event is belongs on a status page, not in a probe that would restart a healthy service. Both answers
+  are marked `no-store`. The listener opens after the source has connected, so `/healthz` refuses
+  connections during a slow live start; a container check needs a start period for that.
+
+Every response goes through one chain of three layers, outermost first. The access log writes one
+line per response with the method, the matched route (`unmatched` for a 404, so a scanner cannot put
+text of its choosing in the log), the status, the bytes and the duration; the health routes log at
+debug level, and a stream logs once, when it ends. The recovery layer turns a handler panic into a
+logged 500, or, if the response has already started and a 500 can no longer be sent, aborts the
+connection so a cut-off body cannot look complete. The header layer sets `X-Content-Type-Options:
+nosniff` and the cross-origin policy on every response, error responses included. The wrapper around
+the response writer passes flushes and write deadlines through to the connection, which the stream
+needs.
+
+The cross-origin policy is `-cors-origin`: `*` (the default, for the demo) lets any origin read the
+edge; one origin such as `https://app.example` lets only that origin, with `Vary: Origin`. The origin
+must be written the way a browser sends it (lowercase, no path, no default port), because the value is
+compared byte for byte and a mismatch would otherwise fail silently; one validator checks it for the flag
+and for the handler. The stream also sets `X-Accel-Buffering: no` so a buffering proxy does not hold
+events back. The `-healthcheck` flag lets the container ask the edge itself: it sends `GET /healthz` to
+127.0.0.1 at the `-http` port and exits 0 or 1, since the runtime image has no shell or curl. It takes
+the same flags as the service it checks and validates them all, so a container passes it the command
+line it runs with.
 
 Prices and sizes cross the wire as the venue's decimal strings, rendered server-side from the
 scaled integers at the venue scales. int64 values do not fit JS's float64 past 2^53, and a string is
@@ -449,7 +477,10 @@ if that expires, `Close` drops what is left.
 - Every event re-sends the whole top-N (a few hundred bytes at depth 10). Conflation bounds the rate to
   what each client sustains, so the bandwidth cost is the price of the no-reducer client.
 - A quiet feed sends nothing after the opener; EventSource keeps the connection open. Keepalive
-  comments are unnecessary for the demo topology (no proxies) and were left out deliberately.
+  comments were left out deliberately: the demo topology has no proxy that would time out an idle
+  stream, and if one does, EventSource reconnects and starts from the current view.
+- `HEAD /stream` is routed like `GET /stream` (a `GET` pattern also matches `HEAD`) and stays open until
+  the client leaves; nothing uses it.
 - The counters travel as JSON numbers (small ints); only prices/sizes and durations need the
   string treatment.
 - Plain JSON rather than the Prometheus exposition format: one process, one scraper (the

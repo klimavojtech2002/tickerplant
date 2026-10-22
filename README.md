@@ -138,6 +138,11 @@ docker compose run --rm --service-ports edge -http :8080 -live -venue kraken -sy
 Both images are multi-stage: the Go service on `gcr.io/distroless/static-debian12:nonroot` (no shell,
 non-root; 15.9 MB), the dashboard as a static export on `nginx:1.27-alpine` (74.7 MB).
 
+The edge answers `/healthz` (the process is up) and `/readyz` (the book has a view and is not being
+rebuilt). `tickerplant -healthcheck -http :8080` asks `/healthz` from inside the container, where there is
+no curl, and exits 0 or 1. `-cors-origin https://app.example` limits which origin a browser lets read the
+edge (the default `*` lets any).
+
 Without Docker: `go run ./cmd/tickerplant -http :8080 -steps 100000000` for the edge, then
 `cd web && pnpm install && pnpm dev` for the dashboard.
 
@@ -159,7 +164,7 @@ The Go build needs Go 1.21 or newer: with the default `GOTOOLCHAIN=auto` the `go
 | Runnable demo (`cmd/tickerplant`: source → engine → fan-out) | Done |
 | Dashboard (Next.js, `web/`: live book + health from the HTTP edge, no floats on the price path) | Done — tested |
 | Metrics: engine counters (gaps/resyncs/disconnects/refused snapshots) + latency histogram | Done — tested |
-| HTTP edge: SSE `/stream` (complete top-N views) + `/metrics` JSON (`-http :8080`) | Done — tested |
+| HTTP edge: SSE `/stream` (complete top-N views), `/metrics` JSON, `/healthz` and `/readyz` (`-http :8080`; `-cors-origin`, `-healthcheck`) | Done — tested |
 | Benchmark harness (open-loop, coordinated-omission-aware) | Done — tested (no published figures) |
 | CI (`.github/workflows/ci.yml`: gofmt / vet / staticcheck / build / `-race`, plus a front-end lint/type-check/test/build job) | Done |
 | Docker, docker-compose (`docker compose up`, synthetic by default) | Done (built and run by hand; no CI job builds the images) |
