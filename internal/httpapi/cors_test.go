@@ -144,6 +144,7 @@ func TestValidateCORSOriginSaysWhatIsWrong(t *testing.T) {
 	for origin, want := range map[string]string{
 		"HTTPS://app.example":         "scheme must be lowercase",
 		"Http://host":                 "scheme must be lowercase",
+		"http://:3000":                "no host",
 		"ftp://x":                     "scheme must be http or https",
 		"http://::1":                  "must be written in brackets",
 		"http://[fe80::1%25en0]:3000": "without a zone",
