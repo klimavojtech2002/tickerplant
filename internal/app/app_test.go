@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/klimavojtech2002/tickerplant/internal/book"
+	"github.com/klimavojtech2002/tickerplant/internal/delivery"
 	"github.com/klimavojtech2002/tickerplant/internal/market"
 	"github.com/klimavojtech2002/tickerplant/internal/source"
 )
@@ -173,10 +174,9 @@ func TestRunPublishesOnlyOnAdvance(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Under latest-wins conflation each hub.Publish is either delivered or superseded, so
-	// Delivered+Dropped counts the Publish calls: bootstrap(10) + seq 11 + seq 12 = 3. The
-	// stale duplicate does not advance the view, so run never Publishes it (not 4).
-	if pubs := res.stats.Delivered + res.stats.Dropped; pubs != 3 {
+	// Published counts the Publish calls: bootstrap(10) + seq 11 + seq 12 = 3. The stale
+	// duplicate does not advance the view, so run never Publishes it (not 4).
+	if pubs := res.stats.Published; pubs != 3 {
 		t.Fatalf("hub.Publish calls = %d, want 3 (a stale duplicate must not be re-broadcast)", pubs)
 	}
 }
@@ -225,8 +225,14 @@ func TestRunReconstructsUncrossedBook(t *testing.T) {
 	if res.view.Crosses() {
 		t.Fatalf("final view crosses: %v >= %v", res.view.Bids[0], res.view.Asks[0])
 	}
-	if res.stats.Delivered == 0 {
-		t.Fatal("expected the consumer to receive views")
+	// 400 steps and the bootstrap view: every step advances the view, so each is published.
+	// The count is read from this deterministic seed-7 run, not derived.
+	if res.stats.Published != 401 {
+		t.Fatalf("Published = %d, want 401", res.stats.Published)
+	}
+	// The log reader is internal: with no HTTP viewer, nothing is counted as a consumer.
+	if s := res.stats; s.Consumers != 0 || s.Delivered != 0 || s.Dropped != 0 {
+		t.Fatalf("stats = %+v, want no counted consumers, deliveries or drops", s)
 	}
 }
 
@@ -508,8 +514,10 @@ func TestPrepareUnknownVenue(t *testing.T) {
 
 func TestResultLog(t *testing.T) {
 	var buf bytes.Buffer
-	Result{resyncs: 2, gaps: 3, disconnects: 4, wouldCrosses: 5, snapshotErrors: 6, snapshotRejects: 7}.Log(slog.New(slog.NewTextHandler(&buf, nil)))
-	for _, want := range []string{"msg=done", "resyncs=2", "gaps=3", "disconnects=4", "would-cross=5", "snapshot-errors=6", "snapshot-rejects=7"} {
+	Result{resyncs: 2, gaps: 3, disconnects: 4, wouldCrosses: 5, snapshotErrors: 6, snapshotRejects: 7,
+		stats: delivery.Stats{Published: 8, Delivered: 9, Dropped: 10}}.Log(slog.New(slog.NewTextHandler(&buf, nil)))
+	for _, want := range []string{"msg=done", "resyncs=2", "gaps=3", "disconnects=4", "would-cross=5", "snapshot-errors=6", "snapshot-rejects=7",
+		"published=8", "delivered=9", "dropped=10"} {
 		if !strings.Contains(buf.String(), want) {
 			t.Errorf("done line lacks %q:\n%s", want, buf.String())
 		}
@@ -739,5 +747,47 @@ func TestRunRefusesInvalidEngineConfig(t *testing.T) {
 	}
 	if !ct.closed {
 		t.Fatal("the source must be closed when the engine cannot be built")
+	}
+}
+
+// The log reader is an internal consumer, so it must still receive views even though
+// the hub does not count it. The gate keeps Run alive until the top-of-book line shows,
+// because closing the hub empties the slots and an unread view would never be logged.
+func TestRunLogConsumerReceivesViews(t *testing.T) {
+	gs := &gatedSource{
+		snap:    market.Snapshot{LastUpdateID: 10, Bids: []market.Level{{Price: 100, Size: 1}}, Asks: []market.Level{{Price: 101, Size: 1}}},
+		release: make(chan struct{}),
+	}
+	release := func() {
+		select {
+		case <-gs.release:
+		default:
+			close(gs.release)
+		}
+	}
+	t.Cleanup(release)
+	var buf syncBuffer
+	log := slog.New(slog.NewTextHandler(&buf, nil))
+	runDone := make(chan error, 1)
+	go func() {
+		_, err := Run(context.Background(), log, gs, Config{depth: 5, every: 1, venue: "synthetic", symbol: "DEMO"})
+		runDone <- err
+	}()
+
+	deadline := time.Now().Add(5 * time.Second)
+	for !strings.Contains(buf.String(), "top of book") {
+		if time.Now().After(deadline) {
+			t.Fatalf("the log consumer never logged a view: %s", buf.String())
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	release()
+	select {
+	case err := <-runDone:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("run did not return after the source ended")
 	}
 }

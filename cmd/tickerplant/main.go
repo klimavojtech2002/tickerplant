@@ -53,8 +53,8 @@ func parseFlags(args []string, out io.Writer) (options, error) {
 	fs.IntVar(&o.depth, "depth", 10, "published book depth")
 	fs.IntVar(&o.every, "every", 500, "log the top of book every N updates")
 	// 150ms (~6.7/s) is a modest feed rate; with
-	// -pace 0 the source floods, and the hub disconnects any consumer after 1024
-	// consecutive supersedes.
+	// -pace 0 the source floods, and the hub disconnects any consumer that falls
+	// too far behind.
 	fs.DurationVar(&o.pace, "pace", 150*time.Millisecond, "delay between updates (mimics a live feed; 0 floods to stress backpressure)")
 	fs.BoolVar(&o.live, "live", false, "connect to a live venue instead of the synthetic source")
 	fs.StringVar(&o.venue, "venue", app.DefaultVenue, "live venue (with -live): binance|kraken")

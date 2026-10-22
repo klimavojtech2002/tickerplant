@@ -106,7 +106,8 @@ race fails the build rather than being an occasional check.
 ## 9. Observability and latency measurement
 
 The engine exposes gap, resync, disconnect, would-cross, checksum-mismatch, refused-snapshot and
-snapshot-error counters, the fan-out's delivered/dropped counts, and internal processing latency as a
+snapshot-error counters, the fan-out's delivered/dropped counts (for HTTP viewers, not for the
+in-process log reader), and internal processing latency as a
 distribution (p50/p99/p99.9/max), all served by the HTTP edge's `/metrics` endpoint (ADR-0017). The resync
 counter counts only resyncs started after the book was bound; a snapshot refused while binding or during a
 resync (crossed, or failing its checksum) is counted as a refused snapshot instead. "Internal" is exact:

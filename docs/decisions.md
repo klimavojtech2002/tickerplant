@@ -362,7 +362,11 @@ slot is size-1 by definition.
   safe and no wakeup is lost. Every statement is covered by tests (100% statement coverage of
   `internal/delivery`).
 - `Delivered` counts views published into an empty slot and `Dropped` counts *superseded* views, so
-  `Delivered + Dropped` equals the publishes each consumer saw, summed over consumers.
+  `Delivered + Dropped` equals the publishes each counted consumer saw, summed over consumers.
+  `Hub.TrySubscribe(limit)` refuses a consumer past a limit (`ErrFull`, or `ErrClosed` on a closed hub)
+  under the same lock that adds it. `Hub.SubscribeInternal` gives the process its own reader (the log
+  consumer): it receives views and can be disconnected for lagging, but it is in no count and uses up no
+  slot. `Stats.Published` counts every `Publish` call.
 - The consumer API is a handle (`Ready()` / `Take()`) rather than a bare receive channel.
 - Trade-off: intermediate views are not retained. For a complete-snapshot feed that is the point; a
   consumer needing every delta would use a different, delta-level stream (out of scope).
@@ -424,7 +428,8 @@ needs a network stream and the system's health counters.
   is the engine's current view" (with a sequence dedupe on the opener/subscription seam). No
   `Last-Event-ID`: replaying superseded views would undo the conflation the delivery layer exists
   to provide.
-- `GET /metrics` — a JSON snapshot of the delivery stats, the engine counters, and the internal
+- `GET /metrics` — a JSON snapshot of the delivery stats (HTTP viewers only: the in-process log reader
+  is not counted), the engine counters, and the internal
   latency histogram (p50/p99/p99.9/max as duration strings): one sample per applied delta, spanning
   the adapter's raw-message dequeue to the applied view being stored for readers (correctness of the
   span is the engine's job — WithLatencyObserver — so no wire-wait can enter a sample).

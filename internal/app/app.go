@@ -35,6 +35,10 @@ const (
 // full jitter, so several instances recovering from one outage do not retry in step.
 var snapshotBackoff = venue.Backoff{Min: 500 * time.Millisecond, Max: 8 * time.Second, Factor: 2, Jitter: venue.FullJitter}.Next
 
+// defaultMaxLag is how many consecutive supersedes the fan-out tolerates before it
+// disconnects a consumer that is not keeping up.
+const defaultMaxLag = 1024
+
 // Limits on the HTTP edge. edgeShutdownTimeout is a variable so a test can shorten it.
 var edgeShutdownTimeout = 5 * time.Second
 
@@ -203,7 +207,7 @@ func resultOf(eng *book.Engine, hub *delivery.Hub) Result {
 // Log writes the one-line summary of a finished run.
 func (r Result) Log(log *slog.Logger) {
 	log.Info("done",
-		"delivered", r.stats.Delivered, "dropped", r.stats.Dropped,
+		"published", r.stats.Published, "delivered", r.stats.Delivered, "dropped", r.stats.Dropped,
 		"resyncs", r.resyncs, "gaps", r.gaps, "disconnects", r.disconnects,
 		"would-cross", r.wouldCrosses, "snapshot-rejects", r.snapshotRejects, "snapshot-errors", r.snapshotErrors)
 }
@@ -225,7 +229,7 @@ func Run(ctx context.Context, log *slog.Logger, src source.Source, cfg Config) (
 	if err != nil {
 		return Result{}, err
 	}
-	hub := delivery.New(1024)
+	hub := delivery.New(defaultMaxLag)
 
 	if cfg.HTTPListener != nil {
 		handler, err := httpapi.New(httpapi.Config{
@@ -262,7 +266,7 @@ func Run(ctx context.Context, log *slog.Logger, src source.Source, cfg Config) (
 		}()
 	}
 
-	c := hub.Subscribe()
+	c := hub.SubscribeInternal() // the log reader is not a viewer: it stays out of the hub's counts
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
