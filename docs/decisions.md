@@ -60,7 +60,7 @@ that drifts the book silently — the exact failure this project exists to preve
 **Decision.** Represent price and size as integers scaled to the venue's decimal precision for the
 symbol (a price scale and a size scale), parsed directly from the wire decimal string. No `float64`
 appears on the book path. Nothing is rounded: a value with more significant fractional digits than the
-scale is rejected.
+scale is rejected, and so is a number with no digits before the point (".5"; "0.5" is accepted).
 
 **Consequences.**
 - Level identity, deletes, and the never-crosses comparison are exact integer operations.

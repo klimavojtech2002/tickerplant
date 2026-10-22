@@ -15,6 +15,10 @@ import (
 // lossless and accepted, but more *significant* fractional digits than the scale, a
 // malformed number, a negative, or a value that overflows int64 is a loud error
 // (ErrMalformed), never a silent round or wrap (ADR-0003, docs/correctness.md §2).
+//
+// The accepted shape is digits, then optionally a point and at least one digit: a
+// number needs digits before the point, so ".5" is refused where "0.5" is not, and
+// "5." is refused as well.
 func ParseScaled(s string, scale int) (int64, error) {
 	if scale < 0 || scale > 18 {
 		return 0, fmt.Errorf("scale %d out of range [0,18]: %w", scale, ErrMalformed)
@@ -25,6 +29,9 @@ func ParseScaled(s string, scale int) (int64, error) {
 	intPart, fracPart, hasDot := strings.Cut(s, ".")
 	if hasDot && fracPart == "" { // a bare "." or a trailing dot like "5." is not canonical
 		return 0, fmt.Errorf("invalid decimal %q: %w", s, ErrMalformed)
+	}
+	if intPart == "" { // ".5" is not canonical either: no venue sends it, so it is a sign of a changed format
+		return 0, fmt.Errorf("decimal %q has no digits before the point: %w", s, ErrMalformed)
 	}
 	// Trailing zeros are lossless padding — venues format to a fixed width (e.g. Binance
 	// sends "60220.02000000" for a 2-tick price). Strip them so padding is accepted while
