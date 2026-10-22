@@ -70,13 +70,15 @@ func (e *liveEngine) Events() []book.Event {
 
 // tickSource stands in for the per-connection ticker: the test sends the ticks and counts the stops.
 type tickSource struct {
-	ch    chan time.Time
-	stops atomic.Int32
+	ch     chan time.Time
+	opened atomic.Int32 // tickers started
+	stops  atomic.Int32
 }
 
 func newTickSource() *tickSource { return &tickSource{ch: make(chan time.Time, 1)} }
 
 func (ts *tickSource) factory(time.Duration) (<-chan time.Time, func()) {
+	ts.opened.Add(1)
 	return ts.ch, func() { ts.stops.Add(1) }
 }
 

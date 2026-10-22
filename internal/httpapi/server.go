@@ -50,6 +50,9 @@ type Config struct {
 	// CORSOrigin is the cross-origin policy: "*" or empty lets any origin read the edge; one
 	// origin such as "https://app.example" lets only that origin (see ValidateCORSOrigin).
 	CORSOrigin string
+	// MaxStreams is the most simultaneous stream consumers the edge serves; 0 means
+	// DefaultMaxStreams and a negative value is refused. The in-process log reader is not counted.
+	MaxStreams int
 	// Clock gives the time reported in telemetry (nil = time.Now). It governs that field only.
 	Clock func() time.Time
 	// Rejected reports how many frames the source could not use (nil = 0: the source cannot say).
@@ -63,6 +66,12 @@ type Config struct {
 
 // ErrConfig marks a Config New refuses.
 var ErrConfig = errors.New("httpapi: invalid configuration")
+
+// DefaultMaxStreams is the cap on simultaneous stream consumers when none is configured.
+const DefaultMaxStreams = 256
+
+// retryAfter is the hint, in seconds, sent with the refusal of a stream when the edge is full.
+const retryAfter = "5"
 
 // maxScale is the largest decimal scale a price or size can be rendered at.
 const maxScale = 18
@@ -87,6 +96,9 @@ func New(cfg Config) (http.Handler, error) {
 	if err := ValidateCORSOrigin(cfg.CORSOrigin); err != nil {
 		return nil, err
 	}
+	if cfg.MaxStreams < 0 {
+		return nil, fmt.Errorf("%w: max streams %d, want 0 (the default) or more", ErrConfig, cfg.MaxStreams)
+	}
 	if cfg.WriteTimeout <= 0 {
 		cfg.WriteTimeout = 10 * time.Second
 	}
@@ -103,6 +115,28 @@ func New(cfg Config) (http.Handler, error) {
 }
 
 type server struct{ cfg Config }
+
+// maxStreams is the effective cap: the configured value, or the default when none was set. It
+// is applied here, not in New, so a server built without New keeps working.
+func (s *server) maxStreams() int {
+	if s.cfg.MaxStreams == 0 {
+		return DefaultMaxStreams
+	}
+	return s.cfg.MaxStreams
+}
+
+// refuse answers a stream request the hub would not take. A full edge says when to try again;
+// a closed hub means the process is stopping, so there is nothing to wait for. Both are
+// readable by a browser (the chain adds the cross-origin headers), which a bare connection
+// drop would not be.
+func (s *server) refuse(w http.ResponseWriter, err error) {
+	if errors.Is(err, delivery.ErrFull) {
+		w.Header().Set("Retry-After", retryAfter)
+		probe(w, http.StatusServiceUnavailable, "too many streams")
+		return
+	}
+	probe(w, http.StatusServiceUnavailable, "shutting down")
+}
 
 // healthz answers 200 whenever the process is serving requests: it says the process is up,
 // nothing about the book.
@@ -179,6 +213,14 @@ func (s *server) levels(ls []market.Level) [][2]string {
 // disconnected for lagging) ends the response; the client's EventSource reconnects and
 // starts fresh.
 func (s *server) stream(w http.ResponseWriter, r *http.Request) {
+	// Subscribe before the 200: a refusal must still be able to choose its status.
+	c, err := s.cfg.Hub.TrySubscribe(s.maxStreams())
+	if err != nil {
+		s.refuse(w, err)
+		return
+	}
+	defer s.cfg.Hub.Unsubscribe(c.ID())
+
 	h := w.Header()
 	h.Set("Content-Type", "text/event-stream")
 	h.Set("Cache-Control", "no-cache")
@@ -190,8 +232,6 @@ func (s *server) stream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	c := s.cfg.Hub.Subscribe()
-	defer s.cfg.Hub.Unsubscribe(c.ID())
 	tick, stopTick := s.newTicker()
 	defer stopTick()
 

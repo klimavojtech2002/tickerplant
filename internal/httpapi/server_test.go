@@ -250,14 +250,10 @@ func TestLaggingClientDisconnectedAndUnwedged(t *testing.T) {
 
 	resp, _ := openStream(t, srv.URL) // never read from it
 
-	// openStream's http.Get returns once the server flushes headers, which happens
-	// before the handler calls Hub.Subscribe (server.go's stream). Unlike every other
-	// openStream caller in this file, this test never reads the body (nextView), so it
-	// has no other happens-after signal that the subscription landed — without this
-	// wait, the loop below's condition can read Consumers()==0 before the handler ever
-	// subscribes, skip its body entirely, and leave the handler parked forever with
-	// nothing published to unwedge it (the same bug class TestStreamNoOpenerBeforeFirstPublish
-	// hit; reproduced empirically here too before this fix).
+	// The handler subscribes before it flushes headers, so the subscription has landed by
+	// the time openStream returns. This test never reads the body (nextView), so the wait
+	// below is only a guard: the loop's condition must not read Consumers()==0 and skip its
+	// body, which would leave the handler parked with nothing published to unwedge it.
 	subDeadline := time.After(5 * time.Second)
 	for hub.Stats().Consumers != 1 {
 		select {
@@ -432,13 +428,11 @@ func TestStreamNoOpenerBeforeFirstPublish(t *testing.T) {
 	defer hub.Close()
 	srv := newEdge(t, hub, &stubEngine{view: nil}, nil, 0)
 	_, sc := openStream(t, srv.URL)
-	// openStream's http.Get returns once the server flushes headers, which happens
-	// before the handler calls Hub.Subscribe (server.go's stream, by design: it
-	// unblocks EventSource's onopen on a quiet feed even before subscribing). A
-	// Publish racing ahead of that Subscribe would never reach this client, and
-	// since this test's engine has no opener view, there would be nothing else to
-	// wake it — an unrecoverable hang, not a flake. Wait for the subscription first,
-	// the same pattern already used below (TestStreamDegradedWriters).
+	// The handler subscribes before it flushes headers, so the subscription has landed by
+	// the time openStream returns. A Publish racing ahead of a Subscribe would never reach
+	// this client, and since this test's engine has no opener view, there would be nothing
+	// else to wake it — an unrecoverable hang, not a flake. Waiting for the subscription
+	// first stays as a guard, the same pattern already used below (TestStreamDegradedWriters).
 	deadline := time.After(5 * time.Second)
 	for hub.Stats().Consumers != 1 {
 		select {
@@ -535,7 +529,7 @@ func TestStreamDegradedWriters(t *testing.T) {
 	s := &server{cfg: Config{Hub: hub, Engine: &stubEngine{view: view(1)}, WriteTimeout: time.Second, Log: quietLog()}}
 	req := httptest.NewRequest(http.MethodGet, "/stream", nil)
 
-	// no Flusher at all: the opening flush fails before any subscription
+	// no Flusher at all: the opening flush fails, and the handler unsubscribes on the way out
 	s.stream(&failingWriter{hdr: http.Header{}}, req)
 	if c := hub.Stats().Consumers; c != 0 {
 		t.Fatalf("consumers = %d after a failed open, want 0", c)
