@@ -235,3 +235,58 @@ func TestRunPublishesAResyncViewWithALowerSequence(t *testing.T) {
 		t.Fatalf("Published = %d, final seq = %d; want 3 views and the last one at sequence 10", res.stats.Published, res.view.LastSeq)
 	}
 }
+
+func TestPreparePassesTheMaxStreamsOn(t *testing.T) {
+	src, cfg, err := Prepare(context.Background(), quietLog(), Options{Seed: 1, Steps: 10, Depth: 5, MaxStreams: 7})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer src.Close()
+	if cfg.maxStreams != 7 {
+		t.Fatalf("maxStreams = %d, want 7 carried from the options", cfg.maxStreams)
+	}
+}
+
+// The cap reaches the edge of a running pipeline: with one slot, the first stream is served and
+// the second is refused with a 503.
+func TestRunCapsStreams(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	gs := disconnectingSource()
+	done := make(chan error, 1)
+	go func() {
+		_, err := Run(context.Background(), quietLog(), gs, Config{depth: 5, venue: "synthetic", symbol: "DEMO", HTTPListener: ln, maxStreams: 1})
+		done <- err
+	}()
+	t.Cleanup(func() {
+		releaseOf(gs)()
+		<-done
+	})
+
+	url := "http://" + ln.Addr().String() + "/stream"
+	var first *http.Response
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		if first, err = http.Get(url); err == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("the edge never answered: %v", err)
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	defer first.Body.Close()
+	if first.StatusCode != http.StatusOK {
+		t.Fatalf("first stream got %d, want 200", first.StatusCode)
+	}
+	second, err := http.Get(url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer second.Body.Close()
+	if second.StatusCode != http.StatusServiceUnavailable {
+		t.Fatalf("second stream got %d, want 503 with a cap of 1", second.StatusCode)
+	}
+}

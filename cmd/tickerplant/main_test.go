@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/klimavojtech2002/tickerplant/internal/app"
+	"github.com/klimavojtech2002/tickerplant/internal/httpapi"
 )
 
 // parseFlags runs on a private FlagSet, so real argv slices drive it directly. The
@@ -29,49 +30,56 @@ func TestParseFlags(t *testing.T) {
 			name: "defaults",
 			args: nil,
 			want: options{seed: 1, steps: 5000, depth: 10, every: 500, everySet: false,
-				pace: 150 * time.Millisecond, live: false, venue: "binance", symbol: "BTCUSDT", logLevel: "info", logFormat: "text", corsOrigin: "*"},
+				pace: 150 * time.Millisecond, live: false, venue: "binance", symbol: "BTCUSDT", logLevel: "info", logFormat: "text", corsOrigin: "*", maxStreams: httpapi.DefaultMaxStreams},
 			wantCadence: 500,
 		},
 		{
 			name: "live with default cadence logs every update",
 			args: []string{"-live"},
 			want: options{seed: 1, steps: 5000, depth: 10, every: 500, everySet: false,
-				pace: 150 * time.Millisecond, live: true, venue: "binance", symbol: "BTCUSDT", logLevel: "info", logFormat: "text", corsOrigin: "*"},
+				pace: 150 * time.Millisecond, live: true, venue: "binance", symbol: "BTCUSDT", logLevel: "info", logFormat: "text", corsOrigin: "*", maxStreams: httpapi.DefaultMaxStreams},
 			wantCadence: 1,
 		},
 		{
 			name: "explicit -every at the default value is honoured on a live run",
 			args: []string{"-live", "-every", "500"},
 			want: options{seed: 1, steps: 5000, depth: 10, every: 500, everySet: true,
-				pace: 150 * time.Millisecond, live: true, venue: "binance", symbol: "BTCUSDT", logLevel: "info", logFormat: "text", corsOrigin: "*"},
+				pace: 150 * time.Millisecond, live: true, venue: "binance", symbol: "BTCUSDT", logLevel: "info", logFormat: "text", corsOrigin: "*", maxStreams: httpapi.DefaultMaxStreams},
 			wantCadence: 500,
 		},
 		{
 			name: "explicit -every",
 			args: []string{"-every", "7"},
 			want: options{seed: 1, steps: 5000, depth: 10, every: 7, everySet: true,
-				pace: 150 * time.Millisecond, live: false, venue: "binance", symbol: "BTCUSDT", logLevel: "info", logFormat: "text", corsOrigin: "*"},
+				pace: 150 * time.Millisecond, live: false, venue: "binance", symbol: "BTCUSDT", logLevel: "info", logFormat: "text", corsOrigin: "*", maxStreams: httpapi.DefaultMaxStreams},
 			wantCadence: 7,
 		},
 		{
 			name: "typed values parse",
 			args: []string{"-seed", "42", "-steps", "100", "-pace", "1ms", "-depth", "3", "-venue", "binance", "-symbol", "ETHUSDT"},
 			want: options{seed: 42, steps: 100, depth: 3, every: 500, everySet: false,
-				pace: time.Millisecond, live: false, venue: "binance", symbol: "ETHUSDT", logLevel: "info", logFormat: "text", corsOrigin: "*"},
+				pace: time.Millisecond, live: false, venue: "binance", symbol: "ETHUSDT", logLevel: "info", logFormat: "text", corsOrigin: "*", maxStreams: httpapi.DefaultMaxStreams},
 			wantCadence: 500,
 		},
 		{
 			name: "http edge address",
 			args: []string{"-http", ":8080"},
 			want: options{seed: 1, steps: 5000, depth: 10, every: 500, everySet: false,
-				pace: 150 * time.Millisecond, live: false, venue: "binance", symbol: "BTCUSDT", logLevel: "info", logFormat: "text", corsOrigin: "*", httpAddr: ":8080"},
+				pace: 150 * time.Millisecond, live: false, venue: "binance", symbol: "BTCUSDT", logLevel: "info", logFormat: "text", corsOrigin: "*", maxStreams: httpapi.DefaultMaxStreams, httpAddr: ":8080"},
+			wantCadence: 500,
+		},
+		{
+			name: "max streams",
+			args: []string{"-max-streams", "7"},
+			want: options{seed: 1, steps: 5000, depth: 10, every: 500, everySet: false,
+				pace: 150 * time.Millisecond, live: false, venue: "binance", symbol: "BTCUSDT", logLevel: "info", logFormat: "text", corsOrigin: "*", maxStreams: 7},
 			wantCadence: 500,
 		},
 		{
 			name: "cors origin",
 			args: []string{"-cors-origin", "https://app.example"},
 			want: options{seed: 1, steps: 5000, depth: 10, every: 500, everySet: false,
-				pace: 150 * time.Millisecond, live: false, venue: "binance", symbol: "BTCUSDT", logLevel: "info", logFormat: "text", corsOrigin: "https://app.example"},
+				pace: 150 * time.Millisecond, live: false, venue: "binance", symbol: "BTCUSDT", logLevel: "info", logFormat: "text", corsOrigin: "https://app.example", maxStreams: httpapi.DefaultMaxStreams},
 			wantCadence: 500,
 		},
 		{
@@ -110,7 +118,7 @@ func TestParseFlagsHelpIsErrHelp(t *testing.T) {
 }
 
 func TestValidate(t *testing.T) {
-	ok := options{depth: 10, steps: 5000, every: 500, pace: 150 * time.Millisecond, logLevel: "info", logFormat: "text", corsOrigin: "*"}
+	ok := options{depth: 10, steps: 5000, every: 500, pace: 150 * time.Millisecond, logLevel: "info", logFormat: "text", corsOrigin: "*", maxStreams: httpapi.DefaultMaxStreams}
 	cases := []struct {
 		name    string
 		mut     func(*options)
@@ -138,6 +146,11 @@ func TestValidate(t *testing.T) {
 		{"log format json", func(o *options) { o.logFormat = "json" }, ""},
 		{"log format unknown", func(o *options) { o.logFormat = "xml" }, "-log-format \"xml\""},
 		{"pace just below zero", func(o *options) { o.pace = -1 }, "-pace -1ns"},
+		{"max streams min", func(o *options) { o.maxStreams = 1 }, ""},
+		{"max streams max", func(o *options) { o.maxStreams = maxStreamsLimit }, ""},
+		{"max streams zero", func(o *options) { o.maxStreams = 0 }, "-max-streams 0"},
+		{"max streams negative", func(o *options) { o.maxStreams = -1 }, "-max-streams -1"},
+		{"max streams too big", func(o *options) { o.maxStreams = maxStreamsLimit + 1 }, "-max-streams 10001"},
 		{"cors origin empty", func(o *options) { o.corsOrigin = "" }, ""},
 		{"healthcheck with an address", func(o *options) { o.healthcheck = true; o.httpAddr = ":8080" }, ""},
 		{"healthcheck without -http", func(o *options) { o.healthcheck = true }, "-healthcheck needs -http"},
@@ -179,7 +192,7 @@ func TestParseFlagsRefusesOutOfRange(t *testing.T) {
 func TestMainRefusesBadFlags(t *testing.T) {
 	cases := [][]string{
 		{"-depth", "-1"}, {"-depth", "99999"}, {"-steps", "-5"}, {"-every", "-1"}, {"-pace", "-1s"},
-		{"-log-level", "loud"}, {"-log-format", "xml"},
+		{"-log-level", "loud"}, {"-log-format", "xml"}, {"-max-streams", "0"},
 	}
 	for _, args := range cases {
 		cmd := exec.Command(os.Args[0], args...)

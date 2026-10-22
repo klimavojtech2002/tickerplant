@@ -60,6 +60,7 @@ type Config struct {
 	symbol       string
 	scales       [2]int       // price/size decimal scales for the HTTP edge's rendering
 	corsOrigin   string       // cross-origin policy for the HTTP edge; empty = any origin
+	maxStreams   int          // most simultaneous stream consumers on the HTTP edge; 0 = the edge's default
 	HTTPListener net.Listener // serve the HTTP edge on this listener; nil = edge off
 }
 
@@ -76,6 +77,8 @@ type Options struct {
 	Symbol   string
 	// CORSOrigin is the HTTP edge's cross-origin policy: "*" or empty for any origin, or one origin.
 	CORSOrigin string
+	// MaxStreams is the most simultaneous stream consumers the HTTP edge serves (0 = its default).
+	MaxStreams int
 }
 
 // Prepare builds the source for o and the pipeline Config that source implies, and logs the
@@ -92,7 +95,7 @@ func Prepare(ctx context.Context, log *slog.Logger, o Options) (source.Source, C
 		depth: o.Depth, every: LiveCadence(o.Every, o.EverySet, o.Live),
 		pace: vs.pace, checksum: vs.checksum, window: vs.window,
 		venue: venueName(o.Live, o.Venue), symbol: symbolName(o.Live, o.Symbol), scales: vs.scales,
-		corsOrigin: o.CORSOrigin,
+		corsOrigin: o.CORSOrigin, maxStreams: o.MaxStreams,
 	}
 	log.Info("mode", "live", o.Live, "venue", cfg.venue, "symbol", cfg.symbol)
 	if liveFlagsIgnored(o.Live, o.Venue, o.Symbol) {
@@ -250,7 +253,7 @@ func Run(ctx context.Context, log *slog.Logger, src source.Source, cfg Config) (
 			Hub: hub, Engine: eng,
 			Venue: market.Venue(cfg.venue), Symbol: market.Symbol(cfg.symbol),
 			PriceScale: cfg.scales[0], SizeScale: cfg.scales[1],
-			Latency: lat, Log: log, CORSOrigin: cfg.corsOrigin, Rejected: rejectedOf(src),
+			Latency: lat, Log: log, CORSOrigin: cfg.corsOrigin, MaxStreams: cfg.maxStreams, Rejected: rejectedOf(src),
 		})
 		if err != nil {
 			// The listener is not served, and not closed here: the caller owns it.

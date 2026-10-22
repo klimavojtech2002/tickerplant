@@ -40,6 +40,7 @@ type options struct {
 	symbol      string
 	httpAddr    string
 	corsOrigin  string
+	maxStreams  int
 	healthcheck bool
 	version     bool
 	logLevel    string
@@ -65,6 +66,7 @@ func parseFlags(args []string, out io.Writer) (options, error) {
 	fs.StringVar(&o.venue, "venue", app.DefaultVenue, "live venue (with -live): binance|kraken")
 	fs.StringVar(&o.symbol, "symbol", app.DefaultSymbol, "live symbol (with -live)")
 	fs.StringVar(&o.httpAddr, "http", "", "serve the SSE stream and /metrics on this address (e.g. :8080); empty = off")
+	fs.IntVar(&o.maxStreams, "max-streams", httpapi.DefaultMaxStreams, "most simultaneous stream clients the HTTP edge serves (1 to 10000); more get a 503")
 	fs.StringVar(&o.corsOrigin, "cors-origin", "*", "origin allowed to read the HTTP edge from a browser: * or one origin such as https://app.example")
 	fs.BoolVar(&o.healthcheck, "healthcheck", false, "ask the HTTP edge on 127.0.0.1 at the -http port whether it is up (GET /healthz) and exit 0 if so, 1 if not")
 	fs.BoolVar(&o.version, "version", false, "print the version and exit")
@@ -95,6 +97,10 @@ func parseFlags(args []string, out io.Writer) (options, error) {
 // instead of clamping it.
 const maxDepth = 1000
 
+// maxStreamsLimit bounds -max-streams. The cap exists to keep the edge small; ten thousand
+// stream clients is already far beyond what one process of this size should serve.
+const maxStreamsLimit = 10000
+
 // validate refuses values the pipeline cannot use. Each message names the flag, the value
 // and what is allowed, and main prints it and exits 2, like any other bad command line.
 func (o options) validate() error {
@@ -113,6 +119,9 @@ func (o options) validate() error {
 	}
 	if _, err := parseLevel(o.logLevel); err != nil {
 		return err
+	}
+	if o.maxStreams < 1 || o.maxStreams > maxStreamsLimit {
+		return fmt.Errorf("-max-streams %d is out of range: want 1 to %d", o.maxStreams, maxStreamsLimit)
 	}
 	if err := httpapi.ValidateCORSOrigin(o.corsOrigin); err != nil {
 		return fmt.Errorf("-cors-origin: %w", err)
@@ -229,7 +238,7 @@ func main() {
 
 	src, cfg, err := app.Prepare(ctx, log, app.Options{
 		Seed: opts.seed, Steps: opts.steps, Depth: opts.depth, Every: opts.every, EverySet: opts.everySet,
-		Pace: opts.pace, Live: opts.live, Venue: opts.venue, Symbol: opts.symbol, CORSOrigin: opts.corsOrigin,
+		Pace: opts.pace, Live: opts.live, Venue: opts.venue, Symbol: opts.symbol, CORSOrigin: opts.corsOrigin, MaxStreams: opts.maxStreams,
 	})
 	if err != nil {
 		if errors.Is(err, context.Canceled) {
