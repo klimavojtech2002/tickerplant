@@ -199,3 +199,39 @@ func TestReadyzIsUnavailableUntilTheFirstView(t *testing.T) {
 		time.Sleep(5 * time.Millisecond)
 	}
 }
+
+// A view the engine rebuilt after a resync reaches the hub even when its sequence number is
+// the same as the one before it. The source disconnects straight after the first bind and
+// serves the same snapshot again: two views, both with sequence 10.
+func TestRunPublishesARebuiltViewWithTheSameSequence(t *testing.T) {
+	snap := market.Snapshot{LastUpdateID: 10, Bids: []market.Level{{Price: 100, Size: 1}}, Asks: []market.Level{{Price: 101, Size: 1}}}
+	src := &scriptSource{snap: snap, events: []source.Event{{Kind: source.EventDisconnected}}}
+	res, err := Run(context.Background(), quietLog(), src, Config{depth: 5})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.stats.Published != 2 {
+		t.Fatalf("Published = %d, want 2: the rebuilt view has the same sequence and must still be published", res.stats.Published)
+	}
+	if res.view == nil || res.view.Gen != 2 || res.view.LastSeq != 10 {
+		t.Fatalf("final view = %+v, want generation 2 at sequence 10", res.view)
+	}
+}
+
+// A resync that rebinds to an older snapshot still publishes: bootstrap (10), a delta (11),
+// then a disconnect served the snapshot at 10 again. The view-sequence gate already let this
+// through; the test keeps it so under the generation gate.
+func TestRunPublishesAResyncViewWithALowerSequence(t *testing.T) {
+	snap := market.Snapshot{LastUpdateID: 10, Bids: []market.Level{{Price: 100, Size: 1}}, Asks: []market.Level{{Price: 101, Size: 1}}}
+	src := &scriptSource{snap: snap, events: []source.Event{
+		{Kind: source.EventDelta, Delta: market.Delta{FirstSeq: 11, LastSeq: 11, Bids: []market.Level{{Price: 99, Size: 2}}}},
+		{Kind: source.EventDisconnected},
+	}}
+	res, err := Run(context.Background(), quietLog(), src, Config{depth: 5})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.stats.Published != 3 || res.view.LastSeq != 10 {
+		t.Fatalf("Published = %d, final seq = %d; want 3 views and the last one at sequence 10", res.stats.Published, res.view.LastSeq)
+	}
+}

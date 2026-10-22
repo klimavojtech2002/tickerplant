@@ -293,12 +293,13 @@ func Run(ctx context.Context, log *slog.Logger, src source.Source, cfg Config) (
 		return resultOf(eng, hub), err
 	}
 
-	// Publish only when the view advances, so dropped/stale steps don't re-broadcast
-	// an identical view.
-	var lastSeq market.Sequence
+	// Publish a view only when the engine produced a new one, so dropped and stale steps do
+	// not re-broadcast an identical view. The generation says that; the sequence number
+	// cannot, because a view rebuilt after a resync can repeat or lower it.
+	var lastGen uint64
 	publish := func() {
-		if v := eng.View(); v != nil && v.LastSeq != lastSeq {
-			lastSeq = v.LastSeq
+		if v := eng.View(); v != nil && v.Gen != lastGen {
+			lastGen = v.Gen
 			hub.Publish(v)
 		}
 	}
