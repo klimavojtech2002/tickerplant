@@ -165,7 +165,7 @@ The Go build needs Go 1.21 or newer: with the default `GOTOOLCHAIN=auto` the `go
 | Runnable demo (`cmd/tickerplant`: source → engine → fan-out) | Done |
 | Dashboard (Next.js, `web/`: live book + health from the HTTP edge, no floats on the price path) | Done — tested |
 | Metrics: engine counters (gaps/resyncs/disconnects/refused snapshots) + latency histogram | Done — tested |
-| HTTP edge: SSE `/stream` (complete top-N views and a 1 Hz telemetry event), `/metrics` JSON, `/api/status` JSON, `/healthz` and `/readyz` (`-http :8080`; `-cors-origin`, `-healthcheck`) | Done — tested |
+| HTTP edge: SSE `/stream` (complete top-N views and a 1 Hz telemetry event), `/metrics` (Prometheus text), `/api/status` JSON, `/healthz` and `/readyz` (`-http :8080`; `-cors-origin`, `-healthcheck`) | Done — tested |
 | Benchmark harness (open-loop, coordinated-omission-aware) | Done — tested (no published figures) |
 | CI (`.github/workflows/ci.yml`: gofmt / vet / staticcheck / build / `-race`, plus a front-end lint/type-check/test/build job) | Done |
 | Docker, docker-compose (`docker compose up`, synthetic by default) | Done (built and run by hand; no CI job builds the images) |

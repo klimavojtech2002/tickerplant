@@ -27,8 +27,8 @@ transport port; delivery adapters sit on the output side.
 
 One process runs a single source (the diagram shows every source the port accepts, not what runs at
 once): the synthetic one, or one live venue chosen with `-live -venue binance|kraken`. With `-http`, the
-HTTP edge also serves `/metrics`, read directly from the engine counters and the fan-out's stats, and
-`/healthz` and `/readyz` for a container runtime and `/api/status` (mode, version, start time, the age
+HTTP edge also serves `/metrics` (Prometheus text, read directly from the engine counters and the
+fan-out's stats; ADR-0023), and `/healthz` and `/readyz` for a container runtime and `/api/status` (mode, version, start time, the age
 of the last event and integer latency) for a dashboard (ADR-0017); the stream also carries a telemetry
 event every second (counters and the fault log), so a client can tell a quiet market from a dead
 connection. The synthetic source and a live socket implement the same transport port, so the engine
@@ -111,7 +111,8 @@ race fails the build rather than being an occasional check.
 The engine exposes gap, resync, disconnect, would-cross, checksum-mismatch, refused-snapshot and
 snapshot-error counters, the fan-out's delivered/dropped counts (for HTTP viewers, not for the
 in-process log reader), and internal processing latency as a
-distribution (p50/p99/p99.9/max), all served by the HTTP edge's `/metrics` endpoint (ADR-0017). The resync
+distribution (a summary with p50/p99/p99.9 estimates, an exact sum and count, and the exact max), all served
+by the HTTP edge's `/metrics` endpoint in the Prometheus text format (ADR-0023). The resync
 counter counts only resyncs started after the book was bound; a snapshot refused while binding or during a
 resync (crossed, or failing its checksum) is counted as a refused snapshot instead. "Internal" is exact:
 from the adapter taking the raw frame off its frame channel to the applied view stored for readers,
@@ -146,6 +147,6 @@ The full correctness model and simulation method are in [correctness.md](correct
 The README status table is the source of truth for what is implemented. The core is built and tested —
 canonical model, transport port and synthetic source, order-book engine, the in-process fan-out with a
 runnable demo (`internal/app` wires it, `cmd/tickerplant` is the command), the metrics and benchmark
-harness, the Binance and Kraken live adapters, the HTTP edge (SSE stream, /metrics, /api/status,
-/healthz, /readyz, ADR-0017), the dashboard (ADR-0018), CI, and the Docker packaging (ADR-0019). There is
+harness, the Binance and Kraken live adapters, the HTTP edge (SSE stream, Prometheus /metrics, /api/status,
+/healthz, /readyz, ADR-0017, ADR-0023), the dashboard (ADR-0018), CI, and the Docker packaging (ADR-0019). There is
 no OKX adapter (not planned; see [scope.md](scope.md)).

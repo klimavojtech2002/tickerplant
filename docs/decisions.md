@@ -430,13 +430,13 @@ needs a network stream and the system's health counters.
   sequence number: a view rebuilt after a resync can carry a lower or equal sequence and must still be
   shown). No `Last-Event-ID`: replaying
   superseded views would undo the conflation the delivery layer exists to provide.
-- `GET /metrics` — a JSON snapshot of the delivery stats (HTTP viewers only: the in-process log reader
-  is not counted), the engine counters, and the internal
-  latency histogram (p50/p99/p99.9/max as duration strings): one sample per applied delta, spanning
-  the adapter's raw-message dequeue to the applied view being stored for readers (correctness of the
-  span is the engine's job — WithLatencyObserver — so no wire-wait can enter a sample).
-- `GET /api/status` — one JSON document for clients that should not parse strings, beside `/metrics`,
-  which is unchanged. Fields, in order: `schema` (1; it changes only when a field is removed or changes
+- `GET /metrics` — the delivery stats (HTTP viewers only: the in-process log reader is not counted),
+  the engine counters and the internal latency, in the Prometheus text format (ADR-0023). Latency is
+  one sample per applied delta, spanning the adapter's raw-message dequeue to the applied view being
+  stored for readers (correctness of the span is the engine's job — WithLatencyObserver — so no
+  wire-wait can enter a sample). It first served JSON; that body moved to `/api/status`.
+- `GET /api/status` — one JSON document for clients that should not parse strings; it carries what
+  the JSON `/metrics` used to, and more. Fields, in order: `schema` (1; it changes only when a field is removed or changes
   meaning), `mode` (`synthetic`, `live`, or `unknown` for an edge built without one), `version`,
   `venue`, `symbol`, `startedAtUnixMs` (0 when unset), `depth`, `lastEventAgeMs`, `delivery` (consumers,
   delivered, dropped and published), `engine` (the counters and the source's count of frames it could
@@ -530,12 +530,12 @@ if that expires, `Close` drops what is left.
   hint for other clients and for people.
 - `HEAD /stream` is routed like `GET /stream` (a `GET` pattern also matches `HEAD`) and stays open until
   the client leaves; nothing uses it.
-- The counters travel as JSON numbers (small ints); only prices/sizes and durations need the
-  string treatment.
-- Plain JSON rather than the Prometheus exposition format: one process, one scraper (the
-  dashboard), no aggregation layer — adopting the format without its ecosystem adds
-  nothing. The quantiles are cumulative since process start, which fits a demo's "has it ever
-  drifted" question; windowed quantiles belong to an aggregation layer, which this system does not have.
+- The counters travel as JSON numbers (small ints) in `/api/status`; only prices/sizes and durations
+  need the string treatment.
+- `/metrics` was plain JSON while the dashboard was its only reader. The dashboard now reads
+  `/api/status`, and ADR-0023 gives `/metrics` the Prometheus text format. The quantiles are
+  cumulative since process start, which fits a demo's "has it ever drifted" question; windowed
+  quantiles belong to an aggregation layer, which this system does not have.
 
 ## ADR-0018 — The dashboard is a renderer, and floats never touch the price path
 
@@ -741,6 +741,47 @@ like a quiet market.
 - A feed that delivers only unusable frames moves the reject count but not the last-event time, so a
   status built from the time shows it as stale.
 - On Kraken, which has no sequence numbers, the sequence in a checksum event is the adapter's own count.
+
+## ADR-0023 — `/metrics` speaks the Prometheus text format
+
+**Status:** Accepted
+
+**Context.** `/metrics` began as a JSON document with Go duration strings because the dashboard was its
+only reader (ADR-0017). The dashboard now reads `/api/status`, a versioned JSON document with integer
+latency, so nothing in this repository needs the JSON `/metrics` any more, and a name like `/metrics`
+promises what an operator's tooling expects: something a Prometheus server can scrape.
+
+**Decision.**
+- `GET /metrics` serves the Prometheus text exposition format, version 0.0.4, written by hand
+  (`internal/httpapi/metrics.go`, standard library only). The JSON body is removed; `/api/status` is the
+  JSON. Anything that read the old body must read `/api/status` or scrape the new text.
+- Families: build and feed information (`tickerplant_build_info{version}`, `tickerplant_feed_info{mode,symbol,venue}`,
+  value 1), the start time and the time of the last engine event as Unix seconds, the fan-out and engine
+  counters (`*_total`), the stream requests by outcome (`accepted`, `closed`, `full`), and the latency as a
+  `summary` (`tickerplant_latency_seconds` with the 0.5, 0.99 and 0.999 quantiles, plus `_sum` and `_count`)
+  and an exact maximum as a separate gauge. The sum and the count are exact; the quantiles are the
+  latency histogram's estimates, within 2 percent, over the whole run, and an estimate can sit above the
+  exact maximum.
+- A value the process does not have is left out and never reported as zero: no quantiles or maximum before
+  the first sample, no rejected-frame counter for a source that cannot count, no start or last-event time
+  until there is one. `/api/status` reports zeros for the same cases; the two differ there on purpose.
+- Numbers are formatted from integers only (seconds from nanoseconds or milliseconds by integer division),
+  so no float touches the output. Label values escape backslash, quote and newline and are repaired to
+  valid UTF-8; the label set is fixed, so cardinality does not grow.
+- Each value is read on its own: each is exact, a scrape is not one atomic snapshot. Counters start at zero
+  when the process starts; the start time lets a reader see a restart.
+- A `HEAD /stream` request runs the stream handler and counts as an accepted stream.
+
+**Consequences.**
+- A scraper can chart the system without a client library, and a hand-written encoder keeps the single
+  dependency. The cost is that the format is ours to get right; a validator in the tests checks every
+  body against the format rules, and a golden file pins the exact bytes.
+- No Go runtime or process metrics are exported (they would need `runtime/metrics` or a client library).
+- On a coarse timer many samples measure 0 ns: the sum can stay 0 while the count grows, and the quantiles
+  read about 1 ns, the histogram's lowest bucket. That is the timer's resolution, not a latency.
+- `/metrics` is unauthenticated and, like every route, sends `Access-Control-Allow-Origin: *` unless
+  `-cors-origin` narrows it, so any page the operator opens can read it. Prometheus needs no cross-origin
+  access; access control belongs to the proxy in front.
 
 ## Verified against
 
