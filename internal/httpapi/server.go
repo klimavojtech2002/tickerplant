@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"time"
@@ -31,6 +32,7 @@ type Engine interface {
 	ChecksumMismatches() int
 	SnapshotRejects() int
 	SnapshotErrors() int
+	Ready() bool
 }
 
 // Config wires the edge. PriceScale/SizeScale render ticks back to the venue's
@@ -88,10 +90,39 @@ func New(cfg Config) (http.Handler, error) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /stream", s.stream)
 	mux.HandleFunc("GET /metrics", s.metrics)
+	mux.HandleFunc("GET /healthz", s.healthz)
+	mux.HandleFunc("GET /readyz", s.readyz)
 	return chain(mux, cfg.Log, cfg.CORSOrigin), nil
 }
 
 type server struct{ cfg Config }
+
+// healthz answers 200 whenever the process is serving requests: it says the process is up,
+// nothing about the book.
+func (s *server) healthz(w http.ResponseWriter, _ *http.Request) {
+	probe(w, http.StatusOK, "ok")
+}
+
+// readyz answers 200 when the engine's book is usable (it has a view and is not rebuilding)
+// and 503 otherwise, which covers the start before the first view and any resync, retry
+// delays included. A quiet market does not make it false: a feed that has really failed
+// ends the process instead.
+func (s *server) readyz(w http.ResponseWriter, _ *http.Request) {
+	if !s.cfg.Engine.Ready() {
+		probe(w, http.StatusServiceUnavailable, "not ready")
+		return
+	}
+	probe(w, http.StatusOK, "ok")
+}
+
+// probe writes a health answer that no cache may keep.
+func probe(w http.ResponseWriter, status int, body string) {
+	h := w.Header()
+	h.Set("Content-Type", "text/plain; charset=utf-8")
+	h.Set("Cache-Control", "no-store")
+	w.WriteHeader(status)
+	_, _ = io.WriteString(w, body)
+}
 
 // viewJSON is one complete top-N view on the wire. Prices and sizes are the venue's
 // decimal strings — a JS client must not parse them into float64, and this shape makes

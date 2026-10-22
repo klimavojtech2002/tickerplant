@@ -12,6 +12,7 @@ import (
 	"os"
 	"runtime"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -47,6 +48,7 @@ type stubEngine struct {
 	view                                            *book.View
 	gaps, resyncs, disconnects, crosses, mismatches int
 	rejects, snapErrors                             int
+	ready                                           atomic.Bool // set and cleared by tests while the server runs
 	// onView runs once, inside the first View() call. The stream handler subscribes to the
 	// hub before it reads the engine's view, so a hook that publishes to the hub here
 	// reproduces, deterministically, a view landing in the consumer's slot at the seam
@@ -68,6 +70,7 @@ func (e *stubEngine) WouldCrosses() int       { return e.crosses }
 func (e *stubEngine) ChecksumMismatches() int { return e.mismatches }
 func (e *stubEngine) SnapshotRejects() int    { return e.rejects }
 func (e *stubEngine) SnapshotErrors() int     { return e.snapErrors }
+func (e *stubEngine) Ready() bool             { return e.ready.Load() }
 
 func view(seq market.Sequence) *book.View {
 	return &book.View{

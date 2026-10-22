@@ -130,6 +130,8 @@ func TestHeadersOnEveryRoute(t *testing.T) {
 		}{
 			{"stream", http.MethodGet, "/stream", true},
 			{"metrics", http.MethodGet, "/metrics", false},
+			{"healthz", http.MethodGet, "/healthz", false},
+			{"readyz", http.MethodGet, "/readyz", false},
 			{"not found", http.MethodGet, "/nope", false},
 			{"method not allowed", http.MethodPost, "/metrics", false},
 		} {

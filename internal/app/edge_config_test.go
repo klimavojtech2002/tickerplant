@@ -10,6 +10,7 @@ import (
 
 	"github.com/klimavojtech2002/tickerplant/internal/httpapi"
 	"github.com/klimavojtech2002/tickerplant/internal/market"
+	"github.com/klimavojtech2002/tickerplant/internal/source"
 )
 
 // An edge configuration the handler refuses (here a scale out of range) ends Run before
@@ -102,5 +103,99 @@ func TestPreparePassesTheCORSOriginOn(t *testing.T) {
 	defer src.Close()
 	if cfg.corsOrigin != "https://app.example" {
 		t.Fatalf("corsOrigin = %q, want it carried from the options", cfg.corsOrigin)
+	}
+}
+
+// blockingSnapshotSource holds the engine in its first bootstrap until snapshotGate is
+// closed, then serves one snapshot, and then holds Next until endGate is closed.
+type blockingSnapshotSource struct {
+	snap         market.Snapshot
+	snapshotGate chan struct{}
+	endGate      chan struct{}
+}
+
+func (b *blockingSnapshotSource) Snapshot(ctx context.Context) (market.Snapshot, error) {
+	select {
+	case <-b.snapshotGate:
+		return b.snap, nil
+	case <-ctx.Done():
+		return market.Snapshot{}, ctx.Err()
+	}
+}
+
+func (b *blockingSnapshotSource) Next(ctx context.Context) (source.Event, bool) {
+	select {
+	case <-b.endGate:
+	case <-ctx.Done():
+	}
+	return source.Event{}, false
+}
+
+func (b *blockingSnapshotSource) Close() error { return nil }
+
+// The edge is served before the engine's first bootstrap, so the first answer from
+// /readyz is 503 while the source holds the snapshot back, and it turns 200 once the book
+// has a view. /healthz is up the whole time.
+func TestReadyzIsUnavailableUntilTheFirstView(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := &blockingSnapshotSource{
+		snap:         market.Snapshot{LastUpdateID: 10, Bids: []market.Level{{Price: 100, Size: 1}}, Asks: []market.Level{{Price: 101, Size: 1}}},
+		snapshotGate: make(chan struct{}),
+		endGate:      make(chan struct{}),
+	}
+	done := make(chan error, 1)
+	go func() {
+		_, err := Run(context.Background(), quietLog(), src, Config{depth: 5, venue: "synthetic", symbol: "DEMO", HTTPListener: ln})
+		done <- err
+	}()
+	t.Cleanup(func() {
+		for _, g := range []chan struct{}{src.snapshotGate, src.endGate} {
+			select {
+			case <-g:
+			default:
+				close(g)
+			}
+		}
+		<-done
+	})
+
+	status := func(path string) (int, error) {
+		resp, err := http.Get("http://" + ln.Addr().String() + path)
+		if err != nil {
+			return 0, err
+		}
+		resp.Body.Close()
+		return resp.StatusCode, nil
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	var first int
+	for {
+		if first, err = status("/readyz"); err == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("the edge never answered: %v", err)
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if first != http.StatusServiceUnavailable {
+		t.Fatalf("/readyz = %d while the first snapshot is held back, want 503", first)
+	}
+	if code, err := status("/healthz"); err != nil || code != http.StatusOK {
+		t.Fatalf("/healthz = %d, %v while not ready; the process is up, want 200", code, err)
+	}
+
+	close(src.snapshotGate)
+	for {
+		if code, err := status("/readyz"); err == nil && code == http.StatusOK {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("/readyz never turned 200 after the book bound")
+		}
+		time.Sleep(5 * time.Millisecond)
 	}
 }
