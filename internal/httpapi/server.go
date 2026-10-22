@@ -67,10 +67,10 @@ var ErrConfig = errors.New("httpapi: invalid configuration")
 // maxScale is the largest decimal scale a price or size can be rendered at.
 const maxScale = 18
 
-// New returns the edge handler: GET /stream (SSE, one complete top-N view per event)
-// and GET /metrics (JSON snapshot of delivery stats, engine counters, and latency). It
-// refuses a configuration that would only fail later, or show a wrong price: a nil hub or
-// engine, or a price or size scale outside 0 to 18.
+// New returns the edge handler: GET /stream (SSE: a complete top-N view per view event, and
+// a telemetry event every second), GET /healthz and /readyz, and GET /metrics (JSON snapshot
+// of delivery stats, engine counters, and latency). It refuses a configuration that would only
+// fail later, or show a wrong price: a nil hub or engine, or a price or size scale outside 0 to 18.
 func New(cfg Config) (http.Handler, error) {
 	if cfg.Hub == nil {
 		return nil, fmt.Errorf("%w: nil hub", ErrConfig)

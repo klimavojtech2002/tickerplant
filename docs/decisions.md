@@ -421,13 +421,14 @@ component would fork its logic for one venue.
 needs a network stream and the system's health counters.
 
 **Decision.** A thin `internal/httpapi` handler with four endpoints and one middleware chain.
-- `GET /stream` — Server-Sent Events, one complete view per event. SSE over WebSocket: the flow is
-  strictly one-way, EventSource reconnects natively, and no client->server protocol exists to need
-  a socket. Complete views over deltas: ADR-0015 already made every published view whole, so a
-  client is a pure renderer — no reducer, no join protocol, and reconnect is just "the first event
-  is the engine's current view" (with a dedupe on the opener/subscription seam, by the generation the
-  engine raises on every publish, not by the venue's sequence number: a view rebuilt after a resync can
-  carry a lower or equal sequence and must still be shown). No `Last-Event-ID`: replaying
+- `GET /stream` — Server-Sent Events: `view` events, each one complete view, and a `telemetry` event
+  (below). SSE over WebSocket: the flow is strictly one-way, EventSource reconnects natively, and no
+  client->server protocol exists to need a socket. Complete views over deltas: ADR-0015 already made
+  every published view whole, so a client is a pure renderer — no reducer, no join protocol, and
+  reconnect is just "the first event is the engine's current view" (with a dedupe on the
+  opener/subscription seam, by the generation the engine raises on every publish, not by the venue's
+  sequence number: a view rebuilt after a resync can carry a lower or equal sequence and must still be
+  shown). No `Last-Event-ID`: replaying
   superseded views would undo the conflation the delivery layer exists to provide.
 - `GET /metrics` — a JSON snapshot of the delivery stats (HTTP viewers only: the in-process log reader
   is not counted), the engine counters, and the internal
@@ -463,6 +464,18 @@ events back. The `-healthcheck` flag lets the container ask the edge itself: it 
 the same flags as the service it checks and validates them all, so a container passes it the command
 line it runs with.
 
+The stream also carries a `telemetry` event: one frame as soon as a client connects, before the opener
+view and even when the engine has no view yet, then one every second. It holds the edge clock's time, the
+current sequence, the engine counters, the number of frames the source could not use, the number of stream
+consumers (the log reader is not one) and the engine's fault log, whose entries have an id, a kind, a
+time, the sequence expected and the one received (0 when not applicable), a fixed reason and the
+recovery time in milliseconds (-1 while unknown). `EventSource` does not deliver comment lines to a
+page, so a named event is the only way for a client to tell a quiet market from a dead connection; it
+is also the keepalive. The cadence is fixed, not a flag, because the dashboard is designed to treat
+three missed beats as lost contact. A frame is built from separate reads, so each field is exact but
+the frame is not one atomic snapshot. The exact bytes of a frame are pinned by
+`internal/httpapi/testdata/telemetry.json`, which the dashboard's tests are to read.
+
 Prices and sizes cross the wire as the venue's decimal strings, rendered server-side from the
 scaled integers at the venue scales. int64 values do not fit JS's float64 past 2^53, and a string is
 un-mis-parseable by accident — the no-float discipline extends across the wire.
@@ -477,9 +490,9 @@ if that expires, `Close` drops what is left.
 - The client stays thin; the server stays the single source of truth.
 - Every event re-sends the whole top-N (a few hundred bytes at depth 10). Conflation bounds the rate to
   what each client sustains, so the bandwidth cost is the price of the no-reducer client.
-- A quiet feed sends nothing after the opener; EventSource keeps the connection open. Keepalive
-  comments were left out deliberately: the demo topology has no proxy that would time out an idle
-  stream, and if one does, EventSource reconnects and starts from the current view.
+- A quiet feed sends only telemetry after the opener, once a second; EventSource keeps the connection
+  open, and an idle proxy does not time the stream out. If a connection does drop, EventSource reconnects
+  and starts from the current view.
 - `HEAD /stream` is routed like `GET /stream` (a `GET` pattern also matches `HEAD`) and stays open until
   the client leaves; nothing uses it.
 - The counters travel as JSON numbers (small ints); only prices/sizes and durations need the

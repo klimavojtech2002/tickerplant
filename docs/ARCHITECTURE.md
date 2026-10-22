@@ -28,9 +28,11 @@ transport port; delivery adapters sit on the output side.
 One process runs a single source (the diagram shows every source the port accepts, not what runs at
 once): the synthetic one, or one live venue chosen with `-live -venue binance|kraken`. With `-http`, the
 HTTP edge also serves `/metrics`, read directly from the engine counters and the fan-out's stats, and
-`/healthz` and `/readyz` for a container runtime (ADR-0017). The synthetic source and a live socket
-implement the same transport port, so the engine cannot tell them apart — the basis of deterministic
-testing (ADR-0005). Binance and Kraken are wired live; the README status table lists what is built.
+`/healthz` and `/readyz` for a container runtime (ADR-0017); the stream also carries a telemetry event
+every second (counters and the fault log), so a client can tell a quiet market from a dead connection.
+The synthetic source and a live socket implement the same transport port, so the engine cannot tell
+them apart — the basis of deterministic testing (ADR-0005). Binance and Kraken are wired live; the
+README status table lists what is built.
 
 ## 2. Canonical model
 

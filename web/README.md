@@ -1,8 +1,8 @@
 # tickerplant dashboard
 
 A thin renderer over the pipeline's HTTP edge: the live top-of-book and depth from
-`GET /stream` (one complete view per SSE event) and the health counters from
-`GET /metrics`. Prices and sizes are the venue's decimal strings end to end — this
+`GET /stream` (one complete view per `view` event, and a `telemetry` event each second) and the
+health counters from `GET /metrics`. Prices and sizes are the venue's decimal strings end to end — this
 page never parses them into floats (ADR-0018).
 
 ## Run
