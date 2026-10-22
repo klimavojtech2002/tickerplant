@@ -11,8 +11,10 @@ import (
 	"io"
 	"log/slog"
 	"net"
+	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 	"time"
 
@@ -27,20 +29,21 @@ var shutdownSignals = []os.Signal{os.Interrupt, syscall.SIGTERM}
 
 // options is everything main reads from the command line.
 type options struct {
-	seed       int64
-	steps      int
-	depth      int
-	every      int
-	everySet   bool // -every given explicitly, even if equal to the default
-	pace       time.Duration
-	live       bool
-	venue      string
-	symbol     string
-	httpAddr   string
-	corsOrigin string
-	version    bool
-	logLevel   string
-	logFormat  string
+	seed        int64
+	steps       int
+	depth       int
+	every       int
+	everySet    bool // -every given explicitly, even if equal to the default
+	pace        time.Duration
+	live        bool
+	venue       string
+	symbol      string
+	httpAddr    string
+	corsOrigin  string
+	healthcheck bool
+	version     bool
+	logLevel    string
+	logFormat   string
 }
 
 // parseFlags parses argv (without the program name) on a private FlagSet, so tests can
@@ -63,6 +66,7 @@ func parseFlags(args []string, out io.Writer) (options, error) {
 	fs.StringVar(&o.symbol, "symbol", app.DefaultSymbol, "live symbol (with -live)")
 	fs.StringVar(&o.httpAddr, "http", "", "serve the SSE stream and /metrics on this address (e.g. :8080); empty = off")
 	fs.StringVar(&o.corsOrigin, "cors-origin", "*", "origin allowed to read the HTTP edge from a browser: * or one origin such as https://app.example")
+	fs.BoolVar(&o.healthcheck, "healthcheck", false, "ask the HTTP edge on 127.0.0.1 at the -http port whether it is up (GET /healthz) and exit 0 if so, 1 if not")
 	fs.BoolVar(&o.version, "version", false, "print the version and exit")
 	fs.StringVar(&o.logLevel, "log-level", "info", "log level: debug|info|warn|error")
 	fs.StringVar(&o.logFormat, "log-format", "text", "log format: text|json")
@@ -113,6 +117,14 @@ func (o options) validate() error {
 	if err := httpapi.ValidateCORSOrigin(o.corsOrigin); err != nil {
 		return fmt.Errorf("-cors-origin: %w", err)
 	}
+	if o.healthcheck {
+		if o.httpAddr == "" {
+			return errors.New("-healthcheck needs -http: the address of the edge to check")
+		}
+		if _, err := healthcheckPort(o.httpAddr); err != nil {
+			return err
+		}
+	}
 	if o.logFormat != "text" && o.logFormat != "json" {
 		return fmt.Errorf("-log-format %q is not one of text, json", o.logFormat)
 	}
@@ -147,6 +159,49 @@ func newLogger(level, format string, w io.Writer) *slog.Logger {
 	return slog.New(slog.NewTextHandler(w, opts))
 }
 
+// healthTimeout bounds one health check, connect and answer together. It is a variable so
+// a test can shorten it.
+var healthTimeout = 2 * time.Second
+
+// healthcheckPort returns the port of the -http address. The check always goes to the
+// loopback address, so only the port matters: ":8080", "0.0.0.0:8080", "[::]:8080" and
+// "host:8080" all give 8080. A missing, non-numeric or out-of-range port is refused.
+func healthcheckPort(addr string) (int, error) {
+	_, p, err := net.SplitHostPort(addr)
+	if err != nil {
+		return 0, fmt.Errorf("-http %q has no usable port: %v", addr, err)
+	}
+	n, err := strconv.Atoi(p)
+	if err != nil || n < 1 || n > 65535 {
+		return 0, fmt.Errorf("-http %q: the port must be a number from 1 to 65535", addr)
+	}
+	return n, nil
+}
+
+// runHealthcheck asks the edge on the loopback address whether it is up and returns the
+// process exit code: 0 for a 200 from /healthz, 1 for anything else (nothing listening, a
+// timeout, another status, a redirect), with one line on out saying which. It runs inside
+// the container it checks, so it never goes anywhere but 127.0.0.1.
+func runHealthcheck(port int, out io.Writer) int {
+	client := &http.Client{
+		Timeout:       healthTimeout,
+		Transport:     &http.Transport{DisableKeepAlives: true}, // no proxy: the check is local
+		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+	}
+	url := "http://127.0.0.1:" + strconv.Itoa(port) + "/healthz"
+	resp, err := client.Get(url)
+	if err != nil {
+		fmt.Fprintf(out, "tickerplant: healthcheck failed: %v\n", err)
+		return 1
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		fmt.Fprintf(out, "tickerplant: healthcheck failed: %s answered %d\n", url, resp.StatusCode)
+		return 1
+	}
+	return 0
+}
+
 func main() {
 	opts, err := parseFlags(os.Args[1:], os.Stderr)
 	if err != nil {
@@ -159,6 +214,10 @@ func main() {
 	if opts.version {
 		fmt.Println("tickerplant", version.String())
 		return
+	}
+	if opts.healthcheck { // before the logger, the signal handler and any source: it only asks
+		port, _ := healthcheckPort(opts.httpAddr) // already checked by validate
+		os.Exit(runHealthcheck(port, os.Stderr))
 	}
 	log := newLogger(opts.logLevel, opts.logFormat, os.Stderr)
 	ctx, stop := signal.NotifyContext(context.Background(), shutdownSignals...)

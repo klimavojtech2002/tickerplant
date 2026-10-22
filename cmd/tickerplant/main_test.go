@@ -139,6 +139,9 @@ func TestValidate(t *testing.T) {
 		{"log format unknown", func(o *options) { o.logFormat = "xml" }, "-log-format \"xml\""},
 		{"pace just below zero", func(o *options) { o.pace = -1 }, "-pace -1ns"},
 		{"cors origin empty", func(o *options) { o.corsOrigin = "" }, ""},
+		{"healthcheck with an address", func(o *options) { o.healthcheck = true; o.httpAddr = ":8080" }, ""},
+		{"healthcheck without -http", func(o *options) { o.healthcheck = true }, "-healthcheck needs -http"},
+		{"healthcheck with a port-less address", func(o *options) { o.healthcheck = true; o.httpAddr = "8080" }, "-http"},
 		{"cors origin one origin", func(o *options) { o.corsOrigin = "https://app.example" }, ""},
 		{"cors origin with a path", func(o *options) { o.corsOrigin = "https://app.example/x" }, "-cors-origin"},
 		{"cors origin not an origin", func(o *options) { o.corsOrigin = "app.example" }, "-cors-origin"},
@@ -191,6 +194,13 @@ func TestMainRefusesBadFlags(t *testing.T) {
 		if !strings.Contains(stderr.String(), args[0]) {
 			t.Errorf("%v: stderr = %q, want it to name the flag", args, stderr.String())
 		}
+	}
+}
+
+func TestParseFlagsVersionWinsOverHealthcheck(t *testing.T) {
+	o, err := parseFlags([]string{"-version", "-healthcheck"}, io.Discard)
+	if err != nil || !o.version {
+		t.Fatalf("parseFlags(-version -healthcheck) = %+v, %v; want version set and no error", o, err)
 	}
 }
 
