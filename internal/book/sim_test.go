@@ -60,6 +60,7 @@ func TestSimulation(t *testing.T) {
 			t.Fatalf("seed %d: bootstrap: %v", seed, err)
 		}
 		assertNeverCrosses(t, e, seed)
+		assertSidesOrdered(t, e, seed)
 		for {
 			ok, err := e.Step(ctx)
 			if err != nil {
@@ -69,6 +70,7 @@ func TestSimulation(t *testing.T) {
 				break
 			}
 			assertNeverCrosses(t, e, seed)
+			assertSidesOrdered(t, e, seed)
 		}
 		truth, err := src.Snapshot(ctx)
 		if err != nil {
@@ -122,6 +124,23 @@ func assertNeverCrosses(t *testing.T, e *Engine, seed int64) {
 	}
 	if v.Crosses() {
 		t.Fatalf("seed %d: published view crosses: %v >= %v", seed, v.Bids[0], v.Asks[0])
+	}
+}
+
+// assertSidesOrdered checks the order a client may rely on: bids strictly descending and
+// asks strictly ascending, so no price appears twice on a side.
+func assertSidesOrdered(t *testing.T, e *Engine, seed int64) {
+	t.Helper()
+	v := e.View()
+	for i := 1; i < len(v.Bids); i++ {
+		if v.Bids[i].Price >= v.Bids[i-1].Price {
+			t.Fatalf("seed %d: bids not strictly descending at %d: %v then %v", seed, i, v.Bids[i-1], v.Bids[i])
+		}
+	}
+	for i := 1; i < len(v.Asks); i++ {
+		if v.Asks[i].Price <= v.Asks[i-1].Price {
+			t.Fatalf("seed %d: asks not strictly ascending at %d: %v then %v", seed, i, v.Asks[i-1], v.Asks[i])
+		}
 	}
 }
 
