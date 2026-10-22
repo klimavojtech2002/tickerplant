@@ -36,6 +36,10 @@ func TestParseScaled(t *testing.T) {
 		{"negative rejected", "-1", 2, 0, true},
 		{"scale below range", "1.0", -1, 0, true},
 		{"scale above range", "1", 19, 0, true},
+		// "1" at scale 19 overflows int64 and would error even if the range check were
+		// off by one, so the range boundary needs a value that cannot overflow.
+		{"scale 19 rejected even for zero", "0", 19, 0, true},
+		{"scale 18 accepted for zero", "0", 18, 0, false},
 		{"overflow rejected", "92233720368547758070", 0, 0, true},
 	}
 	for _, tc := range tests {
