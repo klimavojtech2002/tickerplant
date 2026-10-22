@@ -51,7 +51,7 @@ func (r *recorder) FlushError() error {
 func (r *recorder) Unwrap() http.ResponseWriter { return r.ResponseWriter }
 
 // quietRoutes are logged at Debug: an orchestrator polls them every few seconds.
-var quietRoutes = map[string]bool{"GET /healthz": true, "GET /readyz": true, "GET /api/status": true}
+var quietRoutes = map[string]bool{"GET /healthz": true, "GET /readyz": true, "GET /api/status": true, "GET /metrics": true}
 
 // chain wraps the mux in the edge's layers, outermost first: the access log, which sees
 // the final status; the panic recovery; and the headers every response carries. Each layer

@@ -2,9 +2,7 @@ package httpapi
 
 import (
 	"bufio"
-	"bytes"
 	"encoding/json"
-	"io"
 	"net/http"
 	"os"
 	"runtime"
@@ -248,51 +246,24 @@ func TestViewEventBytes(t *testing.T) {
 	}
 }
 
-// The exact bytes of /metrics when no latency histogram is attached (the latency block
-// is omitted, never zeroed). Key order and names are part of the contract the dashboard
-// parses.
-func TestMetricsBytes(t *testing.T) {
-	hub := delivery.New(8)
-	defer hub.Close()
-	_ = hub.Subscribe()
-	hub.Publish(view(1)) // delivered = 1
-	hub.Publish(view(2)) // superseded: dropped = 1
-	srv := newEdge(t, hub, &stubEngine{gaps: 1, resyncs: 2, disconnects: 3, crosses: 4, mismatches: 5, rejects: 6, snapErrors: 7}, nil, 0)
-
-	resp, err := http.Get(srv.URL + "/metrics")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer resp.Body.Close()
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		t.Fatal(err)
-	}
-	want := `{"venue":"kraken","symbol":"BTC/USD",` +
-		`"delivery":{"consumers":1,"delivered":1,"dropped":1},` +
-		`"engine":{"gaps":1,"resyncs":2,"disconnects":3,"wouldCrosses":4,"checksumMismatches":5,` +
-		`"snapshotRejects":6,"snapshotErrors":7}}` + "\n"
-	if string(body) != want {
-		t.Fatalf("/metrics body =\n%s\nwant\n%s", body, want)
-	}
-}
-
-// testdata/legacy-metrics.json is a real /metrics body captured from the running edge. It
-// is kept as a fixture of the document shape clients parse today. This test ties the file
-// to the code: it must still decode into the current document type with no unknown
-// fields, or the fixture has gone stale.
-func TestLegacyMetricsFixtureMatchesCurrentShape(t *testing.T) {
+// testdata/legacy-metrics.json is a real body of the old JSON /metrics, kept as the negative
+// fixture of the dashboard's status parser (its tests must refuse it). This test keeps it
+// honest: it must stay a JSON object with the old top-level keys and no schema field.
+func TestLegacyMetricsFixtureStaysALegacyBody(t *testing.T) {
 	raw, err := os.ReadFile("testdata/legacy-metrics.json")
 	if err != nil {
 		t.Fatal(err)
 	}
-	dec := json.NewDecoder(bytes.NewReader(raw))
-	dec.DisallowUnknownFields()
-	var doc metricsJSON
-	if err := dec.Decode(&doc); err != nil {
-		t.Fatalf("fixture no longer matches metricsJSON: %v", err)
+	var doc map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		t.Fatalf("fixture is not a JSON object: %v", err)
 	}
-	if doc.Latency == nil || doc.Latency.Count == 0 || doc.Latency.P999 == "" {
-		t.Fatalf("fixture lost its latency block: %+v", doc.Latency)
+	for _, key := range []string{"venue", "symbol", "delivery", "engine", "latency"} {
+		if _, ok := doc[key]; !ok {
+			t.Errorf("fixture lost its %q key", key)
+		}
+	}
+	if _, ok := doc["schema"]; ok {
+		t.Error("fixture has a schema field, so it would no longer be refused as a legacy body")
 	}
 }

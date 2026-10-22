@@ -1,0 +1,63 @@
+# HELP tickerplant_build_info Build information; the value is always 1.
+# TYPE tickerplant_build_info gauge
+tickerplant_build_info{version="v1.2.3"} 1
+# HELP tickerplant_feed_info The feed this process serves; the value is always 1.
+# TYPE tickerplant_feed_info gauge
+tickerplant_feed_info{mode="live",symbol="BTC/USD",venue="kraken"} 1
+# HELP tickerplant_start_time_seconds Start time of the pipeline, in seconds since the Unix epoch.
+# TYPE tickerplant_start_time_seconds gauge
+tickerplant_start_time_seconds 1699999000.123
+# HELP tickerplant_engine_last_event_timestamp_seconds Wall-clock time of the last event the engine processed, in seconds since the Unix epoch.
+# TYPE tickerplant_engine_last_event_timestamp_seconds gauge
+tickerplant_engine_last_event_timestamp_seconds 1699999998.5
+# HELP tickerplant_hub_consumers Stream consumers currently connected (the in-process log reader is not counted).
+# TYPE tickerplant_hub_consumers gauge
+tickerplant_hub_consumers 1
+# HELP tickerplant_hub_delivered_total Views placed into stream consumers' slots.
+# TYPE tickerplant_hub_delivered_total counter
+tickerplant_hub_delivered_total 2
+# HELP tickerplant_hub_dropped_total Views replaced in a slot before the consumer took them.
+# TYPE tickerplant_hub_dropped_total counter
+tickerplant_hub_dropped_total 3
+# HELP tickerplant_hub_published_total Views published to the hub, whether or not anyone was connected.
+# TYPE tickerplant_hub_published_total counter
+tickerplant_hub_published_total 5
+# HELP tickerplant_engine_gaps_total Sequence gaps detected.
+# TYPE tickerplant_engine_gaps_total counter
+tickerplant_engine_gaps_total 1
+# HELP tickerplant_engine_resyncs_total Resyncs started after the book was bound.
+# TYPE tickerplant_engine_resyncs_total counter
+tickerplant_engine_resyncs_total 2
+# HELP tickerplant_engine_disconnects_total Source disconnects handled.
+# TYPE tickerplant_engine_disconnects_total counter
+tickerplant_engine_disconnects_total 3
+# HELP tickerplant_engine_would_crosses_total Deltas or snapshots that would have crossed the book and were refused.
+# TYPE tickerplant_engine_would_crosses_total counter
+tickerplant_engine_would_crosses_total 4
+# HELP tickerplant_engine_checksum_mismatches_total Book checksums that did not match the venue's.
+# TYPE tickerplant_engine_checksum_mismatches_total counter
+tickerplant_engine_checksum_mismatches_total 5
+# HELP tickerplant_engine_snapshot_rejects_total Snapshots refused while binding or resyncing.
+# TYPE tickerplant_engine_snapshot_rejects_total counter
+tickerplant_engine_snapshot_rejects_total 6
+# HELP tickerplant_engine_snapshot_errors_total Snapshot requests that failed.
+# TYPE tickerplant_engine_snapshot_errors_total counter
+tickerplant_engine_snapshot_errors_total 7
+# HELP tickerplant_source_rejected_frames_total Frames the source could not use.
+# TYPE tickerplant_source_rejected_frames_total counter
+tickerplant_source_rejected_frames_total 8
+# HELP tickerplant_http_stream_requests_total Stream requests by outcome: accepted, refused because the hub is closing, refused because the stream cap is reached.
+# TYPE tickerplant_http_stream_requests_total counter
+tickerplant_http_stream_requests_total{outcome="accepted"} 3
+tickerplant_http_stream_requests_total{outcome="closed"} 1
+tickerplant_http_stream_requests_total{outcome="full"} 2
+# HELP tickerplant_latency_seconds Internal processing latency per applied delta, from the adapter taking the raw message off its channel to the applied view being stored. Quantiles are estimates within 2 percent (bucket midpoints) over the whole run.
+# TYPE tickerplant_latency_seconds summary
+tickerplant_latency_seconds{quantile="0.5"} 0.000001986
+tickerplant_latency_seconds{quantile="0.99"} 0.000050118
+tickerplant_latency_seconds{quantile="0.999"} 0.000050118
+tickerplant_latency_seconds_sum 0.000053
+tickerplant_latency_seconds_count 3
+# HELP tickerplant_latency_max_seconds Largest processing latency seen, exact.
+# TYPE tickerplant_latency_max_seconds gauge
+tickerplant_latency_max_seconds 0.00005

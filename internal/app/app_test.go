@@ -420,7 +420,7 @@ func firstViewData(sc *bufio.Scanner) (string, bool) {
 }
 
 // run with -http must serve the edge while the pipeline lives and tear it down when
-// the run ends: /metrics answers with the configured identity, /stream opens with the
+// the run ends: /api/status answers with the configured identity, /stream opens with the
 // bootstrapped view, and after the source ends the port stops answering.
 func TestRunServesHTTPEdge(t *testing.T) {
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
@@ -452,7 +452,7 @@ func TestRunServesHTTPEdge(t *testing.T) {
 	}
 	deadline := time.Now().Add(5 * time.Second)
 	for { // poll until the edge answers AND the one scripted delta has been recorded
-		resp, err := http.Get(base + "/metrics")
+		resp, err := http.Get(base + "/api/status")
 		if err == nil {
 			decodeErr := json.NewDecoder(resp.Body).Decode(&doc)
 			resp.Body.Close()
@@ -468,7 +468,7 @@ func TestRunServesHTTPEdge(t *testing.T) {
 		}
 	}
 	if doc.Venue != "synthetic" || doc.Symbol != "DEMO" {
-		t.Fatalf("metrics identity = %s/%s", doc.Venue, doc.Symbol)
+		t.Fatalf("status identity = %s/%s", doc.Venue, doc.Symbol)
 	}
 
 	stream, err := http.Get(base + "/stream")
