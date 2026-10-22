@@ -610,6 +610,43 @@ startup for ever.
   shutdown is not counted.
 - A wrong symbol fails on the first call instead of after the retries.
 
+## ADR-0022 — A short log of faults in the engine, and a count of frames the adapters cannot use
+
+**Status:** Accepted
+
+**Context.** The engine counted gaps, resyncs and the rest, but two faults inside one second only moved
+counters by two: nothing said what sequence it expected, what arrived, or how long the recovery took.
+The adapters skipped a frame that failed to decode without a trace, so a changed venue format looked
+like a quiet market.
+
+**Decision.**
+- The engine keeps the last 16 faults as events: gap, disconnect, would-cross delta, delta checksum
+  drift, refused snapshot and failed `Snapshot` call. Each has a number that rises by one and is never
+  reset, a time from the engine's clock, the sequence it expected and the one it got (0 when that does
+  not apply), a fixed reason and a duration.
+- The list is replaced as a whole and published through an atomic pointer, the same way as the book
+  view, so readers need no lock and a list they hold never changes.
+- A fault found in a delta or a disconnect is written when it is found, with the duration unknown (-1).
+  When the resync that follows returns, success or not, the entry is replaced with the time the whole
+  bootstrap took, looked up by number. One bootstrap can write more events than the list holds, so the
+  fault may already be gone; then nothing is changed. A consumer keeps the newest copy of a number.
+  Writing it only at the end would hide a fault whose recovery fails or hangs.
+- Reasons are fixed phrases. Raw error text, which can hold addresses and venue text, is never put in
+  an event, because the list is meant to be shown to anyone watching the feed.
+- Each adapter counts the frames that were meant to be book data and could not be used (`Rejected`):
+  frames that do not decode, a Kraken book frame of an unknown type or without data, and frames whose
+  levels do not parse. Acks, heartbeats and status frames are not counted. Waiting for a Kraken
+  snapshot still skips a malformed update without counting it, because the snapshot replaces it.
+  A sample of the reason is logged at most once a second.
+- The engine also reports the time of the last source event it processed. The clock is injectable.
+
+**Consequences.**
+- A faults list costs one small allocation per fault and nothing on the path of a normal delta; the
+  extra work per event is one clock read and two atomic stores, about 18 ns.
+- A feed that delivers only unusable frames moves the reject count but not the last-event time, so a
+  status built from the time shows it as stale.
+- On Kraken, which has no sequence numbers, the sequence in a checksum event is the adapter's own count.
+
 ## Verified against
 
 - Go language specification — `internal` package import rule (ADR-0002).

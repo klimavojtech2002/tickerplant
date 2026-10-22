@@ -119,6 +119,9 @@ coordinated-omission-aware (ADR-0009). Samples of 1ns or less land in the lowest
 dominated by network round-trip, which this system does not control and does not claim to optimise
 (ADR-0009).
 
+The engine also keeps the last 16 faults as events (what it expected, what arrived, how long
+the recovery took), and each adapter counts the frames it could not use (ADR-0022).
+
 ## 10. Testing strategy
 
 - **Deterministic simulation** is primary: the engine runs against the seeded synthetic source, which
