@@ -29,6 +29,7 @@ type liveEngine struct {
 	view                                                           *book.View
 	gaps, resyncs, disconnects, crosses, mismatches, rejects, errs int
 	events                                                         []book.Event
+	lastEvent                                                      time.Time
 }
 
 func (e *liveEngine) set(f func(*liveEngine)) {
@@ -62,6 +63,11 @@ func (e *liveEngine) SnapshotRejects() int {
 }
 func (e *liveEngine) SnapshotErrors() int { return e.get(func(e *liveEngine) int { return e.errs }) }
 func (e *liveEngine) Ready() bool         { return true }
+func (e *liveEngine) LastEventAt() time.Time {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.lastEvent
+}
 func (e *liveEngine) Events() []book.Event {
 	e.mu.Lock()
 	defer e.mu.Unlock()

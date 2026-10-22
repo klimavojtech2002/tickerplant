@@ -3,6 +3,7 @@ package main
 import (
 	"io"
 	"testing"
+	"time"
 
 	"github.com/klimavojtech2002/tickerplant/internal/book"
 	"github.com/klimavojtech2002/tickerplant/internal/delivery"
@@ -23,6 +24,7 @@ func (quietEngine) SnapshotRejects() int    { return 0 }
 func (quietEngine) SnapshotErrors() int     { return 0 }
 func (quietEngine) Ready() bool             { return true }
 func (quietEngine) Events() []book.Event    { return nil }
+func (quietEngine) LastEventAt() time.Time  { return time.Time{} }
 
 // The flag and the handler apply one rule: an origin the command line accepts is one the
 // handler accepts, and the other way round.

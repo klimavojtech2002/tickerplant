@@ -50,6 +50,7 @@ type stubEngine struct {
 	rejects, snapErrors                             int
 	ready                                           atomic.Bool  // set and cleared by tests while the server runs
 	events                                          []book.Event // the fault log, set before the server starts
+	lastEventAt                                     time.Time    // set before the server starts
 	// onView runs once, inside the first View() call. The stream handler subscribes to the
 	// hub before it reads the engine's view, so a hook that publishes to the hub here
 	// reproduces, deterministically, a view landing in the consumer's slot at the seam
@@ -73,6 +74,7 @@ func (e *stubEngine) SnapshotRejects() int    { return e.rejects }
 func (e *stubEngine) SnapshotErrors() int     { return e.snapErrors }
 func (e *stubEngine) Ready() bool             { return e.ready.Load() }
 func (e *stubEngine) Events() []book.Event    { return e.events }
+func (e *stubEngine) LastEventAt() time.Time  { return e.lastEventAt }
 
 // view builds a hand-made view whose generation equals its sequence, so a test that counts
 // up in sequence also counts up in generation.

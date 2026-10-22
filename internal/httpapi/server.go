@@ -34,6 +34,7 @@ type Engine interface {
 	SnapshotErrors() int
 	Ready() bool
 	Events() []book.Event
+	LastEventAt() time.Time
 }
 
 // Config wires the edge. PriceScale/SizeScale render ticks back to the venue's
@@ -53,8 +54,15 @@ type Config struct {
 	// MaxStreams is the most simultaneous stream consumers the edge serves; 0 means
 	// DefaultMaxStreams and a negative value is refused. The in-process log reader is not counted.
 	MaxStreams int
-	// Clock gives the time reported in telemetry (nil = time.Now). It governs that field only.
+	// Clock gives the edge's time: the telemetry timestamp and the age of the engine's last event
+	// in the status document (nil = time.Now).
 	Clock func() time.Time
+	// Mode, Version, StartedAt and Depth describe the running process in /api/status. Mode is
+	// "synthetic" or "live" (empty is reported as "unknown"); a zero StartedAt is reported as 0.
+	Mode      string
+	Version   string
+	StartedAt time.Time
+	Depth     int
 	// Rejected reports how many frames the source could not use (nil = 0: the source cannot say).
 	Rejected func() uint64
 	// ticker replaces the per-connection telemetry ticker in tests.
@@ -77,9 +85,11 @@ const retryAfter = "5"
 const maxScale = 18
 
 // New returns the edge handler: GET /stream (SSE: a complete top-N view per view event, and
-// a telemetry event every second), GET /healthz and /readyz, and GET /metrics (JSON snapshot
-// of delivery stats, engine counters, and latency). It refuses a configuration that would only
-// fail later, or show a wrong price: a nil hub or engine, or a price or size scale outside 0 to 18.
+// a telemetry event every second), GET /healthz and /readyz, GET /metrics (JSON snapshot of
+// delivery stats, engine counters, and latency) and GET /api/status (the same facts with
+// integer latency, the mode, version and start time). It refuses a configuration that would only
+// fail later, or show a wrong price: a nil hub or engine, a price or size scale outside 0 to 18,
+// a mode other than synthetic or live, or a negative depth.
 func New(cfg Config) (http.Handler, error) {
 	if cfg.Hub == nil {
 		return nil, fmt.Errorf("%w: nil hub", ErrConfig)
@@ -96,6 +106,12 @@ func New(cfg Config) (http.Handler, error) {
 	if err := ValidateCORSOrigin(cfg.CORSOrigin); err != nil {
 		return nil, err
 	}
+	if cfg.Mode != "" && cfg.Mode != "synthetic" && cfg.Mode != "live" {
+		return nil, fmt.Errorf("%w: mode %q, want synthetic or live", ErrConfig, cfg.Mode)
+	}
+	if cfg.Depth < 0 {
+		return nil, fmt.Errorf("%w: depth %d, want 0 or more", ErrConfig, cfg.Depth)
+	}
 	if cfg.MaxStreams < 0 {
 		return nil, fmt.Errorf("%w: max streams %d, want 0 (the default) or more", ErrConfig, cfg.MaxStreams)
 	}
@@ -109,6 +125,7 @@ func New(cfg Config) (http.Handler, error) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /stream", s.stream)
 	mux.HandleFunc("GET /metrics", s.metrics)
+	mux.HandleFunc("GET /api/status", s.status)
 	mux.HandleFunc("GET /healthz", s.healthz)
 	mux.HandleFunc("GET /readyz", s.readyz)
 	return chain(mux, cfg.Log, cfg.CORSOrigin), nil
