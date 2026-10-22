@@ -48,7 +48,8 @@ type stubEngine struct {
 	view                                            *book.View
 	gaps, resyncs, disconnects, crosses, mismatches int
 	rejects, snapErrors                             int
-	ready                                           atomic.Bool // set and cleared by tests while the server runs
+	ready                                           atomic.Bool  // set and cleared by tests while the server runs
+	events                                          []book.Event // the fault log, set before the server starts
 	// onView runs once, inside the first View() call. The stream handler subscribes to the
 	// hub before it reads the engine's view, so a hook that publishes to the hub here
 	// reproduces, deterministically, a view landing in the consumer's slot at the seam
@@ -71,6 +72,7 @@ func (e *stubEngine) ChecksumMismatches() int { return e.mismatches }
 func (e *stubEngine) SnapshotRejects() int    { return e.rejects }
 func (e *stubEngine) SnapshotErrors() int     { return e.snapErrors }
 func (e *stubEngine) Ready() bool             { return e.ready.Load() }
+func (e *stubEngine) Events() []book.Event    { return e.events }
 
 // view builds a hand-made view whose generation equals its sequence, so a test that counts
 // up in sequence also counts up in generation.
@@ -123,12 +125,18 @@ func openStream(t *testing.T, url string) (*http.Response, *bufio.Scanner) {
 	return resp, bufio.NewScanner(resp.Body)
 }
 
-// nextView reads SSE lines until one view event's data payload is decoded.
+// nextView reads SSE lines until one view event's data payload is decoded. Telemetry events
+// are skipped: they interleave with views on the same stream.
 func nextView(t *testing.T, sc *bufio.Scanner) viewJSON {
 	t.Helper()
+	event := ""
 	for sc.Scan() {
 		line := sc.Text()
-		if data, ok := strings.CutPrefix(line, "data: "); ok {
+		if name, ok := strings.CutPrefix(line, "event: "); ok {
+			event = name
+			continue
+		}
+		if data, ok := strings.CutPrefix(line, "data: "); ok && event == "view" {
 			var v viewJSON
 			if err := json.Unmarshal([]byte(data), &v); err != nil {
 				t.Fatalf("bad event payload %q: %v", data, err)
@@ -483,7 +491,7 @@ func TestStreamEndsOnContextCancel(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		s.stream(httptest.NewRecorder(), req)
+		s.stream(&deadlineRecorder{ResponseRecorder: httptest.NewRecorder()}, req)
 	}()
 	deadline := time.After(5 * time.Second)
 	for hub.Stats().Consumers != 1 {
@@ -501,6 +509,12 @@ func TestStreamEndsOnContextCancel(t *testing.T) {
 		t.Fatal("handler did not end on context cancellation")
 	}
 }
+
+// deadlineRecorder is a recorder that also takes write deadlines, so the stream handler can
+// run against it the way it runs against a real connection.
+type deadlineRecorder struct{ *httptest.ResponseRecorder }
+
+func (d *deadlineRecorder) SetWriteDeadline(time.Time) error { return nil }
 
 // deadlineWriter supports flush and write deadlines but fails every write — the shape
 // of a connection that died after the response opened.
@@ -533,15 +547,54 @@ func TestStreamDegradedWriters(t *testing.T) {
 		t.Fatalf("consumers = %d after a deadline-less writer, want 0 (handler returned and unsubscribed)", c)
 	}
 
-	// deadline-capable writer whose write fails: the in-loop write path returns
+	// deadline-capable writer whose write fails: the first write is the telemetry frame, and
+	// the handler must end there and unsubscribe
 	s2 := &server{cfg: Config{Hub: hub, Engine: &stubEngine{}, WriteTimeout: time.Second, Log: quietLog()}}
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
 		s2.stream(&deadlineWriter{hdr: http.Header{}}, req)
 	}()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("handler did not exit after a failed telemetry write")
+	}
+	if c := hub.Stats().Consumers; c != 0 {
+		t.Fatalf("consumers = %d after a failed write, want 0", c)
+	}
+}
+
+// flakyWriter takes the first okWrites writes and fails the rest, like a connection that
+// dies after the stream has opened.
+type flakyWriter struct {
+	*deadlineRecorder
+	okWrites int
+	writes   int
+}
+
+func (f *flakyWriter) Write(p []byte) (int, error) {
+	f.writes++
+	if f.writes > f.okWrites {
+		return 0, errors.New("client gone")
+	}
+	return f.deadlineRecorder.Write(p)
+}
+
+// A write that fails after the telemetry frame and the opener went out (here the third, the
+// view published later) ends the handler too.
+func TestStreamEndsWhenALaterWriteFails(t *testing.T) {
+	hub := delivery.New(8)
+	defer hub.Close()
+	s := &server{cfg: Config{Hub: hub, Engine: &stubEngine{view: view(1)}, WriteTimeout: time.Second, Log: quietLog()}}
+	w := &flakyWriter{deadlineRecorder: &deadlineRecorder{ResponseRecorder: httptest.NewRecorder()}, okWrites: 2}
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		s.stream(w, httptest.NewRequest(http.MethodGet, "/stream", nil))
+	}()
 	deadline := time.After(5 * time.Second)
-	for hub.Stats().Consumers != 1 { // wait for the handler's subscription
+	for hub.Stats().Consumers != 1 {
 		select {
 		case <-deadline:
 			t.Fatal("handler never subscribed")

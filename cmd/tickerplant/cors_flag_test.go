@@ -22,6 +22,7 @@ func (quietEngine) ChecksumMismatches() int { return 0 }
 func (quietEngine) SnapshotRejects() int    { return 0 }
 func (quietEngine) SnapshotErrors() int     { return 0 }
 func (quietEngine) Ready() bool             { return true }
+func (quietEngine) Events() []book.Event    { return nil }
 
 // The flag and the handler apply one rule: an origin the command line accepts is one the
 // handler accepts, and the other way round.

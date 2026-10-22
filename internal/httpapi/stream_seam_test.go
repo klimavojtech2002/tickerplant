@@ -1,12 +1,14 @@
 package httpapi
 
 import (
+	"bufio"
 	"bytes"
 	"encoding/json"
 	"io"
 	"net/http"
 	"os"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
 
@@ -176,24 +178,38 @@ func TestViewEventBytes(t *testing.T) {
 	}
 	defer resp.Body.Close()
 
+	// The first frame of a stream is telemetry (its bytes belong to the telemetry contract
+	// test); the second is the opener, whose bytes are pinned here.
 	want := "event: view\n" +
 		`data: {"venue":"kraken","symbol":"BTC/USD","seq":5,"bids":[["62721.7","1.35823999"]],"asks":[["62721.8","0.00114202"]]}` + "\n\n"
-	got := make([]byte, len(want))
-	done := make(chan error, 1)
+	frames := make(chan string, 2)
 	go func() {
-		_, err := io.ReadFull(resp.Body, got)
-		done <- err
-	}()
-	select {
-	case err := <-done:
-		if err != nil {
-			t.Fatalf("reading the first frame: %v (got %q)", err, got)
+		rd := bufio.NewReader(resp.Body)
+		for range 2 {
+			var frame strings.Builder
+			for {
+				line, err := rd.ReadString('\n')
+				frame.WriteString(line)
+				if err != nil || line == "\n" {
+					break
+				}
+			}
+			frames <- frame.String()
 		}
-	case <-time.After(5 * time.Second):
-		t.Fatalf("first frame never completed (got %q)", got)
+	}()
+	var got [2]string
+	for i := range got {
+		select {
+		case got[i] = <-frames:
+		case <-time.After(5 * time.Second):
+			t.Fatalf("frame %d never completed (got %q)", i, got)
+		}
 	}
-	if string(got) != want {
-		t.Fatalf("first frame =\n%q\nwant\n%q", got, want)
+	if !strings.HasPrefix(got[0], "event: telemetry\ndata: {") {
+		t.Fatalf("first frame = %q, want a telemetry event", got[0])
+	}
+	if got[1] != want {
+		t.Fatalf("second frame =\n%q\nwant\n%q", got[1], want)
 	}
 }
 

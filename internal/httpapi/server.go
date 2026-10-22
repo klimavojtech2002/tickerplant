@@ -33,6 +33,7 @@ type Engine interface {
 	SnapshotRejects() int
 	SnapshotErrors() int
 	Ready() bool
+	Events() []book.Event
 }
 
 // Config wires the edge. PriceScale/SizeScale render ticks back to the venue's
@@ -49,6 +50,12 @@ type Config struct {
 	// CORSOrigin is the cross-origin policy: "*" or empty lets any origin read the edge; one
 	// origin such as "https://app.example" lets only that origin (see ValidateCORSOrigin).
 	CORSOrigin string
+	// Clock gives the time reported in telemetry (nil = time.Now). It governs that field only.
+	Clock func() time.Time
+	// Rejected reports how many frames the source could not use (nil = 0: the source cannot say).
+	Rejected func() uint64
+	// ticker replaces the per-connection telemetry ticker in tests.
+	ticker func(time.Duration) (<-chan time.Time, func())
 	// WriteTimeout bounds each SSE event write, so a client that stopped reading
 	// unblocks the handler once the kernel buffers fill (default 10s).
 	WriteTimeout time.Duration
@@ -161,6 +168,10 @@ func (s *server) levels(ls []market.Level) [][2]string {
 // stream serves one SSE subscriber. The first event is the engine's current view, so
 // a (re)connecting client renders immediately without a join protocol — every event
 // is a complete view, which is the whole reconnect story under latest-wins (ADR-0015).
+// Each connection starts with a telemetry event, then the opener, so a client that connects to a
+// quiet or not yet bound engine still learns the connection is alive, and then gets a telemetry
+// event every second. After a hub close one more telemetry frame may be written before the
+// handler sees the closed doorbell; it is bounded by the write deadline.
 // lastGen dedupes the seam between that first read and the Hub subscription: a view is
 // sent only if the engine published it after the last one sent. The sequence number
 // cannot do that job, because a view rebuilt after a resync can have a lower or equal
@@ -181,9 +192,15 @@ func (s *server) stream(w http.ResponseWriter, r *http.Request) {
 
 	c := s.cfg.Hub.Subscribe()
 	defer s.cfg.Hub.Unsubscribe(c.ID())
+	tick, stopTick := s.newTicker()
+	defer stopTick()
 
 	var lastGen uint64
-	if v := s.cfg.Engine.View(); v != nil {
+	v := s.cfg.Engine.View() // one read serves the telemetry sequence and the opener
+	if !s.writeTelemetry(w, v) {
+		return
+	}
+	if v != nil {
 		if !s.writeView(w, v) {
 			return
 		}
@@ -193,6 +210,10 @@ func (s *server) stream(w http.ResponseWriter, r *http.Request) {
 		select {
 		case <-r.Context().Done():
 			return
+		case <-tick:
+			if !s.writeTelemetry(w, s.cfg.Engine.View()) {
+				return
+			}
 		case _, ok := <-c.Ready():
 			if !ok {
 				return
@@ -214,15 +235,7 @@ func (s *server) stream(w http.ResponseWriter, r *http.Request) {
 // the deadline fires, and the handler exits instead of wedging (the same stance as the
 // venue transport's Close-unblock).
 func (s *server) writeView(w http.ResponseWriter, v *book.View) bool {
-	payload := s.viewPayload(v)
-	rc := http.NewResponseController(w)
-	if err := rc.SetWriteDeadline(time.Now().Add(s.cfg.WriteTimeout)); err != nil {
-		return false
-	}
-	if _, err := fmt.Fprintf(w, "event: view\ndata: %s\n\n", payload); err != nil {
-		return false
-	}
-	return rc.Flush() == nil
+	return s.writeEvent(w, "view", s.viewPayload(v))
 }
 
 // metricsJSON is the /metrics document. Latency quantiles are duration strings

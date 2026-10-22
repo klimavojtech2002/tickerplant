@@ -5,7 +5,6 @@ import (
 	"context"
 	"net"
 	"net/http"
-	"strings"
 	"testing"
 	"time"
 
@@ -54,13 +53,7 @@ func TestRunShutdownWithLiveSSEClient(t *testing.T) {
 	}
 	defer resp.Body.Close()
 	sc := bufio.NewScanner(resp.Body)
-	opened := false
-	for sc.Scan() {
-		if strings.HasPrefix(sc.Text(), "data: ") {
-			opened = true
-			break
-		}
-	}
+	_, opened := firstViewData(sc)
 	if !opened {
 		t.Fatalf("stream closed before the opener: %v", sc.Err())
 	}

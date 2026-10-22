@@ -404,6 +404,21 @@ func (g *gatedSource) Next(ctx context.Context) (source.Event, bool) {
 func (g *gatedSource) Snapshot(context.Context) (market.Snapshot, error) { return g.snap, nil }
 func (g *gatedSource) Close() error                                      { return nil }
 
+// firstViewData reads a server-sent event stream and returns the data line of the first
+// event named view; telemetry events on the same stream are skipped.
+func firstViewData(sc *bufio.Scanner) (string, bool) {
+	event := ""
+	for sc.Scan() {
+		line := sc.Text()
+		if name, ok := strings.CutPrefix(line, "event: "); ok {
+			event = name
+		} else if data, ok := strings.CutPrefix(line, "data: "); ok && event == "view" {
+			return data, true
+		}
+	}
+	return "", false
+}
+
 // run with -http must serve the edge while the pipeline lives and tear it down when
 // the run ends: /metrics answers with the configured identity, /stream opens with the
 // bootstrapped view, and after the source ends the port stops answering.
@@ -460,14 +475,7 @@ func TestRunServesHTTPEdge(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	sc := bufio.NewScanner(stream.Body)
-	got := ""
-	for sc.Scan() {
-		if line := sc.Text(); strings.HasPrefix(line, "data: ") {
-			got = line
-			break
-		}
-	}
+	got, _ := firstViewData(bufio.NewScanner(stream.Body))
 	stream.Body.Close()
 	if !strings.Contains(got, `"seq":11`) {
 		t.Fatalf("stream opener = %q, want the current view at seq 11 (snapshot + one applied delta)", got)
