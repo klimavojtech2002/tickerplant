@@ -7,6 +7,7 @@ package httpapi
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -48,9 +49,29 @@ type Config struct {
 	WriteTimeout time.Duration
 }
 
+// ErrConfig marks a Config New refuses.
+var ErrConfig = errors.New("httpapi: invalid configuration")
+
+// maxScale is the largest decimal scale a price or size can be rendered at.
+const maxScale = 18
+
 // New returns the edge handler: GET /stream (SSE, one complete top-N view per event)
-// and GET /metrics (JSON snapshot of delivery stats, engine counters, and latency).
-func New(cfg Config) http.Handler {
+// and GET /metrics (JSON snapshot of delivery stats, engine counters, and latency). It
+// refuses a configuration that would only fail later, or show a wrong price: a nil hub or
+// engine, or a price or size scale outside 0 to 18.
+func New(cfg Config) (http.Handler, error) {
+	if cfg.Hub == nil {
+		return nil, fmt.Errorf("%w: nil hub", ErrConfig)
+	}
+	if cfg.Engine == nil {
+		return nil, fmt.Errorf("%w: nil engine", ErrConfig)
+	}
+	if cfg.PriceScale < 0 || cfg.PriceScale > maxScale {
+		return nil, fmt.Errorf("%w: price scale %d, want 0 to %d", ErrConfig, cfg.PriceScale, maxScale)
+	}
+	if cfg.SizeScale < 0 || cfg.SizeScale > maxScale {
+		return nil, fmt.Errorf("%w: size scale %d, want 0 to %d", ErrConfig, cfg.SizeScale, maxScale)
+	}
 	if cfg.WriteTimeout <= 0 {
 		cfg.WriteTimeout = 10 * time.Second
 	}
@@ -61,7 +82,7 @@ func New(cfg Config) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /stream", s.stream)
 	mux.HandleFunc("GET /metrics", s.metrics)
-	return mux
+	return mux, nil
 }
 
 type server struct{ cfg Config }

@@ -79,12 +79,16 @@ func view(seq market.Sequence) *book.View {
 
 func newEdge(t *testing.T, hub *delivery.Hub, eng Engine, lat *metrics.Histogram, writeTimeout time.Duration) *httptest.Server {
 	t.Helper()
-	srv := httptest.NewServer(New(Config{
+	h, err := New(Config{
 		Hub: hub, Engine: eng,
 		Venue: "kraken", Symbol: "BTC/USD",
 		PriceScale: 1, SizeScale: 8,
 		Latency: lat, WriteTimeout: writeTimeout,
-	}))
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewServer(h)
 	t.Cleanup(srv.Close)
 	return srv
 }

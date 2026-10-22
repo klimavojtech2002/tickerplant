@@ -211,7 +211,9 @@ func (r Result) Log(log *slog.Logger) {
 // Run wires the pipeline (source -> engine -> fan-out), drives it to completion or
 // cancellation, and returns a Result: the final view, the fan-out stats, and the
 // resync/gap/disconnect counters. It takes the Source as a parameter so it is source-agnostic
-// (synthetic or live) and testable end to end with a scripted source.
+// (synthetic or live) and testable end to end with a scripted source. If the HTTP edge
+// configuration is refused, Run returns the error before serving anything and leaves the
+// listener to its owner.
 func Run(ctx context.Context, log *slog.Logger, src source.Source, cfg Config) (Result, error) {
 	defer src.Close() // release the source (e.g. a live WebSocket) on exit
 	// Internal latency per ARCHITECTURE §9: adapter frame-dequeue -> view stored for readers,
@@ -226,17 +228,22 @@ func Run(ctx context.Context, log *slog.Logger, src source.Source, cfg Config) (
 	hub := delivery.New(1024)
 
 	if cfg.HTTPListener != nil {
+		handler, err := httpapi.New(httpapi.Config{
+			Hub: hub, Engine: eng,
+			Venue: market.Venue(cfg.venue), Symbol: market.Symbol(cfg.symbol),
+			PriceScale: cfg.scales[0], SizeScale: cfg.scales[1],
+			Latency: lat, Log: log,
+		})
+		if err != nil {
+			// The listener is not served, and not closed here: the caller owns it.
+			return Result{}, fmt.Errorf("http edge: %w", err)
+		}
 		// ReadHeaderTimeout bounds a client that connects and never finishes its
 		// request, IdleTimeout an idle keep-alive connection; response-side stalls are
 		// the handler's write deadline's job.
 		edge := &http.Server{
 			ReadHeaderTimeout: edgeReadHeaderTimeout, IdleTimeout: edgeIdleTimeout, MaxHeaderBytes: edgeMaxHeaderBytes,
-			Handler: httpapi.New(httpapi.Config{
-				Hub: hub, Engine: eng,
-				Venue: market.Venue(cfg.venue), Symbol: market.Symbol(cfg.symbol),
-				PriceScale: cfg.scales[0], SizeScale: cfg.scales[1],
-				Latency: lat, Log: log,
-			}),
+			Handler: handler,
 		}
 		go func() {
 			if err := edge.Serve(cfg.HTTPListener); err != nil && !errors.Is(err, http.ErrServerClosed) {
