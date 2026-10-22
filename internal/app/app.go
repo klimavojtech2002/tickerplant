@@ -101,6 +101,16 @@ func Prepare(ctx context.Context, log *slog.Logger, o Options) (source.Source, C
 	return src, cfg, nil
 }
 
+// rejectedOf returns the source's count of frames it could not use, for the edge's telemetry,
+// or nil when the source cannot say (the synthetic source, a test double): the edge then
+// reports 0.
+func rejectedOf(src source.Source) func() uint64 {
+	if r, ok := src.(interface{ Rejected() uint64 }); ok {
+		return r.Rejected
+	}
+	return nil
+}
+
 // ReportOutcome logs the pipeline's result and returns the process exit code. A
 // context-cancellation error (Ctrl-C or SIGTERM, wired via signal.NotifyContext)
 // is a clean shutdown, not a failure — it must not read as a crash on the one
@@ -240,7 +250,7 @@ func Run(ctx context.Context, log *slog.Logger, src source.Source, cfg Config) (
 			Hub: hub, Engine: eng,
 			Venue: market.Venue(cfg.venue), Symbol: market.Symbol(cfg.symbol),
 			PriceScale: cfg.scales[0], SizeScale: cfg.scales[1],
-			Latency: lat, Log: log, CORSOrigin: cfg.corsOrigin,
+			Latency: lat, Log: log, CORSOrigin: cfg.corsOrigin, Rejected: rejectedOf(src),
 		})
 		if err != nil {
 			// The listener is not served, and not closed here: the caller owns it.
