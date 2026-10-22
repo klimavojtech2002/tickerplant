@@ -40,10 +40,13 @@ func main() {
 	defer src.Close()
 
 	var samples []time.Duration
-	eng := book.New(src, kraken.BookDepth).
-		WithChecksum(kraken.Checksum).
-		WithMaxDepth(kraken.BookDepth).
-		WithLatencyObserver(func(d time.Duration) { samples = append(samples, d) })
+	eng, err := book.New(src, kraken.BookDepth,
+		book.WithChecksum(kraken.Checksum), book.WithMaxDepth(kraken.BookDepth),
+		book.WithLatencyObserver(func(d time.Duration) { samples = append(samples, d) }))
+	if err != nil {
+		log.Error("engine setup failed", "err", err)
+		os.Exit(1)
+	}
 	if err := eng.Bootstrap(ctx); err != nil {
 		log.Error("bootstrap failed", "err", err)
 		os.Exit(1)

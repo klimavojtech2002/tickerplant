@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/klimavojtech2002/tickerplant/internal/book"
 	"github.com/klimavojtech2002/tickerplant/internal/market"
@@ -223,7 +224,10 @@ func TestEngineRunSyntheticSequenceNoGaps(t *testing.T) {
 	}
 	close(ch)
 	s := newTestSource(ch, nil)
-	eng := book.New(s, 10)
+	eng, err := book.New(s, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := eng.Run(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -236,7 +240,7 @@ func TestEngineRunSyntheticSequenceNoGaps(t *testing.T) {
 	}
 }
 
-// --- the composed seam (audit 0021 finding 4): engine + the real Kraken CRC ---
+// --- the composed seam: engine + the real Kraken CRC ---
 
 // The engine bootstrapping through WithChecksum(real Kraken CRC) against the guide's
 // worked example must reproduce Kraken's published checksum. This anchors the whole
@@ -247,7 +251,10 @@ func TestSeamGoldenSnapshotBinds(t *testing.T) {
 	ch := make(chan []byte, 1)
 	ch <- wireFrame("snapshot", bids, asks, goldenChecksum)
 	s := newTestSource(ch, nil)
-	eng := book.New(s, 10).WithChecksum(Checksum).WithMaxDepth(BookDepth)
+	eng, err := book.New(s, 10, book.WithChecksum(Checksum), book.WithMaxDepth(BookDepth))
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := eng.Bootstrap(context.Background()); err != nil {
 		t.Fatalf("bootstrap against the golden vector: %v", err)
 	}
@@ -270,7 +277,10 @@ func TestSeamMatchingUpdateApplies(t *testing.T) {
 	ch <- wireFrame("snapshot", bids, asks, goldenChecksum)
 	ch <- wireFrame("update", []market.Level{{Price: 452836, Size: 123456}}, nil, want)
 	s := newTestSource(ch, nil)
-	eng := book.New(s, 10).WithChecksum(Checksum).WithMaxDepth(BookDepth)
+	eng, err := book.New(s, 10, book.WithChecksum(Checksum), book.WithMaxDepth(BookDepth))
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := eng.Bootstrap(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -298,7 +308,10 @@ func TestSeamDriftResyncsViaRedial(t *testing.T) {
 
 	redials := 0
 	s := newTestSource(ch1, func() <-chan []byte { redials++; return ch2 })
-	eng := book.New(s, 10).WithChecksum(Checksum).WithMaxDepth(BookDepth)
+	eng, err := book.New(s, 10, book.WithChecksum(Checksum), book.WithMaxDepth(BookDepth))
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := eng.Bootstrap(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -310,5 +323,85 @@ func TestSeamDriftResyncsViaRedial(t *testing.T) {
 	}
 	if v := eng.View(); v == nil || v.Crosses() || v.Bids[0] != bids[0] {
 		t.Fatalf("post-resync view = %+v, want the golden book rebound", v)
+	}
+}
+
+func newTimedSource(frames chan []byte, redial func() <-chan []byte, timeout time.Duration) *Source {
+	return New(Config{
+		Venue: "kraken", Symbol: "BTC/USD", PriceScale: 1, QtyScale: 8,
+		Frames: frames, Redial: redial, SnapshotTimeout: timeout,
+	})
+}
+
+// A subscription that never delivers its snapshot must not hold Snapshot for ever: the
+// wait ends as a transient timeout, and the next call redials instead of waiting on the
+// same dead channel.
+func TestSnapshotTimeoutThenRedial(t *testing.T) {
+	bids, asks := goldenBook()
+	dead := make(chan []byte)
+	fresh := make(chan []byte, 1)
+	fresh <- wireFrame("snapshot", bids, asks, goldenChecksum)
+	redials := 0
+	s := newTimedSource(dead, func() <-chan []byte { redials++; return fresh }, 30*time.Millisecond)
+
+	_, err := s.Snapshot(context.Background())
+	if !source.IsTransient(err) || !errors.Is(err, ErrSnapshotTimeout) {
+		t.Fatalf("first wait: err = %v, want a transient ErrSnapshotTimeout", err)
+	}
+	if redials != 0 {
+		t.Fatalf("redials = %d after the timeout, want 0 (the retry redials, not the timeout)", redials)
+	}
+	snap, err := s.Snapshot(context.Background())
+	if err != nil {
+		t.Fatalf("retry: %v", err)
+	}
+	if redials != 1 || snap.Checksum != uint32(goldenChecksum) {
+		t.Fatalf("retry: redials = %d, checksum = %d; want one redial and the fresh snapshot", redials, snap.Checksum)
+	}
+}
+
+// Without a Redial the timed-out wait is still transient, but there is no way to get
+// another snapshot, so the next call fails loudly and permanently.
+func TestSnapshotTimeoutWithoutRedial(t *testing.T) {
+	s := newTimedSource(make(chan []byte), nil, 30*time.Millisecond)
+	if _, err := s.Snapshot(context.Background()); !source.IsTransient(err) {
+		t.Fatalf("first wait: err = %v, want transient", err)
+	}
+	_, err := s.Snapshot(context.Background())
+	if !errors.Is(err, ErrNoSnapshot) || source.IsTransient(err) {
+		t.Fatalf("second call: err = %v, want a non-transient ErrNoSnapshot", err)
+	}
+}
+
+// Heartbeats arrive every second on a live connection. They must not restart the wait,
+// or a connection that never sends a book would never time out.
+func TestSnapshotTimeoutIsNotResetByHeartbeats(t *testing.T) {
+	ch := make(chan []byte)
+	stop := make(chan struct{})
+	defer close(stop)
+	go func() {
+		tick := time.NewTicker(5 * time.Millisecond)
+		defer tick.Stop()
+		for {
+			select {
+			case <-tick.C:
+				select {
+				case ch <- []byte(`{"channel":"heartbeat"}`):
+				case <-stop:
+					return
+				}
+			case <-stop:
+				return
+			}
+		}
+	}()
+	s := newTimedSource(ch, nil, 60*time.Millisecond)
+	start := time.Now()
+	_, err := s.Snapshot(context.Background())
+	if !errors.Is(err, ErrSnapshotTimeout) {
+		t.Fatalf("err = %v, want ErrSnapshotTimeout", err)
+	}
+	if took := time.Since(start); took > 2*time.Second {
+		t.Fatalf("took %v, want about the 60ms timeout", took)
 	}
 }

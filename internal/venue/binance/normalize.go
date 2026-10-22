@@ -1,18 +1,17 @@
 // Package binance adapts the Binance spot diff-depth WebSocket stream and REST depth
 // snapshot to the canonical transport port (internal/source.Source).
 //
-// Binance's documented maintenance procedure — buffer the stream, take a REST
-// snapshot, drop events whose final id u <= the snapshot's lastUpdateId, bind from the
-// event straddling lastUpdateId+1, then accept each event so long as it leaves no gap —
-// is the engine's generic stale/gap logic (slice 0003). A depthUpdate maps to a
-// canonical Delta with FirstSeq=U and LastSeq=u, so the engine drops stale events
-// (LastSeq <= last applied) and detects gaps (FirstSeq > last applied + 1) itself; this
-// adapter only normalizes and transports. (Binance documents the stricter
-// U == prev.u+1; the engine's no-gap form also tolerates a harmless overlap, correct
-// because a delta carries absolute sizes, so re-applying an overlapped range yields the
-// same book.) Verified against the Binance spot docs (developers.binance.com,
-// 2026-06-27): stream <symbol>@depth, event fields e/E/s/U/u/b/a, REST /api/v3/depth
-// returning lastUpdateId/bids/asks.
+// Binance's documented maintenance procedure — buffer the stream, take a REST snapshot,
+// drop events whose final id u <= the snapshot's lastUpdateId, bind from the event
+// straddling lastUpdateId+1, then accept each event so long as it leaves no gap — is the
+// engine's generic stale/gap logic. A depthUpdate maps to a canonical Delta with
+// FirstSeq=U and LastSeq=u, so the engine drops stale events (LastSeq <= last applied)
+// and detects gaps (FirstSeq > last applied + 1) itself; this adapter only normalizes and
+// transports. (Binance documents the stricter U == prev.u+1; the engine's no-gap form
+// also tolerates a harmless overlap, correct because a delta carries absolute sizes, so
+// re-applying an overlapped range yields the same book.) Verified against the Binance
+// spot docs (developers.binance.com, 2026-06-27): stream <symbol>@depth, event fields
+// e/E/s/U/u/b/a, REST /api/v3/depth returning lastUpdateId/bids/asks.
 package binance
 
 import (

@@ -95,6 +95,9 @@ func (b *book) topN(n int) (bids, asks []market.Level) {
 }
 
 func clip(levels []market.Level, n int) []market.Level {
+	if n < 0 {
+		n = 0
+	}
 	if n > len(levels) {
 		n = len(levels)
 	}
@@ -104,8 +107,7 @@ func clip(levels []market.Level, n int) []market.Level {
 }
 
 // buildFrom reconstructs a book from a snapshot, applying each level through set so
-// the result is sorted and a venue that repeats a price resolves last-writer-wins
-// (the duplicate-price rule deferred from the model, docs/correctness.md §1).
+// the result is sorted and a price the venue repeats keeps its last value.
 func buildFrom(snap market.Snapshot) *book {
 	b := &book{}
 	for _, lvl := range snap.Bids {

@@ -2,6 +2,7 @@ package kraken
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 
 	"github.com/klimavojtech2002/tickerplant/internal/market"
@@ -45,18 +46,34 @@ type parsed struct {
 	checksum   uint32
 }
 
-// parseBook normalizes one raw Kraken frame. ok is false for frames the caller skips —
-// subscription acks, heartbeats, status, and anything that does not decode as a book
-// message (the sequence is synthetic, so a wrongly skipped update cannot gap; the
-// checksum on the next applied delta catches the divergence). A book frame whose
-// levels do not parse is a loud error.
+// errRejectedFrame marks a frame that was meant to be book data and cannot be used:
+// it does not decode, it is on the book channel with an unknown type or no data, or its
+// levels do not parse. The adapter counts these; frames that are simply not book data
+// are skipped without an error.
+var errRejectedFrame = errors.New("kraken: frame rejected")
+
+// parseBook normalizes one raw Kraken frame. ok is false for frames the caller skips,
+// and err says which of them were rejected rather than just not book data:
+//   - ok false, err nil: subscription acks, heartbeats, status and other channels.
+//   - err wrapping errRejectedFrame: a frame that does not decode, a book frame with an
+//     unknown type or no data (these return an empty result, so the caller never takes
+//     them for a snapshot), and a book frame whose levels do not parse (the result keeps
+//     isSnapshot, so a malformed in-band snapshot still fails loudly in Snapshot, and the
+//     error also wraps market.ErrMalformed).
+//
+// The sequence is synthetic, so a skipped update cannot leave a gap; the checksum on the
+// next applied delta catches the divergence. The subscription is book-only, so a frame
+// of another shape that fails to decode is not expected and is counted as a reject.
 func parseBook(raw []byte, sc scales) (p parsed, ok bool, err error) {
 	var m bookMessage
 	if err := json.Unmarshal(raw, &m); err != nil {
-		return parsed{}, false, nil // not JSON we model: skip
+		return parsed{}, false, fmt.Errorf("%w: not decodable", errRejectedFrame)
 	}
-	if m.Channel != "book" || len(m.Data) == 0 || (m.Type != "snapshot" && m.Type != "update") {
-		return parsed{}, false, nil // ack/heartbeat/status: skip
+	if m.Channel != "book" {
+		return parsed{}, false, nil // ack/heartbeat/status/other channel: skip
+	}
+	if len(m.Data) == 0 || (m.Type != "snapshot" && m.Type != "update") {
+		return parsed{}, false, fmt.Errorf("%w: book frame of type %q with %d data items", errRejectedFrame, m.Type, len(m.Data))
 	}
 	d := m.Data[0]
 	isSnap := m.Type == "snapshot"
@@ -64,11 +81,11 @@ func parseBook(raw []byte, sc scales) (p parsed, ok bool, err error) {
 	if err != nil {
 		// isSnapshot survives the error so Snapshot can fail loud on a malformed
 		// in-band snapshot instead of skipping it and waiting forever.
-		return parsed{isSnapshot: isSnap}, false, fmt.Errorf("kraken bids: %w", err)
+		return parsed{isSnapshot: isSnap}, false, fmt.Errorf("%w: kraken bids: %w", errRejectedFrame, err)
 	}
 	asks, err := toLevels(d.Asks, sc)
 	if err != nil {
-		return parsed{isSnapshot: isSnap}, false, fmt.Errorf("kraken asks: %w", err)
+		return parsed{isSnapshot: isSnap}, false, fmt.Errorf("%w: kraken asks: %w", errRejectedFrame, err)
 	}
 	return parsed{isSnapshot: isSnap, bids: bids, asks: asks, checksum: d.Checksum}, true, nil
 }

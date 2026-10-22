@@ -10,7 +10,7 @@ import (
 )
 
 // maxFrameBytes bounds a single WebSocket message. Diff frames are small; an in-band
-// snapshot (OKX/Kraken) is larger, so the limit is generous but not unbounded — it
+// snapshot (Kraken) is larger, so the limit is generous but not unbounded — it
 // caps the allocation a hostile or buggy server can force.
 const maxFrameBytes = 1 << 20
 
@@ -35,7 +35,8 @@ type StreamConfig struct {
 	DialTimeout time.Duration // bound the handshake (0 = none)
 	ReadTimeout time.Duration // reconnect if no frame arrives within this, to catch a dead-but-open
 	// connection (0 = none). Must exceed the venue's heartbeat interval.
-	Logger *slog.Logger
+	WriteTimeout time.Duration // bound each subscribe write (0 = none)
+	Logger       *slog.Logger
 
 	dial dialer // unexported test seam; nil = the real WebSocket dialer
 }
@@ -43,9 +44,10 @@ type StreamConfig struct {
 // Stream is a reconnecting source of raw WebSocket frames. It dials the URL, sends the
 // subscribe messages, and forwards every received message to Frames(); on any
 // connection error — including a read-deadline timeout on a silent connection — it
-// reconnects with backoff and re-subscribes. Reconnection is transparent to the
-// adapter: the sequence discontinuity after a reconnect drives the engine's resync
-// (correctness.md §8), so this layer carries no book logic.
+// reconnects with backoff and re-subscribes. The Kraken adapter then receives a
+// fresh in-band snapshot and reports a disconnect; for Binance the engine detects a sequence gap
+// if updates were missed, otherwise the stream simply continues (correctness.md §8). This layer
+// carries no book logic.
 type Stream struct {
 	cfg    StreamConfig
 	frames chan []byte
@@ -125,7 +127,7 @@ func (s *Stream) session(ctx context.Context) (delivered bool, err error) {
 	defer c.close()
 
 	for _, msg := range s.cfg.Subscribe {
-		if err := c.write(ctx, msg); err != nil {
+		if err := s.writeFrame(ctx, c, msg); err != nil {
 			return delivered, err
 		}
 	}
@@ -143,6 +145,17 @@ func (s *Stream) session(ctx context.Context) (delivered bool, err error) {
 			return delivered, ctx.Err()
 		}
 	}
+}
+
+// writeFrame sends one message, applying the write deadline if configured, so a peer that
+// stops reading cannot hold the session in its subscribe step.
+func (s *Stream) writeFrame(ctx context.Context, c conn, msg []byte) error {
+	if s.cfg.WriteTimeout <= 0 {
+		return c.write(ctx, msg)
+	}
+	wctx, cancel := context.WithTimeout(ctx, s.cfg.WriteTimeout)
+	defer cancel()
+	return c.write(wctx, msg)
 }
 
 // readFrame reads one frame, applying the read deadline if configured. A timeout on a

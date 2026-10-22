@@ -19,7 +19,7 @@ import (
 // its price then its quantity as the venue's decimal string with the point and leading
 // zeros removed; the concatenation is CRC32'd (IEEE) to an unsigned 32-bit value. The
 // engine passes its top-10 (bids high-to-low, asks low-to-high), which already matches
-// this order. Ready for book.Engine.WithChecksum as-is.
+// this order. Ready for book.WithChecksum as-is.
 func Checksum(bids, asks []market.Level) uint32 {
 	var b strings.Builder
 	for _, l := range asks {

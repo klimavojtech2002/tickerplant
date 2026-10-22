@@ -41,20 +41,53 @@ func TestParseBookUpdate(t *testing.T) {
 	}
 }
 
+// Frames that are not book data are skipped quietly: no result and no error.
 func TestParseBookSkipsNonBook(t *testing.T) {
 	for _, raw := range [][]byte{
-		[]byte(`{"method":"subscribe","success":true}`), // ack
-		[]byte(`{"channel":"heartbeat"}`),               // heartbeat
-		[]byte(`{"channel":"status","data":[]}`),        // status (no book data)
-		[]byte(`not json`),                              // junk
-		// each isolates one clause of the book-frame guard (so each clause is load-bearing):
-		[]byte(`{"channel":"book","type":"snapshot","data":[]}`),                                     // book, but empty data (would panic on data[0] without the guard)
-		[]byte(`{"channel":"book","type":"pong","data":[{"symbol":"X","bids":[],"asks":[]}]}`),       // book + data, but not a snapshot/update type
+		[]byte(`{"method":"subscribe","success":true}`),                                              // ack
+		[]byte(`{"method":"pong","req_id":1}`),                                                       // pong
+		[]byte(`{"error":"Currency pair not supported","success":false,"method":"subscribe"}`),       // rejected subscribe
+		[]byte(`{"channel":"heartbeat"}`),                                                            // heartbeat
+		[]byte(`{"channel":"status","data":[]}`),                                                     // status (no book data)
 		[]byte(`{"channel":"ticker","type":"snapshot","data":[{"symbol":"X","bids":[],"asks":[]}]}`), // snapshot type + data, but not the book channel
 	} {
 		if _, ok, err := parseBook(raw, scales{price: 1, qty: 8}); ok || err != nil {
 			t.Fatalf("non-book frame %q: ok=%v err=%v, want skipped", raw, ok, err)
 		}
+	}
+}
+
+// Frames that were meant to be book data and cannot be used are rejected with an error.
+// Only a book frame whose levels do not parse keeps isSnapshot, so that a malformed
+// in-band snapshot still fails loudly in Snapshot; every other rejection returns an
+// empty result and so can never be taken for a snapshot.
+func TestParseBookRejectsUnusableBookFrames(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		raw        string
+		isSnapshot bool
+		malformed  bool // the error also wraps market.ErrMalformed
+	}{
+		{"not json", `not json`, false, false},
+		{"truncated", `{"channel":"book","type":"update","data":[{"symbol":"X","bi`, false, false},
+		{"empty data (snapshot)", `{"channel":"book","type":"snapshot","data":[]}`, false, false},
+		{"empty data (update)", `{"channel":"book","type":"update","data":[]}`, false, false},
+		{"unknown type", `{"channel":"book","type":"pong","data":[{"symbol":"X","bids":[],"asks":[]}]}`, false, false},
+		{"bad bid on an update", `{"channel":"book","type":"update","data":[{"symbol":"X","bids":[{"price":4.5e4,"qty":1}],"asks":[]}]}`, false, true},
+		{"bad ask on a snapshot", `{"channel":"book","type":"snapshot","data":[{"symbol":"X","bids":[],"asks":[{"price":4.5e4,"qty":1}]}]}`, true, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			p, ok, err := parseBook([]byte(tc.raw), scales{price: 1, qty: 8})
+			if ok || !errors.Is(err, errRejectedFrame) {
+				t.Fatalf("ok=%v err=%v, want not ok and an errRejectedFrame error", ok, err)
+			}
+			if p.isSnapshot != tc.isSnapshot {
+				t.Fatalf("isSnapshot = %v, want %v", p.isSnapshot, tc.isSnapshot)
+			}
+			if errors.Is(err, market.ErrMalformed) != tc.malformed {
+				t.Fatalf("errors.Is(err, ErrMalformed) = %v, want %v (err: %v)", !tc.malformed, tc.malformed, err)
+			}
+		})
 	}
 }
 

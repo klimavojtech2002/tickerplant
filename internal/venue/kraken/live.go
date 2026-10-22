@@ -1,6 +1,7 @@
 package kraken
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -24,10 +25,13 @@ const (
 )
 
 // BookDepth is the subscribed book depth and therefore the engine's window
-// (WithMaxDepth): Kraken never deletes levels that fall outside it, and its checksum
+// (book.WithMaxDepth): Kraken never deletes levels that fall outside it, and its checksum
 // covers exactly the top 10, so subscribing deeper would only add unmaintained levels
 // the integrity guard cannot see.
 const BookDepth = 10
+
+// assetPairsBodyLimit bounds the one-pair AssetPairs reply (a few KB in practice).
+const assetPairsBodyLimit = 1 << 20
 
 // ErrPairsStatus is returned when the AssetPairs endpoint replies non-200.
 var ErrPairsStatus = errors.New("kraken: unexpected AssetPairs status")
@@ -51,7 +55,7 @@ func (cfg LiveConfig) resolve() (restBase, wsBase string, client *http.Client) {
 		wsBase = defaultWSBase
 	}
 	if client == nil {
-		client = http.DefaultClient
+		client = venue.NewHTTPClient(venue.DefaultHTTPTimeout)
 	}
 	return restBase, wsBase, client
 }
@@ -59,7 +63,7 @@ func (cfg LiveConfig) resolve() (restBase, wsBase string, client *http.Client) {
 // Live connects the Kraken adapter to the real venue: it reads the symbol's price and
 // quantity scales from AssetPairs, dials the v2 book WebSocket, and returns a Source
 // the engine consumes like any other. Wire the checksum with
-// engine.WithChecksum(kraken.Checksum) — without it Kraken has no integrity guard at
+// book.WithChecksum(kraken.Checksum) when building the engine — without it Kraken has no integrity guard at
 // all, since the feed carries no sequence. The Source's Close tears down the socket.
 func Live(ctx context.Context, cfg LiveConfig) (*Source, error) {
 	if cfg.Symbol == "" {
@@ -76,12 +80,13 @@ func Live(ctx context.Context, cfg LiveConfig) (*Source, error) {
 	sub := fmt.Appendf(nil, `{"method":"subscribe","params":{"channel":"book","symbol":[%q],"depth":%d}}`, cfg.Symbol, BookDepth)
 	dial := func() *venue.Stream {
 		return venue.Dial(ctx, venue.StreamConfig{
-			URL:         wsBase + "/v2",
-			Subscribe:   [][]byte{sub},
-			Backoff:     venue.Backoff{Min: time.Second, Max: 30 * time.Second, Factor: 2, Jitter: venue.FullJitter},
-			DialTimeout: 10 * time.Second,
-			ReadTimeout: 10 * time.Second, // Kraken heartbeats every second; a longer silence is a dead socket
-			Logger:      cfg.Logger,
+			URL:          wsBase + "/v2",
+			Subscribe:    [][]byte{sub},
+			Backoff:      venue.Backoff{Min: time.Second, Max: 30 * time.Second, Factor: 2, Jitter: venue.FullJitter},
+			DialTimeout:  10 * time.Second,
+			WriteTimeout: 10 * time.Second,
+			ReadTimeout:  10 * time.Second, // Kraken heartbeats every second; a longer silence is a dead socket
+			Logger:       cfg.Logger,
 		})
 	}
 
@@ -97,6 +102,7 @@ func Live(ctx context.Context, cfg LiveConfig) (*Source, error) {
 		Symbol:     market.Symbol(cfg.Symbol),
 		PriceScale: priceScale,
 		QtyScale:   qtyScale,
+		Logger:     cfg.Logger,
 		Frames:     stream.Frames(),
 		// A drift resync needs a fresh in-band snapshot, which only a new subscription
 		// serves; reconnecting is the documented recovery shape (correctness.md §8) and
@@ -137,20 +143,15 @@ type assetPairs struct {
 // from AssetPairs, so normalization and the checksum need no hardcoded precision.
 func fetchScales(ctx context.Context, client *http.Client, restBase, symbol string) (priceScale, qtyScale int, err error) {
 	url := restBase + "/0/public/AssetPairs?pair=" + symbol
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-	if err != nil {
-		return 0, 0, fmt.Errorf("kraken AssetPairs request: %w", err)
-	}
-	resp, err := client.Do(req)
+	body, status, err := venue.Get(ctx, client, url, assetPairsBodyLimit)
 	if err != nil {
 		return 0, 0, fmt.Errorf("kraken AssetPairs: %w", err)
 	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return 0, 0, fmt.Errorf("%w: %d", ErrPairsStatus, resp.StatusCode)
+	if status != http.StatusOK {
+		return 0, 0, venue.StatusErr(ErrPairsStatus, status)
 	}
 	var pairs assetPairs
-	if err := json.NewDecoder(resp.Body).Decode(&pairs); err != nil {
+	if err := json.NewDecoder(bytes.NewReader(body)).Decode(&pairs); err != nil {
 		return 0, 0, fmt.Errorf("kraken AssetPairs decode: %w", err)
 	}
 	if len(pairs.Error) > 0 {

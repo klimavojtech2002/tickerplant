@@ -22,7 +22,10 @@ import (
 func drive(tb testing.TB, n int, interval, stall time.Duration, stallAt int) (naive, corrected *metrics.Histogram) {
 	tb.Helper()
 	ctx := context.Background()
-	eng := book.New(source.New(source.Config{Venue: "v", Symbol: "s", Seed: 1, Steps: n + 1}), 10)
+	eng, err := book.New(source.New(source.Config{Venue: "v", Symbol: "s", Seed: 1, Steps: n + 1}), 10)
+	if err != nil {
+		tb.Fatal(err)
+	}
 	// Latency is recorded at the publisher (done.Sub(send) below), and conflation keeps
 	// Publish O(consumers) and non-blocking, so the drain never perturbs the measurement;
 	// the huge maxLag only keeps a momentarily-behind drain from being disconnected.
@@ -64,7 +67,7 @@ func drive(tb testing.TB, n int, interval, stall time.Duration, stallAt int) (na
 	return naive, corrected
 }
 
-// TestCoordinatedOmissionCorrection proves the correction is real, not cosmetic: under
+// TestCoordinatedOmissionCorrection shows the correction is real, not cosmetic: under
 // a single 40ms stall at a 1ms arrival rate, ~40 events queue behind it. The corrected
 // tail must capture that backlog; the naive tail (service time) sees only the one slow
 // event and stays low. Without coordinated-omission correction the tail would lie.

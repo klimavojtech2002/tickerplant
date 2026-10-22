@@ -7,11 +7,10 @@ import (
 	"github.com/klimavojtech2002/tickerplant/internal/market"
 )
 
-// truthBook is a naive, obviously-correct L2 book: the oracle the engine (slice
-// 0003) is verified against. It is deliberately the simplest possible
-// reconstruction — a plain map per side, rebuilt from absolute sizes — and shares
-// no code with the engine, so a bug in one cannot hide a bug in the other
-// (docs/correctness.md §10). It is single-threaded; the synthetic source owns it.
+// truthBook is a naive, obviously-correct L2 book: the oracle the engine is verified against.
+// It is deliberately the simplest possible reconstruction — a plain map per side, rebuilt from
+// absolute sizes — and shares no code with the engine, so a bug in one cannot hide a bug in the
+// other (docs/correctness.md §10). It is single-threaded; the synthetic source owns it.
 type truthBook struct {
 	bids map[market.Price]market.Size
 	asks map[market.Price]market.Size

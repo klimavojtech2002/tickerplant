@@ -1,6 +1,7 @@
 package binance
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -21,6 +22,9 @@ const (
 	defaultWSBase   = "wss://stream.binance.com:9443"
 )
 
+// exchangeInfoBodyLimit bounds the one-symbol exchange info reply (a few KB in practice).
+const exchangeInfoBodyLimit = 1 << 20
+
 // LiveConfig configures a live Binance source. Only Symbol is required (e.g. "BTCUSDT").
 type LiveConfig struct {
 	Symbol   string
@@ -40,7 +44,7 @@ func (cfg LiveConfig) resolve() (restBase, wsBase string, client *http.Client) {
 		wsBase = defaultWSBase
 	}
 	if client == nil {
-		client = http.DefaultClient
+		client = venue.NewHTTPClient(venue.DefaultHTTPTimeout)
 	}
 	return restBase, wsBase, client
 }
@@ -73,6 +77,7 @@ func Live(ctx context.Context, cfg LiveConfig) (*Source, error) {
 		Symbol:      market.Symbol(cfg.Symbol),
 		PriceScale:  priceScale,
 		SizeScale:   sizeScale,
+		Logger:      cfg.Logger,
 		Frames:      stream.Frames(),
 		SnapshotURL: restBase + "/api/v3/depth?symbol=" + cfg.Symbol + "&limit=5000",
 		Client:      client,
@@ -116,20 +121,15 @@ type exchangeInfo struct {
 // hardcoded per-symbol precision.
 func fetchScales(ctx context.Context, client *http.Client, restBase, symbol string) (priceScale, sizeScale int, err error) {
 	url := restBase + "/api/v3/exchangeInfo?symbol=" + symbol
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-	if err != nil {
-		return 0, 0, fmt.Errorf("binance exchangeInfo request: %w", err)
-	}
-	resp, err := client.Do(req)
+	body, status, err := venue.Get(ctx, client, url, exchangeInfoBodyLimit)
 	if err != nil {
 		return 0, 0, fmt.Errorf("binance exchangeInfo: %w", err)
 	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return 0, 0, fmt.Errorf("%w: %d", ErrSnapshotStatus, resp.StatusCode)
+	if status != http.StatusOK {
+		return 0, 0, venue.StatusErr(ErrSnapshotStatus, status)
 	}
 	var info exchangeInfo
-	if err := json.NewDecoder(resp.Body).Decode(&info); err != nil {
+	if err := json.NewDecoder(bytes.NewReader(body)).Decode(&info); err != nil {
 		return 0, 0, fmt.Errorf("binance exchangeInfo decode: %w", err)
 	}
 	if len(info.Symbols) == 0 {

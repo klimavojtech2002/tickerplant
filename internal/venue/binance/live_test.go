@@ -12,6 +12,7 @@ import (
 	"github.com/coder/websocket"
 	"github.com/klimavojtech2002/tickerplant/internal/book"
 	"github.com/klimavojtech2002/tickerplant/internal/market"
+	"github.com/klimavojtech2002/tickerplant/internal/venue"
 )
 
 func TestScaleOf(t *testing.T) {
@@ -115,7 +116,7 @@ func TestLiveRejectsEmptySymbol(t *testing.T) {
 }
 
 func TestLiveConfigResolve(t *testing.T) {
-	if r, w, c := (LiveConfig{}).resolve(); r != defaultRESTBase || w != defaultWSBase || c != http.DefaultClient {
+	if r, w, c := (LiveConfig{}).resolve(); r != defaultRESTBase || w != defaultWSBase || c == nil || c == http.DefaultClient || c.Timeout != venue.DefaultHTTPTimeout {
 		t.Fatalf("empty config must default, got %q %q %v", r, w, c)
 	}
 	cl := &http.Client{}
@@ -149,7 +150,7 @@ func TestLiveSurfacesFetchError(t *testing.T) {
 
 // Live wired against local servers (REST for exchangeInfo + depth snapshot, a real
 // local WebSocket for the diff stream) must assemble a working source that drives the
-// engine to an uncrossed book — the whole live path proven without touching Binance.
+// engine to an uncrossed book — the whole live path exercised without touching Binance.
 func TestLiveEndToEndLocal(t *testing.T) {
 	rest := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
@@ -194,7 +195,10 @@ func TestLiveEndToEndLocal(t *testing.T) {
 		t.Fatalf("Scales() = %d/%d, want the exchangeInfo scales 2/3", p, sz)
 	}
 
-	eng := book.New(src, 10)
+	eng, err := book.New(src, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := eng.Bootstrap(context.Background()); err != nil {
 		t.Fatalf("bootstrap: %v", err)
 	}

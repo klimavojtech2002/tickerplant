@@ -2,6 +2,7 @@ package book
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync/atomic"
 	"time"
@@ -13,6 +14,43 @@ import (
 // maxBindAttempts bounds bootstrap retries so a venue that keeps serving a crossed
 // snapshot fails loudly instead of wedging the writer (ADR-0004).
 const maxBindAttempts = 8
+
+// maxSnapshotRetries is how many times Bootstrap retries a Snapshot call that failed with
+// a transient error (source.IsTransient) before it gives up and returns that error. Only
+// consecutive failures count; a snapshot that arrives resets the count. It is separate
+// from maxBindAttempts, which counts snapshots that arrived but were rejected.
+const maxSnapshotRetries = 5
+
+const (
+	snapshotBackoffMin = 250 * time.Millisecond
+	snapshotBackoffMax = 4 * time.Second
+)
+
+// defaultSnapshotBackoff doubles from snapshotBackoffMin up to snapshotBackoffMax. The app
+// replaces it with a jittered one so that several instances do not retry in step.
+func defaultSnapshotBackoff(attempt int) time.Duration {
+	d := snapshotBackoffMin
+	for i := 0; i < attempt && d < snapshotBackoffMax; i++ {
+		d *= 2
+	}
+	return min(d, snapshotBackoffMax)
+}
+
+// sleepCtx waits for d or until ctx is done, whichever comes first. A delay of zero or less
+// returns at once.
+func sleepCtx(ctx context.Context, d time.Duration) error {
+	if d <= 0 {
+		return ctx.Err()
+	}
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-t.C:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
 
 // maxConsecutiveResyncs bounds resyncs that make no progress (e.g. a snapshot that
 // stays behind the stream), so a pathological feed fails loudly rather than livelocking.
@@ -29,6 +67,9 @@ type Checksummer func(bids, asks []market.Level) uint32
 
 // View is an immutable top-N snapshot of the book, published atomically for readers.
 type View struct {
+	// Gen counts publishes: the first view is 1, every later one is one higher, and a
+	// resync does not reset it. LastSeq can repeat or go back across a resync; Gen cannot.
+	Gen     uint64
 	LastSeq market.Sequence
 	Bids    []market.Level
 	Asks    []market.Level
@@ -51,61 +92,170 @@ type Engine struct {
 	book               *book
 	lastSeq            market.Sequence
 	view               atomic.Pointer[View]
-	resyncs            atomic.Int64        // metrics; read lock-free from any goroutine (ADR-0008, slice 0006)
-	gaps               atomic.Int64        // sequence gaps detected
-	disconnects        atomic.Int64        // disconnect events seen
-	checksumMismatches atomic.Int64        // checksum drifts detected (checksum venues)
-	wouldCrosses       atomic.Int64        // deltas rejected because applying them would cross the book (ADR-0004)
-	consecutiveResyncs int                 // writer-goroutine only; reset on progress to bound a livelock
-	checksum           Checksummer         // nil on sequence venues; set via WithChecksum for checksum venues
-	maxDepth           int                 // 0 = keep every level; >0 = the feed's subscribed window (WithMaxDepth)
-	latencyFn          func(time.Duration) // nil = no latency observation (WithLatencyObserver)
+	resyncs            atomic.Int64            // metrics; read lock-free from any goroutine (ADR-0008)
+	gaps               atomic.Int64            // sequence gaps detected
+	disconnects        atomic.Int64            // disconnect events seen
+	checksumMismatches atomic.Int64            // checksum drifts detected (checksum venues)
+	wouldCrosses       atomic.Int64            // deltas rejected because applying them would cross the book (ADR-0004)
+	consecutiveResyncs int                     // writer-goroutine only; reset on progress to bound a livelock
+	gen                uint64                  // writer-goroutine only; copied into each published View
+	resyncing          atomic.Bool             // true from the start of a resync until its new view is published
+	checksum           Checksummer             // nil on sequence venues; set via WithChecksum for checksum venues
+	maxDepth           int                     // 0 = keep every level; >0 = the feed's subscribed window (WithMaxDepth)
+	latencyFn          func(time.Duration)     // nil = no latency observation (WithLatencyObserver)
+	clock              func() time.Time        // nil = time.Now; read only on the writer goroutine (WithClock)
+	lastEventNanos     atomic.Int64            // clock time of the last processed source event, Unix nanoseconds
+	lastEventSet       atomic.Bool             // true once lastEventNanos holds a real value
+	events             atomic.Pointer[[]Event] // the last fault events, replaced as a whole (see Events)
+	eventSeq           uint64                  // writer-goroutine only; ID of the newest event
+
+	snapshotRejects atomic.Int64                               // snapshots Bootstrap refused (crossed or checksum mismatch), at cold start or in a resync
+	snapshotErrors  atomic.Int64                               // Snapshot calls that failed, other than by the caller's cancellation
+	retryMax        int                                        // retries of a transient Snapshot failure (WithSnapshotRetry)
+	retryBackoff    func(attempt int) time.Duration            // delay before retry number attempt+1
+	retrySleep      func(context.Context, time.Duration) error // waits out a retry delay; ends early on ctx
 }
 
-// New creates an Engine publishing a top-N view of the given depth.
-func New(src source.Source, depth int) *Engine {
-	return &Engine{src: src, depth: depth}
+// ErrConfig marks an Engine configuration New refuses.
+var ErrConfig = errors.New("engine: invalid configuration")
+
+// Option configures an Engine at construction. Options apply in order, so a later one
+// overrides an earlier one.
+type Option func(*Engine)
+
+// New creates an Engine publishing a top-N view of the given depth. It refuses a
+// configuration that could only fail later: a nil source, a depth below 1, a negative
+// feed window, and a checksum venue whose window is narrower than the checksum's own
+// depth (it would checksum fewer levels than the venue expects and resync for ever).
+func New(src source.Source, depth int, opts ...Option) (*Engine, error) {
+	e := &Engine{
+		src: src, depth: depth,
+		retryMax: maxSnapshotRetries, retryBackoff: defaultSnapshotBackoff, retrySleep: sleepCtx,
+	}
+	for _, opt := range opts {
+		opt(e)
+	}
+	switch {
+	case src == nil:
+		return nil, fmt.Errorf("%w: nil source", ErrConfig)
+	case depth < 1:
+		return nil, fmt.Errorf("%w: depth %d, want 1 or more", ErrConfig, depth)
+	case e.maxDepth < 0:
+		return nil, fmt.Errorf("%w: max depth %d, want 0 or more", ErrConfig, e.maxDepth)
+	case e.checksum != nil && e.maxDepth > 0 && e.maxDepth < checksumDepth:
+		return nil, fmt.Errorf("%w: max depth %d is narrower than the checksum depth %d", ErrConfig, e.maxDepth, checksumDepth)
+	}
+	return e, nil
+}
+
+// WithSnapshotBackoff replaces the delay between snapshot retries and keeps the retry
+// count and the sleep. The app uses it to add jitter. A nil backoff keeps the default.
+func WithSnapshotBackoff(backoff func(attempt int) time.Duration) Option {
+	return func(e *Engine) {
+		if backoff != nil {
+			e.retryBackoff = backoff
+		}
+	}
+}
+
+// WithSnapshotRetry sets how Bootstrap retries a Snapshot call that failed with a transient
+// error: at most retries retries (0 or less disables retrying), waiting backoff(attempt) before retry
+// attempt+1 through sleep. A nil backoff or sleep keeps the default. Tests inject a sleep
+// that records the delays instead of waiting.
+func WithSnapshotRetry(retries int, backoff func(attempt int) time.Duration, sleep func(context.Context, time.Duration) error) Option {
+	return func(e *Engine) {
+		e.retryMax = retries
+		if backoff != nil {
+			e.retryBackoff = backoff
+		}
+		if sleep != nil {
+			e.retrySleep = sleep
+		}
+	}
 }
 
 // WithChecksum makes the engine verify each snapshot and applied delta against the
 // venue's checksum (for checksum venues like Kraken, ADR-0007); a mismatch is drift and
-// triggers a resync. Call before Bootstrap/Run. Returns the engine for chaining.
-func (e *Engine) WithChecksum(fn Checksummer) *Engine {
-	e.checksum = fn
-	return e
+// triggers a resync.
+func WithChecksum(fn Checksummer) Option {
+	return func(e *Engine) {
+		e.checksum = fn
+	}
 }
 
 // WithMaxDepth bounds the book to the feed's subscribed window (e.g. Kraken's book
 // depth). Such feeds never send deletes for levels that fall out of the window, so a
 // level kept beyond it goes stale and corrupts the top-N when it re-enters; the engine
 // truncates after every bind and apply instead. Zero (the default) keeps every level —
-// correct for full-book feeds like Binance and the synthetic source. Call before
-// Bootstrap/Run. Returns the engine for chaining.
-func (e *Engine) WithMaxDepth(n int) *Engine {
-	e.maxDepth = n
-	return e
+// correct for full-book feeds like Binance and the synthetic source.
+func WithMaxDepth(n int) Option {
+	return func(e *Engine) {
+		e.maxDepth = n
+	}
 }
 
 // WithLatencyObserver reports, for every applied-and-published delta, the span from
-// the adapter taking the raw message off its transport (Event.Received) to the view
-// leaving for the fan-out — the internal latency ARCHITECTURE §9 defines, with no
-// wire-wait inside it. Events without a Received stamp are not reported. Call before
-// Bootstrap/Run. Returns the engine for chaining.
-func (e *Engine) WithLatencyObserver(fn func(time.Duration)) *Engine {
-	e.latencyFn = fn
-	return e
+// the adapter taking the raw frame off its frame channel (Event.Received) to the view
+// stored for readers — the internal latency ARCHITECTURE §9 defines, with no
+// wire-wait inside it. Events without a Received stamp are not reported.
+func WithLatencyObserver(fn func(time.Duration)) Option {
+	return func(e *Engine) {
+		e.latencyFn = fn
+	}
+}
+
+// WithClock sets the time source the engine uses to stamp events. A nil function keeps
+// time.Now. The engine reads the clock only on the goroutine that drives it, never from
+// the read-side getters, so a clock that is not safe for concurrent use is fine.
+func WithClock(fn func() time.Time) Option {
+	return func(e *Engine) {
+		e.clock = fn
+	}
+}
+
+// now reads the engine clock. An Engine built without New has no clock set and uses
+// time.Now.
+func (e *Engine) now() time.Time {
+	if e.clock == nil {
+		return time.Now()
+	}
+	return e.clock()
+}
+
+// stampEvent records that the engine just processed a source event.
+func (e *Engine) stampEvent() {
+	e.lastEventNanos.Store(e.now().UnixNano())
+	e.lastEventSet.Store(true)
+}
+
+// LastEventAt returns the engine clock's time, in UTC, at the last source event the
+// engine processed (a delta, a dropped duplicate, a trade or a disconnect), or the zero
+// time before the first one. It is wall time without a monotonic reading, so a step of
+// the system clock skews an age computed from it, and it only covers what the engine
+// processed: a feed that delivers nothing but rejected frames never moves it.
+func (e *Engine) LastEventAt() time.Time {
+	if !e.lastEventSet.Load() {
+		return time.Time{}
+	}
+	return time.Unix(0, e.lastEventNanos.Load()).UTC()
 }
 
 // View returns the latest published view, or nil before the first bootstrap. Safe to
 // call from any goroutine.
 func (e *Engine) View() *View { return e.view.Load() }
 
-// Resyncs returns how many times the engine has resynced (a metric, slice 0006). This
-// counts cold-start bootstrap-retry attempts (an unusable first snapshot) together
-// with genuine post-bind resyncs — both are Bootstrap calls that discarded a rejected
-// snapshot — so a string of bind-time rejections reads the same as the book having
-// gone live and drifted.
+// Resyncs returns how many times the engine has started a resync after it was bound
+// (a metric): a gap, a would-cross delta, checksum drift or a disconnect, one each. A snapshot
+// refused while binding is counted by SnapshotRejects, not here, so a cold start that struggles
+// does not look like a live book that drifted. A resync that trips the livelock guard is
+// counted too, though it never reaches Bootstrap.
 func (e *Engine) Resyncs() int { return int(e.resyncs.Load()) }
+
+// Ready reports whether the book is usable now: false before the first bootstrap and
+// while a resync the engine started is in progress. It reads the resync flag before the
+// view; a caller that races a resync start may still see true, which is the state just
+// before it.
+func (e *Engine) Ready() bool { return !e.resyncing.Load() && e.view.Load() != nil }
 
 // Gaps returns how many sequence gaps the engine has detected (a metric).
 func (e *Engine) Gaps() int { return int(e.gaps.Load()) }
@@ -113,8 +263,17 @@ func (e *Engine) Gaps() int { return int(e.gaps.Load()) }
 // Disconnects returns how many disconnect events the engine has seen (a metric).
 func (e *Engine) Disconnects() int { return int(e.disconnects.Load()) }
 
-// ChecksumMismatches returns how many checksum drifts the engine has detected (a metric).
+// ChecksumMismatches returns how many times a checksum failed to match (a metric): a delta
+// that drifted, or a snapshot that Bootstrap then refused, which SnapshotRejects counts too.
 func (e *Engine) ChecksumMismatches() int { return int(e.checksumMismatches.Load()) }
+
+// SnapshotRejects returns how many snapshots Bootstrap refused because they were crossed or
+// failed the checksum, at cold start and during a resync alike (a metric).
+func (e *Engine) SnapshotRejects() int { return int(e.snapshotRejects.Load()) }
+
+// SnapshotErrors returns how many Snapshot calls failed, transient or not. A cancellation
+// by the caller is not a failure and is not counted (a metric).
+func (e *Engine) SnapshotErrors() int { return int(e.snapshotErrors.Load()) }
 
 // WouldCrosses returns how many deltas the engine rejected because applying them would
 // have crossed the book — the never-crosses invariant firing on a bad update (ADR-0004).
@@ -125,24 +284,23 @@ func (e *Engine) WouldCrosses() int { return int(e.wouldCrosses.Load()) }
 // would silently void them.
 func (e *Engine) publish() {
 	bids, asks := e.book.topN(e.depth)
-	e.view.Store(&View{LastSeq: e.lastSeq, Bids: bids, Asks: asks})
+	e.gen++
+	e.view.Store(&View{Gen: e.gen, LastSeq: e.lastSeq, Bids: bids, Asks: asks})
 }
 
 // Bootstrap binds the book from a fresh snapshot, retrying a bounded number of times
 // if the snapshot is crossed; it surfaces a loud error rather than wedging.
 func (e *Engine) Bootstrap(ctx context.Context) error {
-	if e.checksum != nil && e.maxDepth > 0 && e.maxDepth < checksumDepth {
-		return fmt.Errorf("engine: maxDepth %d narrower than checksum depth %d: misconfigured", e.maxDepth, checksumDepth)
-	}
 	lastReason := market.ErrCrossed // why the most recent attempt was rejected
 	for range maxBindAttempts {
-		snap, err := e.src.Snapshot(ctx)
+		snap, err := e.snapshotWithRetry(ctx)
 		if err != nil {
 			return err
 		}
 		if crossesSnapshot(snap) {
-			e.resyncs.Add(1)
+			e.snapshotRejects.Add(1)
 			lastReason = market.ErrCrossed
+			e.recordEvent(KindSnapshotReject, 0, snap.LastUpdateID, reasonSnapshotCrossed, 0)
 			continue
 		}
 		e.book = buildFrom(snap)
@@ -154,15 +312,44 @@ func (e *Engine) Bootstrap(ctx context.Context) error {
 			bids, asks := e.book.topN(checksumDepth)
 			if e.checksum(bids, asks) != snap.Checksum {
 				e.checksumMismatches.Add(1)
-				e.resyncs.Add(1)
+				e.snapshotRejects.Add(1)
 				lastReason = market.ErrChecksumMismatch
+				e.recordEvent(KindSnapshotReject, 0, snap.LastUpdateID, reasonSnapshotChecksum, 0)
 				continue // a snapshot we cannot reproduce: refetch a fresh one
 			}
 		}
 		e.publish()
+		e.resyncing.Store(false) // after publish: cleared first, Ready would be true over the old view
 		return nil
 	}
 	return fmt.Errorf("bootstrap failed after %d unusable snapshots: %w", maxBindAttempts, lastReason)
+}
+
+// snapshotWithRetry fetches a snapshot, retrying while the failure is transient. The caller's
+// cancellation ends it at once, also while waiting out a delay. A failure that is not
+// transient is returned immediately, exactly as before retrying existed.
+func (e *Engine) snapshotWithRetry(ctx context.Context) (market.Snapshot, error) {
+	for attempt := 0; ; attempt++ {
+		snap, err := e.src.Snapshot(ctx)
+		if err == nil {
+			return snap, nil
+		}
+		if ctx.Err() != nil { // shutting down: neither a snapshot failure nor worth a retry
+			return market.Snapshot{}, err
+		}
+		e.snapshotErrors.Add(1)
+		reason := reasonSnapshotFailed
+		if source.IsTransient(err) {
+			reason = reasonSnapshotTransient
+		}
+		e.recordEvent(KindSnapshotError, 0, 0, reason, 0)
+		if !source.IsTransient(err) || attempt >= e.retryMax {
+			return market.Snapshot{}, err
+		}
+		if serr := e.retrySleep(ctx, e.retryBackoff(attempt)); serr != nil {
+			return market.Snapshot{}, serr
+		}
+	}
 }
 
 type outcome uint8
@@ -174,14 +361,17 @@ const (
 )
 
 // applyDelta is the single apply routine. Three-way so stale events don't over-resync
-// and neither the continuity nor the never-crosses check can be skipped.
-func (e *Engine) applyDelta(d market.Delta) outcome {
+// and neither the continuity nor the never-crosses check can be skipped. When it asks
+// for a resync it also returns the ID of the fault event it recorded, so the resync can
+// report how long it took.
+func (e *Engine) applyDelta(d market.Delta) (outcome, uint64) {
 	if d.LastSeq <= e.lastSeq {
-		return dropped // already applied (stale or duplicate) — idempotent
+		return dropped, 0 // already applied (stale or duplicate) — idempotent
 	}
 	if d.FirstSeq > e.lastSeq+1 {
 		e.gaps.Add(1)
-		return needResync // a real forward gap; the missing deltas are unknown
+		// a real forward gap; the missing deltas are unknown
+		return needResync, e.recordEvent(KindGap, e.lastSeq+1, d.FirstSeq, reasonGap, unknownDuration)
 	}
 	for _, lvl := range d.Bids {
 		e.book.set(market.Bid, lvl.Price, lvl.Size)
@@ -195,16 +385,18 @@ func (e *Engine) applyDelta(d market.Delta) outcome {
 	e.lastSeq = d.LastSeq
 	if e.book.crosses() {
 		e.wouldCrosses.Add(1)
-		return needResync // never serve a crossed book
+		// never serve a crossed book
+		return needResync, e.recordEvent(KindCross, 0, d.LastSeq, reasonCross, unknownDuration)
 	}
 	if e.checksum != nil {
 		bids, asks := e.book.topN(checksumDepth)
 		if e.checksum(bids, asks) != d.Checksum {
 			e.checksumMismatches.Add(1)
-			return needResync // checksum drift: the book no longer matches the venue
+			// checksum drift: the book no longer matches the venue
+			return needResync, e.recordEvent(KindChecksum, 0, d.LastSeq, reasonChecksum, unknownDuration)
 		}
 	}
-	return applied
+	return applied, 0
 }
 
 // Step processes one source event. It returns false when the source is exhausted or
@@ -217,9 +409,11 @@ func (e *Engine) Step(ctx context.Context) (bool, error) {
 	if !ok {
 		return false, ctx.Err()
 	}
+	e.stampEvent()
 	switch ev.Kind {
 	case source.EventDelta:
-		switch e.applyDelta(ev.Delta) {
+		o, id := e.applyDelta(ev.Delta)
+		switch o {
 		case applied:
 			e.consecutiveResyncs = 0 // progress made; reset the livelock guard
 			e.publish()
@@ -229,29 +423,37 @@ func (e *Engine) Step(ctx context.Context) (bool, error) {
 		case dropped:
 			// stale/duplicate: ignore
 		case needResync:
-			if err := e.resync(ctx); err != nil {
+			if err := e.resync(ctx, id); err != nil {
 				return false, err
 			}
 		}
 	case source.EventDisconnected:
 		e.disconnects.Add(1)
-		if err := e.resync(ctx); err != nil {
+		id := e.recordEvent(KindDisconnect, 0, 0, reasonDisconnect, unknownDuration)
+		if err := e.resync(ctx, id); err != nil {
 			return false, err
 		}
 	case source.EventTrade:
-		// trades are not part of the book; delivery (slice 0005) forwards them
+		// trades are not part of the book; the engine ignores them
 	}
 	return true, nil
 }
 
-func (e *Engine) resync(ctx context.Context) error {
+// resync rebuilds the book after the fault event with the given ID, and reports on that
+// event how long the bootstrap took, whether it worked or not. It gives up before
+// bootstrapping, and before reading the clock, once resyncs make no progress.
+func (e *Engine) resync(ctx context.Context, id uint64) error {
+	e.resyncing.Store(true)
 	e.resyncs.Add(1)
 	e.consecutiveResyncs++
 	if e.consecutiveResyncs > maxConsecutiveResyncs {
 		return fmt.Errorf("resync livelock: %d consecutive resyncs without progress: %w",
 			e.consecutiveResyncs, market.ErrStaleSnapshot)
 	}
-	return e.Bootstrap(ctx)
+	start := e.now()
+	err := e.Bootstrap(ctx)
+	e.setEventDuration(id, max(e.now().Sub(start).Milliseconds(), 0))
+	return err
 }
 
 // Run bootstraps, then steps until the source ends or the context is cancelled.

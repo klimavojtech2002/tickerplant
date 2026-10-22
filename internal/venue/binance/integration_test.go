@@ -1,7 +1,7 @@
 //go:build integration
 
 // Live integration test against the real Binance feed. Excluded from the default suite
-// (the deterministic proof lives in the offline tests and the synthetic source); run it
+// (the deterministic checks live in the offline tests and the synthetic source); run it
 // manually with: go test -tags integration ./internal/venue/binance
 package binance
 
@@ -23,7 +23,10 @@ func TestLiveBinanceReconstructs(t *testing.T) {
 	}
 	defer src.Close()
 
-	eng := book.New(src, 10)
+	eng, err := book.New(src, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := eng.Bootstrap(ctx); err != nil {
 		t.Fatalf("bootstrap: %v", err)
 	}

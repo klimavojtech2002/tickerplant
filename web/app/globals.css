@@ -71,14 +71,39 @@ h1 {
   background: var(--ink-muted);
 }
 
-.badge-live .badge-dot {
+.badge-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.badge-live .badge-dot,
+.badge-quiet .badge-dot {
   background: var(--live);
 }
 
-.badge-retrying .badge-dot,
-.badge-stalled .badge-dot,
-.badge-disconnected .badge-dot {
+.badge-no-data .badge-dot,
+.badge-reconnecting .badge-dot,
+.badge-transient .badge-dot {
   background: var(--warn);
+}
+
+.badge-dropped {
+  color: var(--warn);
+  border: 1px solid var(--warn);
+  border-radius: 4px;
+  padding: 0 6px;
+}
+
+.panel-failed {
+  border: 1px solid var(--warn);
+  border-radius: 6px;
+  padding: 8px 14px;
+  margin: 12px 0;
+}
+
+.health-dimmed {
+  opacity: 0.5;
 }
 
 .tiles {

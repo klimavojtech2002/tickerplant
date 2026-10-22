@@ -6,12 +6,15 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/klimavojtech2002/tickerplant/internal/book"
 	"github.com/klimavojtech2002/tickerplant/internal/market"
 	"github.com/klimavojtech2002/tickerplant/internal/source"
+	"github.com/klimavojtech2002/tickerplant/internal/venue"
 )
 
 // depthFrame builds a raw depthUpdate JSON frame, as the WebSocket would deliver it —
@@ -151,7 +154,10 @@ func TestEngineReconstructsFromAdapter(t *testing.T) {
 	frames <- depthFrame(102, 102, nil, [][]string{{"102.00", "3.0"}}) // add ask 102
 	close(frames)
 
-	eng := book.New(newSource(t, frames, srv.URL, srv.Client()), 10)
+	eng, err := book.New(newSource(t, frames, srv.URL, srv.Client()), 10)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := eng.Run(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -169,7 +175,7 @@ func TestEngineReconstructsFromAdapter(t *testing.T) {
 
 // The bind boundary through the adapter: a stale first event (u <= snapshot id) is
 // dropped, and a straddling event whose U is below the snapshot id (U <= L+1 <= u)
-// binds without a resync — Binance's procedure (correctness.md §3), proven end to end.
+// binds without a resync — Binance's procedure (correctness.md §3), exercised end to end.
 func TestAdapterStraddleAndStaleDrop(t *testing.T) {
 	srv, _ := snapshotServer(t, depthBody) // lastUpdateId = 100, bid 100@1, ask 101@1
 	frames := make(chan []byte, 2)
@@ -177,7 +183,10 @@ func TestAdapterStraddleAndStaleDrop(t *testing.T) {
 	frames <- depthFrame(98, 101, [][]string{{"100.00", "5.0"}}, nil) // U=98 < L+1=101 <= u=101: straddles, binds
 	close(frames)
 
-	eng := book.New(newSource(t, frames, srv.URL, srv.Client()), 10)
+	eng, err := book.New(newSource(t, frames, srv.URL, srv.Client()), 10)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := eng.Run(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -199,7 +208,10 @@ func TestGapTriggersResyncThroughAdapter(t *testing.T) {
 	frames <- depthFrame(200, 200, [][]string{{"100.00", "5.0"}}, nil) // gap: 200 > 102 -> resync
 	close(frames)
 
-	eng := book.New(newSource(t, frames, srv.URL, srv.Client()), 10)
+	eng, err := book.New(newSource(t, frames, srv.URL, srv.Client()), 10)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := eng.Run(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -211,5 +223,64 @@ func TestGapTriggersResyncThroughAdapter(t *testing.T) {
 	}
 	if eng.View().Crosses() {
 		t.Fatal("book must not cross after resync")
+	}
+}
+
+// 429 and 5xx are worth retrying; a 4xx such as a bad symbol is not. Either way the
+// sentinel stays reachable for callers that match on it.
+func TestSnapshotStatusClassification(t *testing.T) {
+	for _, c := range []struct {
+		status    int
+		transient bool
+	}{{429, true}, {500, true}, {503, true}, {400, false}, {404, false}} {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			http.Error(w, "no", c.status)
+		}))
+		_, err := newSource(t, nil, srv.URL, srv.Client()).Snapshot(context.Background())
+		srv.Close()
+		if !errors.Is(err, ErrSnapshotStatus) {
+			t.Errorf("%d: err = %v, want ErrSnapshotStatus", c.status, err)
+		}
+		if got := source.IsTransient(err); got != c.transient {
+			t.Errorf("%d: IsTransient = %v, want %v", c.status, got, c.transient)
+		}
+	}
+}
+
+// A venue that accepts the request and never answers must not hold Snapshot: the client
+// timeout ends it, as a transient failure.
+func TestSnapshotHungServerTimesOut(t *testing.T) {
+	release := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { <-release }))
+	defer srv.Close()
+	defer close(release)
+	start := time.Now()
+	_, err := newSource(t, nil, srv.URL, venue.NewHTTPClient(50*time.Millisecond)).Snapshot(context.Background())
+	if !source.IsTransient(err) {
+		t.Fatalf("err = %v, want a transient timeout", err)
+	}
+	if took := time.Since(start); took > 2*time.Second {
+		t.Fatalf("took %v, want about the 50ms client timeout", took)
+	}
+}
+
+// A reply over the bound is refused instead of being read into memory.
+func TestSnapshotBodyOverLimit(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Write([]byte(`{"lastUpdateId":1,"bids":[],"asks":[],"pad":"`))
+		w.Write([]byte(strings.Repeat("x", snapshotBodyLimit+1)))
+		w.Write([]byte(`"}`))
+	}))
+	defer srv.Close()
+	_, err := newSource(t, nil, srv.URL, srv.Client()).Snapshot(context.Background())
+	if !errors.Is(err, venue.ErrBodyTooLarge) {
+		t.Fatalf("err = %v, want ErrBodyTooLarge", err)
+	}
+}
+
+func TestNewDefaultsToClientWithTimeout(t *testing.T) {
+	c := New(Config{}).client
+	if c == http.DefaultClient || c.Timeout != venue.DefaultHTTPTimeout {
+		t.Fatalf("default client = %+v, want one with the %v timeout", c, venue.DefaultHTTPTimeout)
 	}
 }

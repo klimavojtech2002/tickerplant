@@ -12,6 +12,7 @@ import (
 	"os"
 	"runtime"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -21,9 +22,9 @@ import (
 	"github.com/klimavojtech2002/tickerplant/internal/metrics"
 )
 
-// TestMain is the goroutine-leak gate (plan 0007 acceptance): after every test and
-// with idle HTTP connections dropped, the goroutine count must return to the
-// baseline — a wedged SSE handler or an unreleased hub consumer fails the package.
+// TestMain is the goroutine-leak gate: after every test and with idle HTTP connections dropped, the
+// goroutine count must return to the baseline — a wedged SSE handler or an unreleased hub consumer
+// fails the package.
 func TestMain(m *testing.M) {
 	base := runtime.NumGoroutine()
 	code := m.Run()
@@ -46,6 +47,10 @@ func TestMain(m *testing.M) {
 type stubEngine struct {
 	view                                            *book.View
 	gaps, resyncs, disconnects, crosses, mismatches int
+	rejects, snapErrors                             int
+	ready                                           atomic.Bool  // set and cleared by tests while the server runs
+	events                                          []book.Event // the fault log, set before the server starts
+	lastEventAt                                     time.Time    // set before the server starts
 	// onView runs once, inside the first View() call. The stream handler subscribes to the
 	// hub before it reads the engine's view, so a hook that publishes to the hub here
 	// reproduces, deterministically, a view landing in the consumer's slot at the seam
@@ -65,9 +70,21 @@ func (e *stubEngine) Resyncs() int            { return e.resyncs }
 func (e *stubEngine) Disconnects() int        { return e.disconnects }
 func (e *stubEngine) WouldCrosses() int       { return e.crosses }
 func (e *stubEngine) ChecksumMismatches() int { return e.mismatches }
+func (e *stubEngine) SnapshotRejects() int    { return e.rejects }
+func (e *stubEngine) SnapshotErrors() int     { return e.snapErrors }
+func (e *stubEngine) Ready() bool             { return e.ready.Load() }
+func (e *stubEngine) Events() []book.Event    { return e.events }
+func (e *stubEngine) LastEventAt() time.Time  { return e.lastEventAt }
 
-func view(seq market.Sequence) *book.View {
+// view builds a hand-made view whose generation equals its sequence, so a test that counts
+// up in sequence also counts up in generation.
+func view(seq market.Sequence) *book.View { return viewGen(seq, uint64(seq)) }
+
+// viewGen builds a hand-made view with its own generation. The stream sends a view only if
+// its generation is above the last one sent, and 0 means unset.
+func viewGen(seq market.Sequence, gen uint64) *book.View {
 	return &book.View{
+		Gen:     gen,
 		LastSeq: seq,
 		Bids:    []market.Level{{Price: 627217, Size: 135823999}},
 		Asks:    []market.Level{{Price: 627218, Size: 114202}},
@@ -76,12 +93,16 @@ func view(seq market.Sequence) *book.View {
 
 func newEdge(t *testing.T, hub *delivery.Hub, eng Engine, lat *metrics.Histogram, writeTimeout time.Duration) *httptest.Server {
 	t.Helper()
-	srv := httptest.NewServer(New(Config{
+	h, err := New(Config{
 		Hub: hub, Engine: eng,
 		Venue: "kraken", Symbol: "BTC/USD",
 		PriceScale: 1, SizeScale: 8,
 		Latency: lat, WriteTimeout: writeTimeout,
-	}))
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewServer(h)
 	t.Cleanup(srv.Close)
 	return srv
 }
@@ -106,12 +127,18 @@ func openStream(t *testing.T, url string) (*http.Response, *bufio.Scanner) {
 	return resp, bufio.NewScanner(resp.Body)
 }
 
-// nextView reads SSE lines until one view event's data payload is decoded.
+// nextView reads SSE lines until one view event's data payload is decoded. Telemetry events
+// are skipped: they interleave with views on the same stream.
 func nextView(t *testing.T, sc *bufio.Scanner) viewJSON {
 	t.Helper()
+	event := ""
 	for sc.Scan() {
 		line := sc.Text()
-		if data, ok := strings.CutPrefix(line, "data: "); ok {
+		if name, ok := strings.CutPrefix(line, "event: "); ok {
+			event = name
+			continue
+		}
+		if data, ok := strings.CutPrefix(line, "data: "); ok && event == "view" {
 			var v viewJSON
 			if err := json.Unmarshal([]byte(data), &v); err != nil {
 				t.Fatalf("bad event payload %q: %v", data, err)
@@ -225,14 +252,10 @@ func TestLaggingClientDisconnectedAndUnwedged(t *testing.T) {
 
 	resp, _ := openStream(t, srv.URL) // never read from it
 
-	// openStream's http.Get returns once the server flushes headers, which happens
-	// before the handler calls Hub.Subscribe (server.go's stream). Unlike every other
-	// openStream caller in this file, this test never reads the body (nextView), so it
-	// has no other happens-after signal that the subscription landed — without this
-	// wait, the loop below's condition can read Consumers()==0 before the handler ever
-	// subscribes, skip its body entirely, and leave the handler parked forever with
-	// nothing published to unwedge it (the same bug class TestStreamNoOpenerBeforeFirstPublish
-	// hit; reproduced empirically here too before this fix).
+	// The handler subscribes before it flushes headers, so the subscription has landed by
+	// the time openStream returns. This test never reads the body (nextView), so the wait
+	// below is only a guard: the loop's condition must not read Consumers()==0 and skip its
+	// body, which would leave the handler parked with nothing published to unwedge it.
 	subDeadline := time.After(5 * time.Second)
 	for hub.Stats().Consumers != 1 {
 		select {
@@ -336,7 +359,7 @@ func TestMetricsExact(t *testing.T) {
 	for range 100 {
 		lat.Record(100 * time.Microsecond)
 	}
-	eng := &stubEngine{gaps: 1, resyncs: 2, disconnects: 3, crosses: 4, mismatches: 5}
+	eng := &stubEngine{gaps: 1, resyncs: 2, disconnects: 3, crosses: 4, mismatches: 5, rejects: 6, snapErrors: 7}
 	srv := newEdge(t, hub, eng, lat, 0)
 
 	resp, err := http.Get(srv.URL + "/metrics")
@@ -360,7 +383,7 @@ func TestMetricsExact(t *testing.T) {
 	if doc.Delivery.Consumers != 1 || doc.Delivery.Delivered != 1 || doc.Delivery.Dropped != 1 {
 		t.Fatalf("delivery = %+v, want 1/1/1", doc.Delivery)
 	}
-	if doc.Engine != (engineJSON{Gaps: 1, Resyncs: 2, Disconnects: 3, WouldCrosses: 4, ChecksumMismatches: 5}) {
+	if doc.Engine != (engineJSON{Gaps: 1, Resyncs: 2, Disconnects: 3, WouldCrosses: 4, ChecksumMismatches: 5, SnapshotRejects: 6, SnapshotErrors: 7}) {
 		t.Fatalf("engine = %+v", doc.Engine)
 	}
 	if doc.Latency == nil || doc.Latency.Count != 100 {
@@ -407,13 +430,11 @@ func TestStreamNoOpenerBeforeFirstPublish(t *testing.T) {
 	defer hub.Close()
 	srv := newEdge(t, hub, &stubEngine{view: nil}, nil, 0)
 	_, sc := openStream(t, srv.URL)
-	// openStream's http.Get returns once the server flushes headers, which happens
-	// before the handler calls Hub.Subscribe (server.go's stream, by design: it
-	// unblocks EventSource's onopen on a quiet feed even before subscribing). A
-	// Publish racing ahead of that Subscribe would never reach this client, and
-	// since this test's engine has no opener view, there would be nothing else to
-	// wake it — an unrecoverable hang, not a flake. Wait for the subscription first,
-	// the same pattern already used below (TestStreamDegradedWriters).
+	// The handler subscribes before it flushes headers, so the subscription has landed by
+	// the time openStream returns. A Publish racing ahead of a Subscribe would never reach
+	// this client, and since this test's engine has no opener view, there would be nothing
+	// else to wake it — an unrecoverable hang, not a flake. Waiting for the subscription
+	// first stays as a guard, the same pattern already used below (TestStreamDegradedWriters).
 	deadline := time.After(5 * time.Second)
 	for hub.Stats().Consumers != 1 {
 		select {
@@ -466,7 +487,7 @@ func TestStreamEndsOnContextCancel(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		s.stream(httptest.NewRecorder(), req)
+		s.stream(&deadlineRecorder{ResponseRecorder: httptest.NewRecorder()}, req)
 	}()
 	deadline := time.After(5 * time.Second)
 	for hub.Stats().Consumers != 1 {
@@ -484,6 +505,12 @@ func TestStreamEndsOnContextCancel(t *testing.T) {
 		t.Fatal("handler did not end on context cancellation")
 	}
 }
+
+// deadlineRecorder is a recorder that also takes write deadlines, so the stream handler can
+// run against it the way it runs against a real connection.
+type deadlineRecorder struct{ *httptest.ResponseRecorder }
+
+func (d *deadlineRecorder) SetWriteDeadline(time.Time) error { return nil }
 
 // deadlineWriter supports flush and write deadlines but fails every write — the shape
 // of a connection that died after the response opened.
@@ -504,7 +531,7 @@ func TestStreamDegradedWriters(t *testing.T) {
 	s := &server{cfg: Config{Hub: hub, Engine: &stubEngine{view: view(1)}, WriteTimeout: time.Second, Log: quietLog()}}
 	req := httptest.NewRequest(http.MethodGet, "/stream", nil)
 
-	// no Flusher at all: the opening flush fails before any subscription
+	// no Flusher at all: the opening flush fails, and the handler unsubscribes on the way out
 	s.stream(&failingWriter{hdr: http.Header{}}, req)
 	if c := hub.Stats().Consumers; c != 0 {
 		t.Fatalf("consumers = %d after a failed open, want 0", c)
@@ -516,15 +543,54 @@ func TestStreamDegradedWriters(t *testing.T) {
 		t.Fatalf("consumers = %d after a deadline-less writer, want 0 (handler returned and unsubscribed)", c)
 	}
 
-	// deadline-capable writer whose write fails: the in-loop write path returns
+	// deadline-capable writer whose write fails: the first write is the telemetry frame, and
+	// the handler must end there and unsubscribe
 	s2 := &server{cfg: Config{Hub: hub, Engine: &stubEngine{}, WriteTimeout: time.Second, Log: quietLog()}}
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
 		s2.stream(&deadlineWriter{hdr: http.Header{}}, req)
 	}()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("handler did not exit after a failed telemetry write")
+	}
+	if c := hub.Stats().Consumers; c != 0 {
+		t.Fatalf("consumers = %d after a failed write, want 0", c)
+	}
+}
+
+// flakyWriter takes the first okWrites writes and fails the rest, like a connection that
+// dies after the stream has opened.
+type flakyWriter struct {
+	*deadlineRecorder
+	okWrites int
+	writes   int
+}
+
+func (f *flakyWriter) Write(p []byte) (int, error) {
+	f.writes++
+	if f.writes > f.okWrites {
+		return 0, errors.New("client gone")
+	}
+	return f.deadlineRecorder.Write(p)
+}
+
+// A write that fails after the telemetry frame and the opener went out (here the third, the
+// view published later) ends the handler too.
+func TestStreamEndsWhenALaterWriteFails(t *testing.T) {
+	hub := delivery.New(8)
+	defer hub.Close()
+	s := &server{cfg: Config{Hub: hub, Engine: &stubEngine{view: view(1)}, WriteTimeout: time.Second, Log: quietLog()}}
+	w := &flakyWriter{deadlineRecorder: &deadlineRecorder{ResponseRecorder: httptest.NewRecorder()}, okWrites: 2}
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		s.stream(w, httptest.NewRequest(http.MethodGet, "/stream", nil))
+	}()
 	deadline := time.After(5 * time.Second)
-	for hub.Stats().Consumers != 1 { // wait for the handler's subscription
+	for hub.Stats().Consumers != 1 {
 		select {
 		case <-deadline:
 			t.Fatal("handler never subscribed")

@@ -355,3 +355,31 @@ func TestRealDialError(t *testing.T) {
 		t.Fatal("dial to an invalid address must error")
 	}
 }
+
+// blockedWriteConn never accepts a write until its context ends, like a peer that has
+// stopped reading.
+type blockedWriteConn struct{ fakeConn }
+
+func (b *blockedWriteConn) write(ctx context.Context, _ []byte) error {
+	<-ctx.Done()
+	return ctx.Err()
+}
+
+// A subscribe write that never completes must end at the write timeout and trigger a
+// reconnect, not hold the session for ever.
+func TestStreamSubscribeWriteTimeoutReconnects(t *testing.T) {
+	stuck := &blockedWriteConn{fakeConn: *newFakeConn()}
+	good := newFakeConn()
+	good.feed <- readResult{data: []byte("ok")}
+	s := Dial(context.Background(), StreamConfig{
+		Subscribe: [][]byte{[]byte("sub")}, Backoff: fast(), WriteTimeout: 30 * time.Millisecond,
+		dial: dialerOf(returns(stuck), returns(good)),
+	})
+	defer s.Close()
+	if recv(t, s.Frames()) != "ok" {
+		t.Fatal("a stuck subscribe write must time out and reconnect")
+	}
+	if !stuck.closed.Load() {
+		t.Fatal("the stuck connection must be closed")
+	}
+}

@@ -7,7 +7,9 @@ package httpapi
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"time"
@@ -28,6 +30,11 @@ type Engine interface {
 	Disconnects() int
 	WouldCrosses() int
 	ChecksumMismatches() int
+	SnapshotRejects() int
+	SnapshotErrors() int
+	Ready() bool
+	Events() []book.Event
+	LastEventAt() time.Time
 }
 
 // Config wires the edge. PriceScale/SizeScale render ticks back to the venue's
@@ -41,14 +48,73 @@ type Config struct {
 	SizeScale  int
 	Latency    *metrics.Histogram // nil when the caller records no latency
 	Log        *slog.Logger       // nil discards
+	// CORSOrigin is the cross-origin policy: "*" or empty lets any origin read the edge; one
+	// origin such as "https://app.example" lets only that origin (see ValidateCORSOrigin).
+	CORSOrigin string
+	// MaxStreams is the most simultaneous stream consumers the edge serves; 0 means
+	// DefaultMaxStreams and a negative value is refused. The in-process log reader is not counted.
+	MaxStreams int
+	// Clock gives the edge's time: the telemetry timestamp and the age of the engine's last event
+	// in the status document (nil = time.Now).
+	Clock func() time.Time
+	// Mode, Version, StartedAt and Depth describe the running process in /api/status. Mode is
+	// "synthetic" or "live" (empty is reported as "unknown"); a zero StartedAt is reported as 0.
+	Mode      string
+	Version   string
+	StartedAt time.Time
+	Depth     int
+	// Rejected reports how many frames the source could not use (nil = 0: the source cannot say).
+	Rejected func() uint64
+	// ticker replaces the per-connection telemetry ticker in tests.
+	ticker func(time.Duration) (<-chan time.Time, func())
 	// WriteTimeout bounds each SSE event write, so a client that stopped reading
 	// unblocks the handler once the kernel buffers fill (default 10s).
 	WriteTimeout time.Duration
 }
 
-// New returns the edge handler: GET /stream (SSE, one complete top-N view per event)
-// and GET /metrics (JSON snapshot of delivery stats, engine counters, and latency).
-func New(cfg Config) http.Handler {
+// ErrConfig marks a Config New refuses.
+var ErrConfig = errors.New("httpapi: invalid configuration")
+
+// DefaultMaxStreams is the cap on simultaneous stream consumers when none is configured.
+const DefaultMaxStreams = 256
+
+// retryAfter is the hint, in seconds, sent with the refusal of a stream when the edge is full.
+const retryAfter = "5"
+
+// maxScale is the largest decimal scale a price or size can be rendered at.
+const maxScale = 18
+
+// New returns the edge handler: GET /stream (SSE: a complete top-N view per view event, and
+// a telemetry event every second), GET /healthz and /readyz, GET /metrics (JSON snapshot of
+// delivery stats, engine counters, and latency) and GET /api/status (the same facts with
+// integer latency, the mode, version and start time). It refuses a configuration that would only
+// fail later, or show a wrong price: a nil hub or engine, a price or size scale outside 0 to 18,
+// a mode other than synthetic or live, or a negative depth.
+func New(cfg Config) (http.Handler, error) {
+	if cfg.Hub == nil {
+		return nil, fmt.Errorf("%w: nil hub", ErrConfig)
+	}
+	if cfg.Engine == nil {
+		return nil, fmt.Errorf("%w: nil engine", ErrConfig)
+	}
+	if cfg.PriceScale < 0 || cfg.PriceScale > maxScale {
+		return nil, fmt.Errorf("%w: price scale %d, want 0 to %d", ErrConfig, cfg.PriceScale, maxScale)
+	}
+	if cfg.SizeScale < 0 || cfg.SizeScale > maxScale {
+		return nil, fmt.Errorf("%w: size scale %d, want 0 to %d", ErrConfig, cfg.SizeScale, maxScale)
+	}
+	if err := ValidateCORSOrigin(cfg.CORSOrigin); err != nil {
+		return nil, err
+	}
+	if cfg.Mode != "" && cfg.Mode != "synthetic" && cfg.Mode != "live" {
+		return nil, fmt.Errorf("%w: mode %q, want synthetic or live", ErrConfig, cfg.Mode)
+	}
+	if cfg.Depth < 0 {
+		return nil, fmt.Errorf("%w: depth %d, want 0 or more", ErrConfig, cfg.Depth)
+	}
+	if cfg.MaxStreams < 0 {
+		return nil, fmt.Errorf("%w: max streams %d, want 0 (the default) or more", ErrConfig, cfg.MaxStreams)
+	}
 	if cfg.WriteTimeout <= 0 {
 		cfg.WriteTimeout = 10 * time.Second
 	}
@@ -59,10 +125,62 @@ func New(cfg Config) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /stream", s.stream)
 	mux.HandleFunc("GET /metrics", s.metrics)
-	return mux
+	mux.HandleFunc("GET /api/status", s.status)
+	mux.HandleFunc("GET /healthz", s.healthz)
+	mux.HandleFunc("GET /readyz", s.readyz)
+	return chain(mux, cfg.Log, cfg.CORSOrigin), nil
 }
 
 type server struct{ cfg Config }
+
+// maxStreams is the effective cap: the configured value, or the default when none was set. It
+// is applied here, not in New, so a server built without New keeps working.
+func (s *server) maxStreams() int {
+	if s.cfg.MaxStreams == 0 {
+		return DefaultMaxStreams
+	}
+	return s.cfg.MaxStreams
+}
+
+// refuse answers a stream request the hub would not take. A full edge says when to try again;
+// a closed hub means the process is stopping, so there is nothing to wait for. Both are
+// readable by a browser (the chain adds the cross-origin headers), which a bare connection
+// drop would not be.
+func (s *server) refuse(w http.ResponseWriter, err error) {
+	if errors.Is(err, delivery.ErrFull) {
+		w.Header().Set("Retry-After", retryAfter)
+		probe(w, http.StatusServiceUnavailable, "too many streams")
+		return
+	}
+	probe(w, http.StatusServiceUnavailable, "shutting down")
+}
+
+// healthz answers 200 whenever the process is serving requests: it says the process is up,
+// nothing about the book.
+func (s *server) healthz(w http.ResponseWriter, _ *http.Request) {
+	probe(w, http.StatusOK, "ok")
+}
+
+// readyz answers 200 when the engine's book is usable (it has a view and is not rebuilding)
+// and 503 otherwise, which covers the start before the first view and any resync, retry
+// delays included. A quiet market does not make it false: a feed that has really failed
+// ends the process instead.
+func (s *server) readyz(w http.ResponseWriter, _ *http.Request) {
+	if !s.cfg.Engine.Ready() {
+		probe(w, http.StatusServiceUnavailable, "not ready")
+		return
+	}
+	probe(w, http.StatusOK, "ok")
+}
+
+// probe writes a health answer that no cache may keep.
+func probe(w http.ResponseWriter, status int, body string) {
+	h := w.Header()
+	h.Set("Content-Type", "text/plain; charset=utf-8")
+	h.Set("Cache-Control", "no-store")
+	w.WriteHeader(status)
+	_, _ = io.WriteString(w, body)
+}
 
 // viewJSON is one complete top-N view on the wire. Prices and sizes are the venue's
 // decimal strings — a JS client must not parse them into float64, and this shape makes
@@ -101,16 +219,29 @@ func (s *server) levels(ls []market.Level) [][2]string {
 // stream serves one SSE subscriber. The first event is the engine's current view, so
 // a (re)connecting client renders immediately without a join protocol — every event
 // is a complete view, which is the whole reconnect story under latest-wins (ADR-0015).
-// lastSeq dedupes the seam between that first read and the Hub subscription. The
-// doorbell closing (hub closed, or this consumer disconnected for lagging) ends the
-// response; the client's EventSource reconnects and starts fresh.
+// Each connection starts with a telemetry event, then the opener, so a client that connects to a
+// quiet or not yet bound engine still learns the connection is alive, and then gets a telemetry
+// event every second. After a hub close one more telemetry frame may be written before the
+// handler sees the closed doorbell; it is bounded by the write deadline.
+// lastGen dedupes the seam between that first read and the Hub subscription: a view is
+// sent only if the engine published it after the last one sent. The sequence number
+// cannot do that job, because a view rebuilt after a resync can have a lower or equal
+// one and must still be shown. The doorbell closing (hub closed, or this consumer
+// disconnected for lagging) ends the response; the client's EventSource reconnects and
+// starts fresh.
 func (s *server) stream(w http.ResponseWriter, r *http.Request) {
+	// Subscribe before the 200: a refusal must still be able to choose its status.
+	c, err := s.cfg.Hub.TrySubscribe(s.maxStreams())
+	if err != nil {
+		s.refuse(w, err)
+		return
+	}
+	defer s.cfg.Hub.Unsubscribe(c.ID())
+
 	h := w.Header()
 	h.Set("Content-Type", "text/event-stream")
 	h.Set("Cache-Control", "no-cache")
-	// The dashboard runs on its own origin in development; the edge is a public
-	// read-only stream, so the open CORS grant gives nothing away.
-	h.Set("Access-Control-Allow-Origin", "*")
+	h.Set("X-Accel-Buffering", "no") // a buffering proxy would hold events back
 	w.WriteHeader(http.StatusOK)
 	// The server buffers headers until the first flush; without this a client on a
 	// quiet feed would hang waiting for the response to open (EventSource onopen).
@@ -118,32 +249,40 @@ func (s *server) stream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	c := s.cfg.Hub.Subscribe()
-	defer s.cfg.Hub.Unsubscribe(c.ID())
+	tick, stopTick := s.newTicker()
+	defer stopTick()
 
-	var lastSeq market.Sequence
-	if v := s.cfg.Engine.View(); v != nil {
+	var lastGen uint64
+	v := s.cfg.Engine.View() // one read serves the telemetry sequence and the opener
+	if !s.writeTelemetry(w, v) {
+		return
+	}
+	if v != nil {
 		if !s.writeView(w, v) {
 			return
 		}
-		lastSeq = v.LastSeq
+		lastGen = v.Gen
 	}
 	for {
 		select {
 		case <-r.Context().Done():
 			return
+		case <-tick:
+			if !s.writeTelemetry(w, s.cfg.Engine.View()) {
+				return
+			}
 		case _, ok := <-c.Ready():
 			if !ok {
 				return
 			}
 			v := c.Take()
-			if v == nil || v.LastSeq <= lastSeq {
-				continue // coalesced wakeup, or the view already sent as the opener
+			if v == nil || v.Gen <= lastGen {
+				continue // coalesced wakeup, or a view not newer than the last one sent
 			}
 			if !s.writeView(w, v) {
 				return
 			}
-			lastSeq = v.LastSeq
+			lastGen = v.Gen
 		}
 	}
 }
@@ -153,15 +292,7 @@ func (s *server) stream(w http.ResponseWriter, r *http.Request) {
 // the deadline fires, and the handler exits instead of wedging (the same stance as the
 // venue transport's Close-unblock).
 func (s *server) writeView(w http.ResponseWriter, v *book.View) bool {
-	payload := s.viewPayload(v)
-	rc := http.NewResponseController(w)
-	if err := rc.SetWriteDeadline(time.Now().Add(s.cfg.WriteTimeout)); err != nil {
-		return false
-	}
-	if _, err := fmt.Fprintf(w, "event: view\ndata: %s\n\n", payload); err != nil {
-		return false
-	}
-	return rc.Flush() == nil
+	return s.writeEvent(w, "view", s.viewPayload(v))
 }
 
 // metricsJSON is the /metrics document. Latency quantiles are duration strings
@@ -180,6 +311,8 @@ type engineJSON struct {
 	Disconnects        int `json:"disconnects"`
 	WouldCrosses       int `json:"wouldCrosses"`
 	ChecksumMismatches int `json:"checksumMismatches"`
+	SnapshotRejects    int `json:"snapshotRejects"`
+	SnapshotErrors     int `json:"snapshotErrors"`
 }
 
 type latencyJSON struct {
@@ -201,6 +334,8 @@ func (s *server) metrics(w http.ResponseWriter, _ *http.Request) {
 			Disconnects:        s.cfg.Engine.Disconnects(),
 			WouldCrosses:       s.cfg.Engine.WouldCrosses(),
 			ChecksumMismatches: s.cfg.Engine.ChecksumMismatches(),
+			SnapshotRejects:    s.cfg.Engine.SnapshotRejects(),
+			SnapshotErrors:     s.cfg.Engine.SnapshotErrors(),
 		},
 	}
 	if s.cfg.Latency != nil {
@@ -215,7 +350,6 @@ func (s *server) metrics(w http.ResponseWriter, _ *http.Request) {
 		}
 	}
 	w.Header().Set("Content-Type", "application/json")
-	w.Header().Set("Access-Control-Allow-Origin", "*")
 	if err := json.NewEncoder(w).Encode(doc); err != nil {
 		s.cfg.Log.Error("metrics encode failed", "err", err)
 	}

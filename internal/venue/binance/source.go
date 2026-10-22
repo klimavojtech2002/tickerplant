@@ -1,16 +1,20 @@
 package binance
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/klimavojtech2002/tickerplant/internal/market"
 	"github.com/klimavojtech2002/tickerplant/internal/source"
+	"github.com/klimavojtech2002/tickerplant/internal/venue"
 )
 
 var _ source.Source = (*Source)(nil)
@@ -19,10 +23,14 @@ var _ source.Source = (*Source)(nil)
 // (e.g. a 429 rate limit); the caller decides whether to back off and retry.
 var ErrSnapshotStatus = errors.New("binance: unexpected snapshot status")
 
+// snapshotBodyLimit bounds a depth reply. A limit=5000 snapshot is about 0.3 MB, so 4 MiB is
+// far above any real reply and still small enough to hold in memory.
+const snapshotBodyLimit = 4 << 20
+
 // Config configures a Binance adapter. Frames is the stream of raw depthUpdate JSON
 // frames — fed by the WebSocket layer in production, by a channel in tests — so the
 // adapter's logic is testable without a socket. SnapshotURL is the REST /api/v3/depth
-// endpoint for the symbol; Client defaults to http.DefaultClient.
+// endpoint for the symbol; Client defaults to one with venue.DefaultHTTPTimeout.
 type Config struct {
 	Venue       market.Venue
 	Symbol      market.Symbol
@@ -31,6 +39,8 @@ type Config struct {
 	Frames      <-chan []byte
 	SnapshotURL string
 	Client      *http.Client
+	// Logger receives a sample line for rejected frames, at most one a second (nil discards).
+	Logger *slog.Logger
 }
 
 // Source is the Binance transport-port adapter. It implements source.Source so the
@@ -42,19 +52,37 @@ type Source struct {
 	done    chan struct{}
 	once    sync.Once
 	onClose func() // optional teardown (e.g. closing the live WebSocket), set by Live
+
+	rejected  atomic.Uint64   // frames meant to be depth updates that could not be used
+	rejectLog *venue.LogEvery // paces the reject log; used only by Next
 }
 
 // New builds a Binance adapter from cfg.
 func New(cfg Config) *Source {
 	c := cfg.Client
 	if c == nil {
-		c = http.DefaultClient
+		c = venue.NewHTTPClient(venue.DefaultHTTPTimeout)
 	}
 	return &Source{
 		cfg:    cfg,
 		scales: scales{price: cfg.PriceScale, size: cfg.SizeScale},
 		client: c,
 		done:   make(chan struct{}),
+
+		rejectLog: venue.NewLogEvery(time.Second, nil),
+	}
+}
+
+// Rejected returns how many frames could not be used: they did not decode as JSON, or a
+// depth update failed to normalize. Frames that decode but are not depth updates
+// (subscription acks) are not counted. Safe to call from any goroutine.
+func (s *Source) Rejected() uint64 { return s.rejected.Load() }
+
+// reject counts a frame Next could not use and logs a sample of why.
+func (s *Source) reject(err error) {
+	n := s.rejected.Add(1)
+	if s.cfg.Logger != nil && s.rejectLog.Allow() {
+		s.cfg.Logger.Warn("binance: frame rejected", "reason", venue.CutRunes(err.Error(), 200), "rejected-total", n)
 	}
 }
 
@@ -63,10 +91,11 @@ func New(cfg Config) *Source {
 func (s *Source) Scales() (price, size int) { return s.cfg.PriceScale, s.cfg.SizeScale }
 
 // Next returns the next book update. It skips frames that are not depthUpdates
-// (subscription acks, pings) and frames that fail to normalize — a skipped frame
-// leaves a sequence hole, which the engine's gap check turns into a resync, so a bad
-// frame degrades to a correct rebuild rather than a wrong book. It returns false when
-// the frame channel closes, the context is cancelled, or the source is closed.
+// (subscription acks, pings), and skips and counts (Rejected) frames that do not decode
+// or fail to normalize — a skipped frame leaves a sequence hole, which the engine's gap
+// check turns into a resync, so a bad frame degrades to a correct rebuild rather than a
+// wrong book. It returns false when the frame channel closes, the context is cancelled,
+// or the source is closed.
 func (s *Source) Next(ctx context.Context) (source.Event, bool) {
 	for {
 		select {
@@ -80,11 +109,16 @@ func (s *Source) Next(ctx context.Context) (source.Event, bool) {
 				return source.Event{}, false
 			}
 			var u depthUpdate
-			if err := json.Unmarshal(raw, &u); err != nil || u.Event != "depthUpdate" {
+			if err := json.Unmarshal(raw, &u); err != nil {
+				s.reject(err)
 				continue
+			}
+			if u.Event != "depthUpdate" {
+				continue // a subscription ack or other control frame: not book data
 			}
 			d, err := toDelta(s.cfg.Venue, s.cfg.Symbol, s.scales, u)
 			if err != nil {
+				s.reject(err)
 				continue
 			}
 			return source.Event{Kind: source.EventDelta, Received: received, Delta: d}, true
@@ -95,27 +129,22 @@ func (s *Source) Next(ctx context.Context) (source.Event, bool) {
 // Snapshot fetches a fresh REST depth snapshot. Bootstrap and every resync call it, so
 // it must return the current book; a non-200 is a loud error (ErrSnapshotStatus).
 func (s *Source) Snapshot(ctx context.Context) (market.Snapshot, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, s.cfg.SnapshotURL, nil)
-	if err != nil {
-		return market.Snapshot{}, fmt.Errorf("binance snapshot request: %w", err)
-	}
-	resp, err := s.client.Do(req)
+	body, status, err := venue.Get(ctx, s.client, s.cfg.SnapshotURL, snapshotBodyLimit)
 	if err != nil {
 		return market.Snapshot{}, fmt.Errorf("binance snapshot: %w", err)
 	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return market.Snapshot{}, fmt.Errorf("%w: %d", ErrSnapshotStatus, resp.StatusCode)
+	if status != http.StatusOK {
+		return market.Snapshot{}, venue.StatusErr(ErrSnapshotStatus, status)
 	}
 	var d restDepth
-	if err := json.NewDecoder(resp.Body).Decode(&d); err != nil {
+	if err := json.NewDecoder(bytes.NewReader(body)).Decode(&d); err != nil {
 		return market.Snapshot{}, fmt.Errorf("binance snapshot decode: %w", err)
 	}
 	return toSnapshot(s.cfg.Venue, s.cfg.Symbol, s.scales, d)
 }
 
 // Close releases the source; further Next calls return false. Safe to call once; the
-// WebSocket layer (added with the live transport) owns the underlying connection.
+// WebSocket layer owns the underlying connection.
 func (s *Source) Close() error {
 	s.once.Do(func() {
 		close(s.done)

@@ -1,11 +1,10 @@
-package main
+package app
 
 import (
 	"bufio"
 	"context"
 	"net"
 	"net/http"
-	"strings"
 	"testing"
 	"time"
 
@@ -31,8 +30,8 @@ func TestRunShutdownWithLiveSSEClient(t *testing.T) {
 	}
 	runDone := make(chan error, 1)
 	go func() {
-		_, err := run(context.Background(), quietLog(), gs, config{
-			depth: 5, venue: "synthetic", symbol: "DEMO", httpLn: ln,
+		_, err := Run(context.Background(), quietLog(), gs, Config{
+			depth: 5, venue: "synthetic", symbol: "DEMO", HTTPListener: ln,
 		})
 		runDone <- err
 	}()
@@ -54,13 +53,7 @@ func TestRunShutdownWithLiveSSEClient(t *testing.T) {
 	}
 	defer resp.Body.Close()
 	sc := bufio.NewScanner(resp.Body)
-	opened := false
-	for sc.Scan() {
-		if strings.HasPrefix(sc.Text(), "data: ") {
-			opened = true
-			break
-		}
-	}
+	_, opened := firstViewData(sc)
 	if !opened {
 		t.Fatalf("stream closed before the opener: %v", sc.Err())
 	}

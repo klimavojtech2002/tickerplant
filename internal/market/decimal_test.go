@@ -21,7 +21,11 @@ func TestParseScaled(t *testing.T) {
 		{"integer only, scale 0", "123", 0, 123, false},
 		{"integer with scale", "123", 2, 12300, false},
 		{"leading-zero fraction", "0.0005", 4, 5, false},
-		{"missing leading integer", ".5", 4, 5000, false},
+		{"missing leading integer rejected", ".5", 4, 0, true}, // was accepted as 0.5; no venue sends this form
+		{"missing leading integer, zero fraction rejected", ".0", 2, 0, true},
+		{"missing leading integer, padded fraction rejected", ".50", 2, 0, true},
+		{"leading zero before the point accepted", "0.5", 4, 5000, false},
+		{"zero with zero fraction accepted", "0.0", 2, 0, false},
 		{"zero", "0", 2, 0, false},
 		{"max precision at scale", "9.99999999", 8, 999999999, false},
 		{"int64 max accepted", "9223372036854775807", 0, 9223372036854775807, false},

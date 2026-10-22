@@ -1,13 +1,9 @@
 # tickerplant
 
 A real-time service that reconstructs live order books from crypto-exchange feeds, normalizes them
-into one canonical stream, and fans that stream out to consumers — with correctness guarantees that
+into one canonical stream, and fans that stream out to consumers — with correctness properties that
 hold under reconnects, sequence gaps, and slow consumers. Binance and Kraken are wired live today
-(see Status); the transport port makes a third venue an adapter, not a rewrite.
-
-In plain terms: it connects to an exchange, rebuilds its live order book from a snapshot plus a flood
-of incremental updates, and serves a single clean, gap-free view downstream — and it can prove that
-view stays correct: no silent loss, duplication, or reordering across reconnects and gaps.
+(see Status); another venue would be an adapter behind the transport port.
 
 [![CI](https://github.com/klimavojtech2002/tickerplant/actions/workflows/ci.yml/badge.svg)](https://github.com/klimavojtech2002/tickerplant/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
@@ -25,27 +21,29 @@ ask), or drifts from reality with no error raised.
 
 ## What it does
 
-- Ingests a live order-book feed over WebSocket (Binance and Kraken today; the transport port takes
-  any venue).
+- Ingests a live order-book feed over WebSocket (Binance and Kraken today; a further venue is an
+  adapter behind the transport port, plus any engine option its feed needs).
 - Reconstructs the venue's L2 order book from snapshot plus incremental deltas, detecting sequence
   gaps and resynchronizing from a fresh snapshot when one is found.
-- Normalizes the venue's heterogeneous format into a single canonical book and trade model.
+- Normalizes the venue's heterogeneous format into a single canonical book model. A `Trade` type is
+  defined, but no adapter produces trades.
 - Fans the normalized stream out to consumers with backpressure handling.
 
 ## Correctness invariants
 
 Checked continuously, not assumed:
 
-- **The book never crosses.** The best bid is always strictly below the best ask. A violation is a
-  bug, surfaced immediately, not served downstream.
+- **The book never crosses.** The best bid is always strictly below the best ask. A delta that
+  would cross is rejected and counted, the book resyncs, and a crossed view is never stored for readers.
 - **The book stays in sync with the venue.** Where a venue numbers updates, a missing number is a
   gap; where it publishes a checksum instead, a mismatch is the equivalent signal. Either way the book
   doesn't guess — it resynchronizes from a new snapshot, following each exchange's documented recovery
   procedure.
 
-Enforced with property-based tests: generate arbitrary legal and illegal update sequences and assert
-the book either stays correct or correctly resyncs. Recovery procedure per venue and the exact
-failure model are in [docs/correctness.md](docs/correctness.md).
+Enforced by a seeded deterministic simulation: it drives the engine over many runs with injected gaps,
+reorders, duplicates, disconnects and crossing updates, and checks that no view sampled after any step
+crosses and that the final top-N view matches an independent truth book. Recovery procedure per venue
+and the exact failure model are in [docs/correctness.md](docs/correctness.md).
 
 ## Figures
 
@@ -61,41 +59,46 @@ illustrating it after the fact.
 ## Architecture — a sans-I/O core
 
 The reconstruction and fan-out logic is written against an abstract transport, with no knowledge of
-sockets or any specific exchange. Live connections exist only at the edge, as adapters implementing
-that transport — so the correctness story is tested deterministically, against recorded and
-synthetically generated feeds where every gap, reorder, and disconnect can be reproduced exactly.
+sockets or any specific exchange. Live connections exist only at the edge, as adapters implementing that
+transport — so the correctness story is tested deterministically, against a seeded synthetic feed where
+every gap, reorder, and disconnect can be reproduced exactly.
 
 ```
    exchanges (live)              tickerplant                          consumers
  ┌──────────────────┐      ┌────────────────────────┐
  │ venue A (WS)     │─────►│ ingestion adapters     │
  ├──────────────────┤      │   (transport port)     │
- │ venue B (WS)     │─────►│        │               │      ┌────────────────┐
- ├──────────────────┤      │   normalizer           │─────►│stream consumers│
- │ recorded / synth │─────►│        │               │      ├────────────────┤
- │ (tests, same     │      │   order-book engine    │─────►│live dashboard  │
- │  port)           │      │   (invariant-checked)  │      └────────────────┘
- └──────────────────┘      │        │               │
-                           │   fan-out (in-process) │
-                           └────────────────────────┘
+ │ venue B (WS)     │─────►│        │               │
+ ├──────────────────┤      │   canonical model      │
+ │ synthetic source │─────►│        │               │
+ │ (tests, same     │      │   order-book engine    │
+ │  port)           │      │   (invariant-checked)  │
+ └──────────────────┘      │        │               │      ┌────────────────┐
+                           │   fan-out (in-process) │─────►│HTTP edge (SSE) │
+                           └────────────────────────┘      ├────────────────┤
+                                                           │dashboard (web) │
+                                                           └────────────────┘
 ```
 
-The fan-out is a small in-process broadcaster: the engine publishes a complete, immutable top-of-book
-view, and each consumer holds a size-1 latest slot — a lagging consumer jumps to the freshest book
-rather than replaying stale ones, and past a bound a consumer that can't keep up is disconnected.
+One process runs a single source (the diagram shows every source the port accepts, not what runs at
+once): the synthetic one, or one live venue chosen with `-live -venue binance|kraken`.
+
+The fan-out is a small in-process broadcaster: the engine stores a complete, immutable top-N view
+(depth 10 by default), the run loop hands it to the fan-out, and each consumer holds a size-1 latest
+slot. A lagging consumer jumps to the freshest book rather than replaying stale ones, and past a bound a
+consumer that can't keep up is disconnected.
 
 ## Design
 
 Each venue's book has exactly one writer goroutine; readers get a consistent view through an
 atomically published snapshot, so reads take no lock on the writer's hot path. The reasoning, and the
-alternative it was weighed against (a persistent tree for deeper views), is ADR-0008 in
-[docs/decisions.md](docs/decisions.md) — 19 decisions total, each with what was considered and
-rejected.
+alternative it was weighed against (a reader-writer lock on the hot update path), is ADR-0008 in
+[docs/decisions.md](docs/decisions.md) — 22 decisions in total.
 
 ## Scope
 
-Narrow and deep on purpose: **two to three venues, reconstructed correctly**, with a fourth venue an
-adapter rather than a rewrite.
+Narrow and deep on purpose: **two venues, reconstructed correctly** (Binance and Kraken), with a further
+venue an adapter rather than a rewrite.
 
 **Out of scope:** trading and execution (this is the data layer, not a bot); arbitrage capture,
 colocation, and MEV infrastructure (capital-intensive and a different problem); crash persistence
@@ -104,9 +107,12 @@ crash).
 
 ## Latency
 
-The engine measures internal processing latency — raw message in, normalized update out of fan-out —
-as a measured distribution (p50/p99/p99.9/max) under a defined load harness, reported once measured.
-End-to-end latency from the exchange is network round-trip, which this system doesn't control.
+The engine measures internal processing latency — raw frame off the adapter's frame channel to the
+applied view stored for readers — as a measured distribution (p50/p99/p99.9/max). Figure 3 above is a
+live 5-minute capture: 83.7% of updates were within the 1µs resolution floor, and the percentiles shown
+are of the remaining 16.3%. The open-loop benchmark harness in `bench/` is machine-dependent, and no
+benchmark run is published. End-to-end latency from the exchange is network round-trip, which this
+system doesn't control.
 
 ## Tech stack
 
@@ -130,36 +136,44 @@ docker compose run --rm --service-ports edge -http :8080 -live -venue kraken -sy
 ```
 
 Both images are multi-stage: the Go service on `gcr.io/distroless/static-debian12:nonroot` (no shell,
-non-root; 15.9 MB), the dashboard as a static export on `nginx:alpine` (74.7 MB).
+non-root; 15.9 MB), the dashboard as a static export on `nginx:1.27-alpine` (74.7 MB).
+
+The edge answers `/healthz` (the process is up) and `/readyz` (the book has a view and is not being
+rebuilt). `tickerplant -healthcheck -http :8080` asks `/healthz` from inside the container, where there is
+no curl, and exits 0 or 1. `-cors-origin https://app.example` limits which origin a browser lets read the
+edge (the default `*` lets any). `-max-streams` (default 256) caps the stream clients; the next one gets
+a 503.
 
 Without Docker: `go run ./cmd/tickerplant -http :8080 -steps 100000000` for the edge, then
 `cd web && pnpm install && pnpm dev` for the dashboard.
+
+The Go build needs Go 1.21 or newer: with the default `GOTOOLCHAIN=auto` the `go` command fetches the
+1.26.10 that `go.mod` asks for.
 
 ## Status
 
 | Component | Status |
 |-----------|--------|
-| Canonical book/trade model (integer ticks, no float) | Done — tested |
+| Canonical book model and `Trade` type (scaled integers, no float); no adapter emits trades | Done — tested |
 | Per-venue normalization to the canonical model | Done — tested (Binance, Kraken) |
 | Order-book engine (snapshot + delta, gap detect, resync, invariants) | Done — tested |
 | Transport port + deterministic synthetic source (seeded, fault-injecting) | Done — tested |
-| Recorded source (replay captured feeds) | Planned (with adapters) |
 | Binance live adapter (WebSocket diff-depth + REST snapshot) | Done — tested (`-live`) |
 | Kraken live adapter (WS v2 in-band book + CRC32 drift detection) | Done — tested (`-live -venue kraken -symbol BTC/USD`) |
-| OKX live adapter | Planned |
+| OKX live adapter | Not planned (two venues, see docs/scope.md) |
 | Fan-out delivery (`internal/delivery`, in-process, bounded backpressure) | Done — tested |
 | Runnable demo (`cmd/tickerplant`: source → engine → fan-out) | Done |
 | Dashboard (Next.js, `web/`: live book + health from the HTTP edge, no floats on the price path) | Done — tested |
-| Metrics: engine counters (gaps/resyncs/disconnects) + latency histogram | Done — tested |
-| HTTP edge: SSE `/stream` (complete top-N views) + `/metrics` JSON (`-http :8080`) | Done — tested |
-| Benchmark harness (open-loop, coordinated-omission-aware) | Done — tested |
+| Metrics: engine counters (gaps/resyncs/disconnects/refused snapshots) + latency histogram | Done — tested |
+| HTTP edge: SSE `/stream` (complete top-N views and a 1 Hz telemetry event), `/metrics` JSON, `/api/status` JSON, `/healthz` and `/readyz` (`-http :8080`; `-cors-origin`, `-healthcheck`) | Done — tested |
+| Benchmark harness (open-loop, coordinated-omission-aware) | Done — tested (no published figures) |
 | CI (`.github/workflows/ci.yml`: gofmt / vet / staticcheck / build / `-race`, plus a front-end lint/type-check/test/build job) | Done |
-| Docker, docker-compose (`docker compose up`, synthetic by default) | Done — tested |
+| Docker, docker-compose (`docker compose up`, synthetic by default) | Done (built and run by hand; no CI job builds the images) |
 
 ## Limitations
 
-Market-data infrastructure, not a trading system. Runs single-region against public exchange feeds.
-Does not place orders, model risk, or attempt to capture the opportunities it surfaces.
+Market-data infrastructure, not a trading system. Runs against public exchange feeds.
+Does not place orders, model risk, or look for trading opportunities.
 
 ## License
 

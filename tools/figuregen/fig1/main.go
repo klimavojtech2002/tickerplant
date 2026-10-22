@@ -40,7 +40,10 @@ func main() {
 	src := source.New(cfg)
 	defer src.Close()
 
-	eng := book.New(src, 10)
+	eng, err := book.New(src, 10)
+	if err != nil {
+		log.Fatalf("engine: %v", err)
+	}
 	ctx := context.Background()
 	if err := eng.Bootstrap(ctx); err != nil {
 		log.Fatalf("bootstrap: %v", err)

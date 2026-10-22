@@ -40,7 +40,7 @@ func TestCharacterizationGolden(t *testing.T) {
 				}
 			}
 			src := source.New(source.Config{Venue: "char", Symbol: "S", Seed: seed, Steps: 400, Faults: faults})
-			e := New(src, simDepth)
+			e := mustNew(t, src, simDepth)
 			if err := e.Run(context.Background()); err != nil {
 				t.Fatalf("seed %d %s: run: %v", seed, variant, err)
 			}
