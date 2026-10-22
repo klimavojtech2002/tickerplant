@@ -22,17 +22,17 @@ func seededEngine() *Engine {
 
 func TestApplyDeltaStaleDropped(t *testing.T) {
 	e := seededEngine()
-	if o := e.applyDelta(market.Delta{FirstSeq: 5, LastSeq: 9}); o != dropped {
+	if o, _ := e.applyDelta(market.Delta{FirstSeq: 5, LastSeq: 9}); o != dropped {
 		t.Fatalf("older delta: outcome %v, want dropped", o)
 	}
-	if o := e.applyDelta(market.Delta{FirstSeq: 10, LastSeq: 10}); o != dropped {
+	if o, _ := e.applyDelta(market.Delta{FirstSeq: 10, LastSeq: 10}); o != dropped {
 		t.Fatalf("delta at lastSeq: outcome %v, want dropped (idempotent)", o)
 	}
 }
 
 func TestApplyDeltaGapResync(t *testing.T) {
 	e := seededEngine()
-	o := e.applyDelta(market.Delta{FirstSeq: 12, LastSeq: 12, Bids: []market.Level{{Price: 99, Size: 2}}})
+	o, _ := e.applyDelta(market.Delta{FirstSeq: 12, LastSeq: 12, Bids: []market.Level{{Price: 99, Size: 2}}})
 	if o != needResync {
 		t.Fatalf("forward gap (12 over lastSeq+1=11): outcome %v, want needResync", o)
 	}
@@ -40,14 +40,14 @@ func TestApplyDeltaGapResync(t *testing.T) {
 
 func TestApplyDeltaExactAndStraddle(t *testing.T) {
 	e := seededEngine()
-	if o := e.applyDelta(market.Delta{FirstSeq: 11, LastSeq: 11, Bids: []market.Level{{Price: 99, Size: 2}}}); o != applied {
+	if o, _ := e.applyDelta(market.Delta{FirstSeq: 11, LastSeq: 11, Bids: []market.Level{{Price: 99, Size: 2}}}); o != applied {
 		t.Fatalf("exact next delta: outcome %v, want applied", o)
 	}
 	if e.lastSeq != 11 {
 		t.Fatalf("lastSeq = %d, want 11", e.lastSeq)
 	}
 	// a straddling delta whose range covers lastSeq+1 (12) must apply, not resync
-	if o := e.applyDelta(market.Delta{FirstSeq: 9, LastSeq: 13, Asks: []market.Level{{Price: 102, Size: 1}}}); o != applied {
+	if o, _ := e.applyDelta(market.Delta{FirstSeq: 9, LastSeq: 13, Asks: []market.Level{{Price: 102, Size: 1}}}); o != applied {
 		t.Fatalf("straddling delta: outcome %v, want applied", o)
 	}
 	if e.lastSeq != 13 {
@@ -57,7 +57,7 @@ func TestApplyDeltaExactAndStraddle(t *testing.T) {
 
 func TestApplyDeltaWouldCrossResync(t *testing.T) {
 	e := seededEngine() // bid 100, ask 101
-	o := e.applyDelta(market.Delta{FirstSeq: 11, LastSeq: 11, Bids: []market.Level{{Price: 101, Size: 1}}})
+	o, _ := e.applyDelta(market.Delta{FirstSeq: 11, LastSeq: 11, Bids: []market.Level{{Price: 101, Size: 1}}})
 	if o != needResync {
 		t.Fatalf("a delta that crosses the book must needResync, got %v", o)
 	}

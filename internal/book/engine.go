@@ -92,20 +92,22 @@ type Engine struct {
 	book               *book
 	lastSeq            market.Sequence
 	view               atomic.Pointer[View]
-	resyncs            atomic.Int64        // metrics; read lock-free from any goroutine (ADR-0008)
-	gaps               atomic.Int64        // sequence gaps detected
-	disconnects        atomic.Int64        // disconnect events seen
-	checksumMismatches atomic.Int64        // checksum drifts detected (checksum venues)
-	wouldCrosses       atomic.Int64        // deltas rejected because applying them would cross the book (ADR-0004)
-	consecutiveResyncs int                 // writer-goroutine only; reset on progress to bound a livelock
-	gen                uint64              // writer-goroutine only; copied into each published View
-	resyncing          atomic.Bool         // true from the start of a resync until its new view is published
-	checksum           Checksummer         // nil on sequence venues; set via WithChecksum for checksum venues
-	maxDepth           int                 // 0 = keep every level; >0 = the feed's subscribed window (WithMaxDepth)
-	latencyFn          func(time.Duration) // nil = no latency observation (WithLatencyObserver)
-	clock              func() time.Time    // nil = time.Now; read only on the writer goroutine (WithClock)
-	lastEventNanos     atomic.Int64        // clock time of the last processed source event, Unix nanoseconds
-	lastEventSet       atomic.Bool         // true once lastEventNanos holds a real value
+	resyncs            atomic.Int64            // metrics; read lock-free from any goroutine (ADR-0008)
+	gaps               atomic.Int64            // sequence gaps detected
+	disconnects        atomic.Int64            // disconnect events seen
+	checksumMismatches atomic.Int64            // checksum drifts detected (checksum venues)
+	wouldCrosses       atomic.Int64            // deltas rejected because applying them would cross the book (ADR-0004)
+	consecutiveResyncs int                     // writer-goroutine only; reset on progress to bound a livelock
+	gen                uint64                  // writer-goroutine only; copied into each published View
+	resyncing          atomic.Bool             // true from the start of a resync until its new view is published
+	checksum           Checksummer             // nil on sequence venues; set via WithChecksum for checksum venues
+	maxDepth           int                     // 0 = keep every level; >0 = the feed's subscribed window (WithMaxDepth)
+	latencyFn          func(time.Duration)     // nil = no latency observation (WithLatencyObserver)
+	clock              func() time.Time        // nil = time.Now; read only on the writer goroutine (WithClock)
+	lastEventNanos     atomic.Int64            // clock time of the last processed source event, Unix nanoseconds
+	lastEventSet       atomic.Bool             // true once lastEventNanos holds a real value
+	events             atomic.Pointer[[]Event] // the last fault events, replaced as a whole (see Events)
+	eventSeq           uint64                  // writer-goroutine only; ID of the newest event
 
 	snapshotRejects atomic.Int64                               // snapshots Bootstrap refused (crossed or checksum mismatch), at cold start or in a resync
 	snapshotErrors  atomic.Int64                               // Snapshot calls that failed, other than by the caller's cancellation
@@ -298,6 +300,7 @@ func (e *Engine) Bootstrap(ctx context.Context) error {
 		if crossesSnapshot(snap) {
 			e.snapshotRejects.Add(1)
 			lastReason = market.ErrCrossed
+			e.recordEvent(KindSnapshotReject, 0, snap.LastUpdateID, reasonSnapshotCrossed, 0)
 			continue
 		}
 		e.book = buildFrom(snap)
@@ -311,6 +314,7 @@ func (e *Engine) Bootstrap(ctx context.Context) error {
 				e.checksumMismatches.Add(1)
 				e.snapshotRejects.Add(1)
 				lastReason = market.ErrChecksumMismatch
+				e.recordEvent(KindSnapshotReject, 0, snap.LastUpdateID, reasonSnapshotChecksum, 0)
 				continue // a snapshot we cannot reproduce: refetch a fresh one
 			}
 		}
@@ -334,6 +338,11 @@ func (e *Engine) snapshotWithRetry(ctx context.Context) (market.Snapshot, error)
 			return market.Snapshot{}, err
 		}
 		e.snapshotErrors.Add(1)
+		reason := reasonSnapshotFailed
+		if source.IsTransient(err) {
+			reason = reasonSnapshotTransient
+		}
+		e.recordEvent(KindSnapshotError, 0, 0, reason, 0)
 		if !source.IsTransient(err) || attempt >= e.retryMax {
 			return market.Snapshot{}, err
 		}
@@ -352,14 +361,17 @@ const (
 )
 
 // applyDelta is the single apply routine. Three-way so stale events don't over-resync
-// and neither the continuity nor the never-crosses check can be skipped.
-func (e *Engine) applyDelta(d market.Delta) outcome {
+// and neither the continuity nor the never-crosses check can be skipped. When it asks
+// for a resync it also returns the ID of the fault event it recorded, so the resync can
+// report how long it took.
+func (e *Engine) applyDelta(d market.Delta) (outcome, uint64) {
 	if d.LastSeq <= e.lastSeq {
-		return dropped // already applied (stale or duplicate) — idempotent
+		return dropped, 0 // already applied (stale or duplicate) — idempotent
 	}
 	if d.FirstSeq > e.lastSeq+1 {
 		e.gaps.Add(1)
-		return needResync // a real forward gap; the missing deltas are unknown
+		// a real forward gap; the missing deltas are unknown
+		return needResync, e.recordEvent(KindGap, e.lastSeq+1, d.FirstSeq, reasonGap, unknownDuration)
 	}
 	for _, lvl := range d.Bids {
 		e.book.set(market.Bid, lvl.Price, lvl.Size)
@@ -373,16 +385,18 @@ func (e *Engine) applyDelta(d market.Delta) outcome {
 	e.lastSeq = d.LastSeq
 	if e.book.crosses() {
 		e.wouldCrosses.Add(1)
-		return needResync // never serve a crossed book
+		// never serve a crossed book
+		return needResync, e.recordEvent(KindCross, 0, d.LastSeq, reasonCross, unknownDuration)
 	}
 	if e.checksum != nil {
 		bids, asks := e.book.topN(checksumDepth)
 		if e.checksum(bids, asks) != d.Checksum {
 			e.checksumMismatches.Add(1)
-			return needResync // checksum drift: the book no longer matches the venue
+			// checksum drift: the book no longer matches the venue
+			return needResync, e.recordEvent(KindChecksum, 0, d.LastSeq, reasonChecksum, unknownDuration)
 		}
 	}
-	return applied
+	return applied, 0
 }
 
 // Step processes one source event. It returns false when the source is exhausted or
@@ -398,7 +412,8 @@ func (e *Engine) Step(ctx context.Context) (bool, error) {
 	e.stampEvent()
 	switch ev.Kind {
 	case source.EventDelta:
-		switch e.applyDelta(ev.Delta) {
+		o, id := e.applyDelta(ev.Delta)
+		switch o {
 		case applied:
 			e.consecutiveResyncs = 0 // progress made; reset the livelock guard
 			e.publish()
@@ -408,13 +423,14 @@ func (e *Engine) Step(ctx context.Context) (bool, error) {
 		case dropped:
 			// stale/duplicate: ignore
 		case needResync:
-			if err := e.resync(ctx); err != nil {
+			if err := e.resync(ctx, id); err != nil {
 				return false, err
 			}
 		}
 	case source.EventDisconnected:
 		e.disconnects.Add(1)
-		if err := e.resync(ctx); err != nil {
+		id := e.recordEvent(KindDisconnect, 0, 0, reasonDisconnect, unknownDuration)
+		if err := e.resync(ctx, id); err != nil {
 			return false, err
 		}
 	case source.EventTrade:
@@ -423,7 +439,10 @@ func (e *Engine) Step(ctx context.Context) (bool, error) {
 	return true, nil
 }
 
-func (e *Engine) resync(ctx context.Context) error {
+// resync rebuilds the book after the fault event with the given ID, and reports on that
+// event how long the bootstrap took, whether it worked or not. It gives up before
+// bootstrapping, and before reading the clock, once resyncs make no progress.
+func (e *Engine) resync(ctx context.Context, id uint64) error {
 	e.resyncing.Store(true)
 	e.resyncs.Add(1)
 	e.consecutiveResyncs++
@@ -431,7 +450,10 @@ func (e *Engine) resync(ctx context.Context) error {
 		return fmt.Errorf("resync livelock: %d consecutive resyncs without progress: %w",
 			e.consecutiveResyncs, market.ErrStaleSnapshot)
 	}
-	return e.Bootstrap(ctx)
+	start := e.now()
+	err := e.Bootstrap(ctx)
+	e.setEventDuration(id, max(e.now().Sub(start).Milliseconds(), 0))
+	return err
 }
 
 // Run bootstraps, then steps until the source ends or the context is cancelled.
