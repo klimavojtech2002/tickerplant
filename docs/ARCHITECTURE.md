@@ -28,11 +28,12 @@ transport port; delivery adapters sit on the output side.
 One process runs a single source (the diagram shows every source the port accepts, not what runs at
 once): the synthetic one, or one live venue chosen with `-live -venue binance|kraken`. With `-http`, the
 HTTP edge also serves `/metrics`, read directly from the engine counters and the fan-out's stats, and
-`/healthz` and `/readyz` for a container runtime (ADR-0017); the stream also carries a telemetry event
-every second (counters and the fault log), so a client can tell a quiet market from a dead connection.
-The synthetic source and a live socket implement the same transport port, so the engine cannot tell
-them apart — the basis of deterministic testing (ADR-0005). Binance and Kraken are wired live; the
-README status table lists what is built.
+`/healthz` and `/readyz` for a container runtime and `/api/status` (mode, version, start time, the age
+of the last event and integer latency) for a dashboard (ADR-0017); the stream also carries a telemetry
+event every second (counters and the fault log), so a client can tell a quiet market from a dead
+connection. The synthetic source and a live socket implement the same transport port, so the engine
+cannot tell them apart — the basis of deterministic testing (ADR-0005). Binance and Kraken are wired
+live; the README status table lists what is built.
 
 ## 2. Canonical model
 
@@ -145,6 +146,6 @@ The full correctness model and simulation method are in [correctness.md](correct
 The README status table is the source of truth for what is implemented. The core is built and tested —
 canonical model, transport port and synthetic source, order-book engine, the in-process fan-out with a
 runnable demo (`internal/app` wires it, `cmd/tickerplant` is the command), the metrics and benchmark
-harness, the Binance and Kraken live adapters, the HTTP edge (SSE stream, /metrics, /healthz, /readyz,
-ADR-0017), the dashboard (ADR-0018), CI, and the Docker packaging (ADR-0019). There is no OKX adapter
-(not planned; see [scope.md](scope.md)).
+harness, the Binance and Kraken live adapters, the HTTP edge (SSE stream, /metrics, /api/status,
+/healthz, /readyz, ADR-0017), the dashboard (ADR-0018), CI, and the Docker packaging (ADR-0019). There is
+no OKX adapter (not planned; see [scope.md](scope.md)).

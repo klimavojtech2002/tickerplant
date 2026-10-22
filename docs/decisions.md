@@ -420,7 +420,7 @@ component would fork its logic for one venue.
 (ADR-0015); nothing exposed the pipeline outside the process. The dashboard (and anything else)
 needs a network stream and the system's health counters.
 
-**Decision.** A thin `internal/httpapi` handler with four endpoints and one middleware chain.
+**Decision.** A thin `internal/httpapi` handler with five endpoints and one middleware chain.
 - `GET /stream` — Server-Sent Events: `view` events, each one complete view, and a `telemetry` event
   (below). SSE over WebSocket: the flow is strictly one-way, EventSource reconnects natively, and no
   client->server protocol exists to need a socket. Complete views over deltas: ADR-0015 already made
@@ -435,6 +435,22 @@ needs a network stream and the system's health counters.
   latency histogram (p50/p99/p99.9/max as duration strings): one sample per applied delta, spanning
   the adapter's raw-message dequeue to the applied view being stored for readers (correctness of the
   span is the engine's job — WithLatencyObserver — so no wire-wait can enter a sample).
+- `GET /api/status` — one JSON document for clients that should not parse strings, beside `/metrics`,
+  which is unchanged. Fields, in order: `schema` (1; it changes only when a field is removed or changes
+  meaning), `mode` (`synthetic`, `live`, or `unknown` for an edge built without one), `version`,
+  `venue`, `symbol`, `startedAtUnixMs` (0 when unset), `depth`, `lastEventAgeMs`, `delivery` (consumers,
+  delivered, dropped and published), `engine` (the counters and the source's count of frames it could
+  not use) and `latency` (`count` and the quantiles as whole nanoseconds, left out when no histogram is
+  attached; with a count of 0 the quantiles are 0). `lastEventAgeMs` is the time since the engine last
+  processed an event, in whole milliseconds: -1 before the first one, never negative otherwise. A number
+  with a documented marker is smaller for a client than a key that is sometimes missing, and the fault
+  log uses the same convention for an unknown duration. The age is reported, not used to make `/readyz`
+  false. The engine stamps events with its own clock and the edge reads its own, both the wall clock in
+  the process, so injecting different clocks would skew the age. Uptime is the client's to derive: the
+  telemetry timestamp minus `startedAtUnixMs`. The document is built from separate reads, so each field
+  is exact but it is not one atomic snapshot. The exact bytes of one document are pinned by
+  `internal/httpapi/testdata/status.json`, which the dashboard's tests are to read. The route is polled,
+  so it is logged at debug level like the probes.
 - `GET /healthz` — 200 `ok` whenever the process serves requests. `GET /readyz` — 200 `ok` when the
   book is usable and 503 `not ready` when it is not. Usable means the engine has a view and is not
   rebuilding, so `/readyz` is 503 from the start until the first view, and during a resync, snapshot
