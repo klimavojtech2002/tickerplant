@@ -4,10 +4,13 @@
 // computed in BigInt). Color identifies the side on the bars alone; all text stays
 // in ink, and the sides are named by their headers, so identity is never color-only.
 
+import { memo } from "react";
+
 import { barPct, maxSize, spread } from "@/lib/ticks";
 import type { ViewEvent } from "@/lib/types";
 
-export function BookPanel({ view }: { view: ViewEvent }) {
+// Memoised: the page re-renders on every telemetry event, and the book only changes with a view.
+export const BookPanel = memo(function BookPanel({ view }: { view: ViewEvent }) {
   const bestBid = view.bids[0];
   const bestAsk = view.asks[0];
   return (
@@ -24,7 +27,7 @@ export function BookPanel({ view }: { view: ViewEvent }) {
       </div>
     </section>
   );
-}
+});
 
 function Tile({ label, value }: { label: string; value: string }) {
   return (

@@ -1,32 +1,27 @@
-// StatusBadge names the stream state in words, with a dot for glance value —
-// state is never color-alone. "live" degrades to "stalled" when no view has
-// arrived for a while, so a silently dead pipe cannot masquerade as healthy.
+"use client";
 
-import type { StreamStatus } from "@/lib/store";
+// StatusBadge names the connection state in words, with a dot for glance value: state
+// is never colour alone. The words come from connectionLabel, which tells a quiet market
+// (telemetry fresh, no view for a while) from a dead pipe (no telemetry). The badge owns
+// its one-second clock so the page does not re-render for it.
 
-export const stalledAfterMs = 10_000;
+import { connectionLabel, type ConnectionState } from "@/lib/connection";
+import { useNow } from "@/lib/useNow";
 
-export function statusLabel(status: StreamStatus, updatedAt: number, now: number): string {
-  if (status === "live" && updatedAt > 0 && now - updatedAt > stalledAfterMs) {
-    return "stalled";
-  }
-  return status;
-}
-
-export function StatusBadge({
-  status,
-  updatedAt,
-  now,
-}: {
-  status: StreamStatus;
-  updatedAt: number;
-  now: number;
-}) {
-  const label = statusLabel(status, updatedAt, now);
+export function StatusBadge({ conn }: { conn: ConnectionState }) {
+  const now = useNow(1000);
+  const label = connectionLabel(conn, now);
   return (
-    <span className={`badge badge-${label}`}>
-      <span className="badge-dot" aria-hidden />
-      {label}
+    <span className="badge-group">
+      <span className={`badge badge-${label.kind}`}>
+        <span className="badge-dot" aria-hidden />
+        {label.text}
+      </span>
+      {conn.dropped > 0 ? (
+        <span className="badge-dropped">
+          {conn.dropped} {conn.dropped === 1 ? "frame" : "frames"} dropped
+        </span>
+      ) : null}
     </span>
   );
 }

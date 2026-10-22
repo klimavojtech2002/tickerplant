@@ -1,36 +1,33 @@
 "use client";
 
-// The dashboard page: one stream subscription, one status poll, and pure renders.
-// The client is a view over the backend, not a second implementation — every event
-// is a complete book, so there is no reducer to get wrong.
+// The dashboard page: one stream subscription, one status poll, and pure renders. The
+// client is a view over the backend, not a second implementation: every event is a
+// complete book, so there is nothing to merge. What the page does keep is the state of
+// its own link (lib/connection.ts), which a table-tested reducer owns.
+//
+// The page re-renders whenever the store changes (telemetry once a second, and each
+// view). The book panel is memoised and skips telemetry-only changes; the clocks live in
+// the badge and the health section, so nothing here ticks.
 
 import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 
 import { BookPanel } from "@/components/BookPanel";
-import { HealthPanel } from "@/components/HealthPanel";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
+import { HealthSection } from "@/components/HealthPanel";
 import { StatusBadge } from "@/components/StatusBadge";
 import { initialPollState, pollStatus, type PollState } from "@/lib/status";
-import { ViewStore, type Snapshot } from "@/lib/store";
+import { initialSnapshot, StreamStore } from "@/lib/store";
 import { connectStream } from "@/lib/stream";
 
 const edgeURL = process.env.NEXT_PUBLIC_EDGE_URL ?? "http://127.0.0.1:8080";
 
-const serverSnapshot: Snapshot = { status: "connecting", view: null, updatedAt: 0 };
-
 export default function Page() {
-  const store = useMemo(() => new ViewStore(), []);
-  const snap = useSyncExternalStore(store.subscribe, store.getSnapshot, () => serverSnapshot);
+  const store = useMemo(() => new StreamStore(), []);
+  const snap = useSyncExternalStore(store.subscribe, store.getSnapshot, () => initialSnapshot);
   const [poll, setPoll] = useState<PollState>(initialPollState);
-  const [now, setNow] = useState(0);
 
   useEffect(() => connectStream(edgeURL, store), [store]);
   useEffect(() => pollStatus(edgeURL, setPoll), []);
-  useEffect(() => {
-    // now starts at 0 (fresh-page state, statusLabel treats it as not stalled) and
-    // ticks once a second; no synchronous set, so hydration stays clean.
-    const id = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(id);
-  }, []);
 
   return (
     <main>
@@ -43,10 +40,14 @@ export default function Page() {
             </span>
           ) : null}
         </h1>
-        <StatusBadge status={snap.status} updatedAt={snap.updatedAt} now={now} />
+        <StatusBadge conn={snap.conn} />
       </header>
-      {snap.view ? <BookPanel view={snap.view} /> : <p>waiting for the first view…</p>}
-      <HealthPanel state={poll} now={now} />
+      <ErrorBoundary resetKey={snap.view}>
+        {snap.view ? <BookPanel view={snap.view} /> : <p>waiting for the first view…</p>}
+      </ErrorBoundary>
+      <ErrorBoundary resetKey={poll.kind}>
+        <HealthSection state={poll} />
+      </ErrorBoundary>
       <footer>
         <p>
           {`edge: ${edgeURL} — prices and sizes are the venue's decimal strings end to end; this page never parses them into floats.`}

@@ -3,8 +3,15 @@
 // and say so; the panel never presents old numbers as live and never hides itself.
 
 import { formatAgeMs, formatNs } from "@/lib/format";
+import { useNow } from "@/lib/useNow";
 import type { PollState } from "@/lib/status";
 import type { Status } from "@/lib/types";
+
+/** HealthSection runs a clock only while the endpoint is unavailable, for the "last updated" age. */
+export function HealthSection({ state }: { state: PollState }) {
+  const now = useNow(1000, state.kind === "unavailable");
+  return <HealthPanel state={state} now={now} />;
+}
 
 export function HealthPanel({ state, now }: { state: PollState; now: number }) {
   if (state.kind === "loading") {
