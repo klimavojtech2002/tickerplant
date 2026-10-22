@@ -525,9 +525,9 @@ if that expires, `Close` drops what is left.
   filling it, and limits per address belong to the proxy. A flood of refused requests costs one cheap
   response and one access-log line each.
 - A browser's `EventSource` treats any answer other than a 200 event stream as a failed connection and does
-  not retry by itself, and it cannot tell the two 503s apart. The dashboard has no backoff yet, so a
-  refused user sees "disconnected" until the client side adds one; `Retry-After` is a hint for other
-  clients and for people.
+  not retry by itself, and it cannot tell the two 503s apart. The dashboard therefore rebuilds the
+  connection itself after a refusal, with a capped exponential backoff (ADR-0018); `Retry-After` is a
+  hint for other clients and for people.
 - `HEAD /stream` is routed like `GET /stream` (a `GET` pattern also matches `HEAD`) and stays open until
   the client leaves; nothing uses it.
 - The counters travel as JSON numbers (small ints); only prices/sizes and durations need the
@@ -553,15 +553,25 @@ survive disconnects — in a language whose only built-in number is a float64.
   not style.
 - **A renderer, not a reconstruction.** Every event is a whole book, so the client keeps exactly
   one view — the freshest — in a small external store (the ADR-0015 shape again) read through
-  `useSyncExternalStore`. There is no reducer to get wrong; missed frames are by design not
-  replayed. A crossed frame is refused loudly (dev throws, production drops with an error log):
-  the server owns the invariant, the client owns never rendering a violation of it.
-- **Reconnect is EventSource's.** Native retry + the edge's current-view opener; the client adds
-  only a status badge, which degrades "live" to "stalled" when views stop arriving, and separately
-  reports "disconnected" (not "retrying") when the browser's own readyState shows it has given up
-  for good, so a silently dead pipe cannot look healthy or look like it will recover on its own.
-- **Boundary validation.** TypeScript types do not exist at runtime, so every event is shape-checked
-  before it enters the store; malformed frames are dropped with an error log.
+  `useSyncExternalStore`. There is no book to merge; missed frames are by design not replayed. A
+  crossed frame is dropped in every build, counted and logged (rate limited): the server owns the
+  invariant, the client owns never rendering a violation of it, and a bug there must cost a counter
+  and not the page.
+- **The link is a small state machine.** What the page knows about its connection is one pure
+  reducer (`lib/connection.ts`) and one pure function that turns it into the words on the status
+  pill. Two clocks run side by side, both on the client's receipt time: the once-a-second telemetry
+  event (silence means a dead pipe: "No data from edge" after 3 s) and the views (silence means a
+  quiet market: "market quiet" after 10 s), so the two are never confused.
+- **One owner rebuilds the connection.** After a dropped connection `EventSource` reconnects by
+  itself and reports readyState CONNECTING; the client leaves it alone, because a second source
+  would connect twice. After a refusal the browser gives up (CLOSED) and only a new source
+  recovers: one owner rebuilds it after a capped exponential backoff (1 s doubling to 30 s) with
+  jitter and a 250 ms floor, so a refused client, for example one turned away by the stream cap,
+  never spins. Late events from a replaced source are ignored. The clock is the wall clock, so a
+  forward jump can show one false "No data" until the next telemetry event.
+- **Boundary validation.** TypeScript types do not exist at runtime, so every body is checked
+  before it is used; a view or telemetry frame that fails is dropped, counted and shown on the
+  status pill. One failing panel is contained by an error boundary and does not take the page down.
 - **Minimal, hermetic toolchain.** Next.js + React (the portfolio's stack), vitest + Testing
   Library + jsdom for tests — the test dev-dependencies, justified as the standard minimal
   React test rig. System fonts only: a Google Fonts fetch would make the build depend on the

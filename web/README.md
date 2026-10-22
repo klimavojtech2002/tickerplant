@@ -44,6 +44,25 @@ Run the tests from a full checkout for that reason.
 - **Latency** is shown with one decimal and is cut, not rounded, so a figure never reads better than
   it is (1999 ns shows as 1.9 µs).
 - **`mode`** must be `synthetic`, `live` or `unknown`; a new mode needs a change here.
-- **A bad view frame** (a side out of order, a repeated price, mixed decimal widths, a bad `seq`) is
-  logged and dropped, and the book on screen stays as it was. The page does not yet say that frames
-  are being dropped.
+- **A bad frame** (a view with a side out of order, a repeated price, mixed decimal widths or a bad
+  `seq`, a telemetry event of the wrong shape, or a crossed book) is dropped in every build. The book on
+  screen stays as it was, the status pill shows "N frames dropped", and one line a second at most is
+  logged.
+
+## The connection
+
+The status pill is computed from what has arrived, on the browser's own clock:
+
+| Pill | When |
+|---|---|
+| Connecting… | before the first connection opens |
+| Live · 1.2 s | open; telemetry is fresh; the last view is 1.2 s old |
+| Live · market quiet | open; telemetry is fresh; no view for 10 s |
+| No data from edge · 4 s | open, but no telemetry for more than 3 s |
+| Reconnecting… | the browser is reconnecting by itself, or a rebuilt connection is still opening |
+| Reconnecting in 4 s (attempt 3) | the connection was refused; a new one is scheduled |
+
+After a refusal (for example the edge's stream cap) the page builds a new connection after a wait
+that starts at 1 s, doubles to at most 30 s, has random jitter and never goes below 250 ms. A
+panel that fails to render shows "This panel failed to render" and a Retry button; the rest of the
+page keeps working.
