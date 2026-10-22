@@ -161,9 +161,12 @@ func (s *server) levels(ls []market.Level) [][2]string {
 // stream serves one SSE subscriber. The first event is the engine's current view, so
 // a (re)connecting client renders immediately without a join protocol — every event
 // is a complete view, which is the whole reconnect story under latest-wins (ADR-0015).
-// lastSeq dedupes the seam between that first read and the Hub subscription. The
-// doorbell closing (hub closed, or this consumer disconnected for lagging) ends the
-// response; the client's EventSource reconnects and starts fresh.
+// lastGen dedupes the seam between that first read and the Hub subscription: a view is
+// sent only if the engine published it after the last one sent. The sequence number
+// cannot do that job, because a view rebuilt after a resync can have a lower or equal
+// one and must still be shown. The doorbell closing (hub closed, or this consumer
+// disconnected for lagging) ends the response; the client's EventSource reconnects and
+// starts fresh.
 func (s *server) stream(w http.ResponseWriter, r *http.Request) {
 	h := w.Header()
 	h.Set("Content-Type", "text/event-stream")
@@ -179,12 +182,12 @@ func (s *server) stream(w http.ResponseWriter, r *http.Request) {
 	c := s.cfg.Hub.Subscribe()
 	defer s.cfg.Hub.Unsubscribe(c.ID())
 
-	var lastSeq market.Sequence
+	var lastGen uint64
 	if v := s.cfg.Engine.View(); v != nil {
 		if !s.writeView(w, v) {
 			return
 		}
-		lastSeq = v.LastSeq
+		lastGen = v.Gen
 	}
 	for {
 		select {
@@ -195,13 +198,13 @@ func (s *server) stream(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			v := c.Take()
-			if v == nil || v.LastSeq <= lastSeq {
-				continue // coalesced wakeup, or the view already sent as the opener
+			if v == nil || v.Gen <= lastGen {
+				continue // coalesced wakeup, or a view not newer than the last one sent
 			}
 			if !s.writeView(w, v) {
 				return
 			}
-			lastSeq = v.LastSeq
+			lastGen = v.Gen
 		}
 	}
 }

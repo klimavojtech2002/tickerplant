@@ -72,8 +72,15 @@ func (e *stubEngine) SnapshotRejects() int    { return e.rejects }
 func (e *stubEngine) SnapshotErrors() int     { return e.snapErrors }
 func (e *stubEngine) Ready() bool             { return e.ready.Load() }
 
-func view(seq market.Sequence) *book.View {
+// view builds a hand-made view whose generation equals its sequence, so a test that counts
+// up in sequence also counts up in generation.
+func view(seq market.Sequence) *book.View { return viewGen(seq, uint64(seq)) }
+
+// viewGen builds a hand-made view with its own generation. The stream sends a view only if
+// its generation is above the last one sent, and 0 means unset.
+func viewGen(seq market.Sequence, gen uint64) *book.View {
 	return &book.View{
+		Gen:     gen,
 		LastSeq: seq,
 		Bids:    []market.Level{{Price: 627217, Size: 135823999}},
 		Asks:    []market.Level{{Price: 627218, Size: 114202}},

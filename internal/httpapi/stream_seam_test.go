@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/klimavojtech2002/tickerplant/internal/book"
 	"github.com/klimavojtech2002/tickerplant/internal/delivery"
 	"github.com/klimavojtech2002/tickerplant/internal/market"
 )
@@ -17,58 +18,145 @@ import (
 // The stream handler subscribes to the hub first and reads the engine's current view
 // second, so a view can already sit in the consumer's slot when the opener is written.
 // These tests make that happen deterministically (the stubEngine hook publishes inside
-// View()) and pin what the edge does today: a view that is not newer than the opener is
-// never sent.
-//
-// This is a characterization of the current rule, "send only if seq is greater than the
-// last sent". It includes the lower-seq case, where a legitimate view after a resync is
-// hidden: the engine can publish a snapshot with a lower sequence after a resync, and the
-// edge withholds it until the sequence passes the last one sent. The row records that
-// limitation; change it together with the rule.
-func TestStreamNeverSendsViewNotNewerThanOpener(t *testing.T) {
+// View()). The edge sends a view only if the engine published it after the last one sent,
+// judged by its generation: the sequence number does not decide, because a view rebuilt
+// after a resync can have a lower or equal one and must still be shown.
+
+// sv is a view's sequence number and generation.
+type sv struct {
+	seq market.Sequence
+	gen uint64
+}
+
+func (v sv) view() *book.View { return viewGen(v.seq, v.gen) }
+
+// settle republishes v until the hub has counted the given number of deliveries. A Publish
+// counts as delivered only when the consumer's slot is empty, which happens only after the
+// handler took, and so judged, the view that was in it. No sleeps: Publish never blocks,
+// Gosched yields to the handler.
+func settle(t *testing.T, hub *delivery.Hub, v *book.View, delivered uint64) {
+	t.Helper()
+	deadline := time.After(5 * time.Second)
+	for hub.Stats().Delivered < delivered {
+		select {
+		case <-deadline:
+			t.Fatal("handler never took the view from its slot")
+		default:
+		}
+		hub.Publish(v)
+		runtime.Gosched()
+	}
+}
+
+// waitForConsumer waits until the stream handler has subscribed to the hub.
+func waitForConsumer(t *testing.T, hub *delivery.Hub) {
+	t.Helper()
+	deadline := time.After(5 * time.Second)
+	for hub.Stats().Consumers < 1 {
+		select {
+		case <-deadline:
+			t.Fatal("the handler never subscribed")
+		default:
+		}
+		runtime.Gosched()
+	}
+}
+
+func TestStreamDedupesByGen(t *testing.T) {
 	cases := []struct {
 		name     string
-		opener   market.Sequence
-		injected market.Sequence // lands in the slot at the seam
-		next     market.Sequence // the first view the client is allowed to see after the opener
+		opener   sv
+		injected sv   // lands in the slot at the seam
+		next     sv   // published after the handler judged the injected view
+		sent     []sv // the views the client sees after the opener, in order, ending with next
 	}{
-		{"equal seq at the seam is not sent twice", 8, 8, 9},
-		{"older view at the seam is dropped", 8, 7, 9},
-		{"lower seq after a resync is hidden today", 5, 3, 6},
+		{"the same view at the seam is not sent twice",
+			sv{8, 8}, sv{8, 8}, sv{9, 9}, []sv{{9, 9}}},
+		{"an older view at the seam is dropped",
+			sv{8, 8}, sv{7, 7}, sv{9, 9}, []sv{{9, 9}}},
+		{"a view rebuilt with a lower sequence after a resync is sent",
+			sv{5, 5}, sv{3, 6}, sv{6, 7}, []sv{{3, 6}, {6, 7}}},
+		{"a view rebuilt with an equal sequence is sent",
+			sv{8, 8}, sv{8, 9}, sv{9, 10}, []sv{{8, 9}, {9, 10}}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			hub := delivery.New(1 << 20) // never disconnects on lag: only the dedupe may drop
 			defer hub.Close()
-			eng := &stubEngine{view: view(tc.opener)}
-			eng.onView = func() { hub.Publish(view(tc.injected)) }
+			eng := &stubEngine{view: tc.opener.view()}
+			eng.onView = func() { hub.Publish(tc.injected.view()) }
 			srv := newEdge(t, hub, eng, nil, 0)
 
 			_, sc := openStream(t, srv.URL)
-			if first := nextView(t, sc); first.Seq != uint64(tc.opener) {
-				t.Fatalf("opener seq = %d, want %d", first.Seq, tc.opener)
+			if first := nextView(t, sc); first.Seq != uint64(tc.opener.seq) {
+				t.Fatalf("opener seq = %d, want %d", first.Seq, tc.opener.seq)
 			}
+			// The hook already published the injected view (Delivered == 1: the slot was empty).
+			settle(t, hub, tc.injected.view(), 2)
 
-			// The hook already published the injected view (Delivered == 1: the slot was
-			// empty). A later Publish counts as Delivered only when the slot is empty again,
-			// which happens only after the handler has taken, and therefore judged, the
-			// injected view. No sleeps: Publish never blocks, Gosched yields to the handler.
-			deadline := time.After(5 * time.Second)
-			for hub.Stats().Delivered < 2 {
-				select {
-				case <-deadline:
-					t.Fatal("handler never took the injected view from its slot")
-				default:
+			hub.Publish(tc.next.view())
+			for i, want := range tc.sent {
+				if got := nextView(t, sc); got.Seq != uint64(want.seq) {
+					t.Fatalf("event %d after the opener has seq %d, want %d", i, got.Seq, want.seq)
 				}
-				hub.Publish(view(tc.injected))
-				runtime.Gosched()
 			}
 
-			hub.Publish(view(tc.next))
-			got := nextView(t, sc)
-			if got.Seq != uint64(tc.next) {
-				t.Fatalf("client saw seq %d after the opener, want %d: the view at seq %d must be suppressed",
-					got.Seq, tc.next, tc.injected)
+			// A view that is not newer than the last one sent never reaches the client, however
+			// often it is published: the next event is the tail below.
+			// Each is judged on its own: the hub keeps only the newest view in the slot, so
+			// publishing both at once would hide the first from the handler.
+			for _, old := range []*book.View{tc.next.view(), viewGen(1, 1)} {
+				delivered := hub.Stats().Delivered
+				hub.Publish(old)
+				settle(t, hub, old, delivered+2)
+			}
+			tail := sv{seq: 99, gen: tc.next.gen + 1}
+			hub.Publish(tail.view())
+			if got := nextView(t, sc); got.Seq != 99 {
+				t.Fatalf("after the last sent view the client saw seq %d, want the tail 99", got.Seq)
+			}
+		})
+	}
+}
+
+// With no view yet at the time of the connection, the first view the engine publishes is
+// the opener in effect: its generation starts at 1, above the unset zero, so it is sent.
+func TestStreamSendsTheFirstViewWhenThereIsNoOpener(t *testing.T) {
+	hub := delivery.New(1 << 20)
+	defer hub.Close()
+	srv := newEdge(t, hub, &stubEngine{}, nil, 0)
+	_, sc := openStream(t, srv.URL)
+	waitForConsumer(t, hub)
+	hub.Publish(viewGen(4, 1))
+	if got := nextView(t, sc); got.Seq != 4 {
+		t.Fatalf("first view seq = %d, want 4", got.Seq)
+	}
+}
+
+// A view that reaches the hub without a generation is unset, not new: the stream never sends
+// it, so a hand-made view that forgets to set one fails a test instead of passing by luck.
+func TestStreamSuppressesAViewWithoutAGeneration(t *testing.T) {
+	for name, opener := range map[string]*book.View{
+		"no opener":                nil,
+		"after an opener of gen 5": viewGen(5, 5),
+	} {
+		t.Run(name, func(t *testing.T) {
+			hub := delivery.New(1 << 20)
+			defer hub.Close()
+			srv := newEdge(t, hub, &stubEngine{view: opener}, nil, 0)
+			_, sc := openStream(t, srv.URL)
+			if opener != nil {
+				if first := nextView(t, sc); first.Seq != 5 {
+					t.Fatalf("opener seq = %d, want 5", first.Seq)
+				}
+			}
+			waitForConsumer(t, hub)
+			zero := viewGen(77, 0)
+			hub.Publish(zero)
+			settle(t, hub, zero, 2)
+			hub.Publish(viewGen(8, 6))
+			if got := nextView(t, sc); got.Seq != 8 {
+				t.Fatalf("client saw seq %d, want 8: the view without a generation must be suppressed", got.Seq)
 			}
 		})
 	}
