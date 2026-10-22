@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/klimavojtech2002/tickerplant/internal/app"
+	"github.com/klimavojtech2002/tickerplant/internal/httpapi"
 	"github.com/klimavojtech2002/tickerplant/internal/version"
 )
 
@@ -26,19 +27,20 @@ var shutdownSignals = []os.Signal{os.Interrupt, syscall.SIGTERM}
 
 // options is everything main reads from the command line.
 type options struct {
-	seed      int64
-	steps     int
-	depth     int
-	every     int
-	everySet  bool // -every given explicitly, even if equal to the default
-	pace      time.Duration
-	live      bool
-	venue     string
-	symbol    string
-	httpAddr  string
-	version   bool
-	logLevel  string
-	logFormat string
+	seed       int64
+	steps      int
+	depth      int
+	every      int
+	everySet   bool // -every given explicitly, even if equal to the default
+	pace       time.Duration
+	live       bool
+	venue      string
+	symbol     string
+	httpAddr   string
+	corsOrigin string
+	version    bool
+	logLevel   string
+	logFormat  string
 }
 
 // parseFlags parses argv (without the program name) on a private FlagSet, so tests can
@@ -60,6 +62,7 @@ func parseFlags(args []string, out io.Writer) (options, error) {
 	fs.StringVar(&o.venue, "venue", app.DefaultVenue, "live venue (with -live): binance|kraken")
 	fs.StringVar(&o.symbol, "symbol", app.DefaultSymbol, "live symbol (with -live)")
 	fs.StringVar(&o.httpAddr, "http", "", "serve the SSE stream and /metrics on this address (e.g. :8080); empty = off")
+	fs.StringVar(&o.corsOrigin, "cors-origin", "*", "origin allowed to read the HTTP edge from a browser: * or one origin such as https://app.example")
 	fs.BoolVar(&o.version, "version", false, "print the version and exit")
 	fs.StringVar(&o.logLevel, "log-level", "info", "log level: debug|info|warn|error")
 	fs.StringVar(&o.logFormat, "log-format", "text", "log format: text|json")
@@ -106,6 +109,9 @@ func (o options) validate() error {
 	}
 	if _, err := parseLevel(o.logLevel); err != nil {
 		return err
+	}
+	if err := httpapi.ValidateCORSOrigin(o.corsOrigin); err != nil {
+		return fmt.Errorf("-cors-origin: %w", err)
 	}
 	if o.logFormat != "text" && o.logFormat != "json" {
 		return fmt.Errorf("-log-format %q is not one of text, json", o.logFormat)
@@ -164,7 +170,7 @@ func main() {
 
 	src, cfg, err := app.Prepare(ctx, log, app.Options{
 		Seed: opts.seed, Steps: opts.steps, Depth: opts.depth, Every: opts.every, EverySet: opts.everySet,
-		Pace: opts.pace, Live: opts.live, Venue: opts.venue, Symbol: opts.symbol,
+		Pace: opts.pace, Live: opts.live, Venue: opts.venue, Symbol: opts.symbol, CORSOrigin: opts.corsOrigin,
 	})
 	if err != nil {
 		if errors.Is(err, context.Canceled) {

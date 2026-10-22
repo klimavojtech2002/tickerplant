@@ -29,42 +29,49 @@ func TestParseFlags(t *testing.T) {
 			name: "defaults",
 			args: nil,
 			want: options{seed: 1, steps: 5000, depth: 10, every: 500, everySet: false,
-				pace: 150 * time.Millisecond, live: false, venue: "binance", symbol: "BTCUSDT", logLevel: "info", logFormat: "text"},
+				pace: 150 * time.Millisecond, live: false, venue: "binance", symbol: "BTCUSDT", logLevel: "info", logFormat: "text", corsOrigin: "*"},
 			wantCadence: 500,
 		},
 		{
 			name: "live with default cadence logs every update",
 			args: []string{"-live"},
 			want: options{seed: 1, steps: 5000, depth: 10, every: 500, everySet: false,
-				pace: 150 * time.Millisecond, live: true, venue: "binance", symbol: "BTCUSDT", logLevel: "info", logFormat: "text"},
+				pace: 150 * time.Millisecond, live: true, venue: "binance", symbol: "BTCUSDT", logLevel: "info", logFormat: "text", corsOrigin: "*"},
 			wantCadence: 1,
 		},
 		{
 			name: "explicit -every at the default value is honoured on a live run",
 			args: []string{"-live", "-every", "500"},
 			want: options{seed: 1, steps: 5000, depth: 10, every: 500, everySet: true,
-				pace: 150 * time.Millisecond, live: true, venue: "binance", symbol: "BTCUSDT", logLevel: "info", logFormat: "text"},
+				pace: 150 * time.Millisecond, live: true, venue: "binance", symbol: "BTCUSDT", logLevel: "info", logFormat: "text", corsOrigin: "*"},
 			wantCadence: 500,
 		},
 		{
 			name: "explicit -every",
 			args: []string{"-every", "7"},
 			want: options{seed: 1, steps: 5000, depth: 10, every: 7, everySet: true,
-				pace: 150 * time.Millisecond, live: false, venue: "binance", symbol: "BTCUSDT", logLevel: "info", logFormat: "text"},
+				pace: 150 * time.Millisecond, live: false, venue: "binance", symbol: "BTCUSDT", logLevel: "info", logFormat: "text", corsOrigin: "*"},
 			wantCadence: 7,
 		},
 		{
 			name: "typed values parse",
 			args: []string{"-seed", "42", "-steps", "100", "-pace", "1ms", "-depth", "3", "-venue", "binance", "-symbol", "ETHUSDT"},
 			want: options{seed: 42, steps: 100, depth: 3, every: 500, everySet: false,
-				pace: time.Millisecond, live: false, venue: "binance", symbol: "ETHUSDT", logLevel: "info", logFormat: "text"},
+				pace: time.Millisecond, live: false, venue: "binance", symbol: "ETHUSDT", logLevel: "info", logFormat: "text", corsOrigin: "*"},
 			wantCadence: 500,
 		},
 		{
 			name: "http edge address",
 			args: []string{"-http", ":8080"},
 			want: options{seed: 1, steps: 5000, depth: 10, every: 500, everySet: false,
-				pace: 150 * time.Millisecond, live: false, venue: "binance", symbol: "BTCUSDT", logLevel: "info", logFormat: "text", httpAddr: ":8080"},
+				pace: 150 * time.Millisecond, live: false, venue: "binance", symbol: "BTCUSDT", logLevel: "info", logFormat: "text", corsOrigin: "*", httpAddr: ":8080"},
+			wantCadence: 500,
+		},
+		{
+			name: "cors origin",
+			args: []string{"-cors-origin", "https://app.example"},
+			want: options{seed: 1, steps: 5000, depth: 10, every: 500, everySet: false,
+				pace: 150 * time.Millisecond, live: false, venue: "binance", symbol: "BTCUSDT", logLevel: "info", logFormat: "text", corsOrigin: "https://app.example"},
 			wantCadence: 500,
 		},
 		{
@@ -103,7 +110,7 @@ func TestParseFlagsHelpIsErrHelp(t *testing.T) {
 }
 
 func TestValidate(t *testing.T) {
-	ok := options{depth: 10, steps: 5000, every: 500, pace: 150 * time.Millisecond, logLevel: "info", logFormat: "text"}
+	ok := options{depth: 10, steps: 5000, every: 500, pace: 150 * time.Millisecond, logLevel: "info", logFormat: "text", corsOrigin: "*"}
 	cases := []struct {
 		name    string
 		mut     func(*options)
@@ -131,6 +138,10 @@ func TestValidate(t *testing.T) {
 		{"log format json", func(o *options) { o.logFormat = "json" }, ""},
 		{"log format unknown", func(o *options) { o.logFormat = "xml" }, "-log-format \"xml\""},
 		{"pace just below zero", func(o *options) { o.pace = -1 }, "-pace -1ns"},
+		{"cors origin empty", func(o *options) { o.corsOrigin = "" }, ""},
+		{"cors origin one origin", func(o *options) { o.corsOrigin = "https://app.example" }, ""},
+		{"cors origin with a path", func(o *options) { o.corsOrigin = "https://app.example/x" }, "-cors-origin"},
+		{"cors origin not an origin", func(o *options) { o.corsOrigin = "app.example" }, "-cors-origin"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

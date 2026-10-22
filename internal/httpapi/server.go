@@ -44,6 +44,9 @@ type Config struct {
 	SizeScale  int
 	Latency    *metrics.Histogram // nil when the caller records no latency
 	Log        *slog.Logger       // nil discards
+	// CORSOrigin is the cross-origin policy: "*" or empty lets any origin read the edge; one
+	// origin such as "https://app.example" lets only that origin (see ValidateCORSOrigin).
+	CORSOrigin string
 	// WriteTimeout bounds each SSE event write, so a client that stopped reading
 	// unblocks the handler once the kernel buffers fill (default 10s).
 	WriteTimeout time.Duration
@@ -72,6 +75,9 @@ func New(cfg Config) (http.Handler, error) {
 	if cfg.SizeScale < 0 || cfg.SizeScale > maxScale {
 		return nil, fmt.Errorf("%w: size scale %d, want 0 to %d", ErrConfig, cfg.SizeScale, maxScale)
 	}
+	if err := ValidateCORSOrigin(cfg.CORSOrigin); err != nil {
+		return nil, err
+	}
 	if cfg.WriteTimeout <= 0 {
 		cfg.WriteTimeout = 10 * time.Second
 	}
@@ -82,7 +88,7 @@ func New(cfg Config) (http.Handler, error) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /stream", s.stream)
 	mux.HandleFunc("GET /metrics", s.metrics)
-	return mux, nil
+	return chain(mux, cfg.Log, cfg.CORSOrigin), nil
 }
 
 type server struct{ cfg Config }
@@ -131,9 +137,7 @@ func (s *server) stream(w http.ResponseWriter, r *http.Request) {
 	h := w.Header()
 	h.Set("Content-Type", "text/event-stream")
 	h.Set("Cache-Control", "no-cache")
-	// The dashboard runs on its own origin in development; the edge is a public
-	// read-only stream, so the open CORS grant gives nothing away.
-	h.Set("Access-Control-Allow-Origin", "*")
+	h.Set("X-Accel-Buffering", "no") // a buffering proxy would hold events back
 	w.WriteHeader(http.StatusOK)
 	// The server buffers headers until the first flush; without this a client on a
 	// quiet feed would hang waiting for the response to open (EventSource onopen).
@@ -242,7 +246,6 @@ func (s *server) metrics(w http.ResponseWriter, _ *http.Request) {
 		}
 	}
 	w.Header().Set("Content-Type", "application/json")
-	w.Header().Set("Access-Control-Allow-Origin", "*")
 	if err := json.NewEncoder(w).Encode(doc); err != nil {
 		s.cfg.Log.Error("metrics encode failed", "err", err)
 	}

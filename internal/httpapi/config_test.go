@@ -26,6 +26,10 @@ func TestNewRefusesBadConfig(t *testing.T) {
 		{"price scale above range", func(c *Config) { c.PriceScale = 19 }, false},
 		{"size scale below range", func(c *Config) { c.SizeScale = -1 }, false},
 		{"size scale above range", func(c *Config) { c.SizeScale = 19 }, false},
+		{"cors origin star", func(c *Config) { c.CORSOrigin = "*" }, true},
+		{"cors origin one origin", func(c *Config) { c.CORSOrigin = "https://app.example" }, true},
+		{"cors origin with a path", func(c *Config) { c.CORSOrigin = "https://app.example/x" }, false},
+		{"cors origin default port", func(c *Config) { c.CORSOrigin = "https://app.example:443" }, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			cfg := good
