@@ -135,6 +135,8 @@ the recovery took), and each adapter counts the frames it could not use (ADR-002
   replayable test case (ADR-0005).
 - **Simulation tests** check after every step that no view crosses, and at the end that the book
   matches an independent truth book, rather than checking a happy path.
+- **Fuzzing**: `FuzzEngineSteps` mixes legal changes with every fault the source can model, plus bad
+  snapshots, against an independent oracle (correctness.md §10); the seed corpus runs with the default tests.
 - **Race detection**: CI runs the default suite under `go test -race`; book ownership is verified, not
   assumed.
 - **Integration tests** run the live Binance and Kraken adapters against the real venue, behind the
