@@ -32,7 +32,18 @@ services:
     build:
       context: ./web
       dockerfile: Dockerfile
+      args:
+        # Inlined into the page at build time, and the one origin its Content-Security-Policy lets it call.
+        NEXT_PUBLIC_EDGE_URL: ${NEXT_PUBLIC_EDGE_URL:-http://127.0.0.1:8080}
     ports:
-      - "3000:80"
+      - "3000:8080"
+    # nginx writes only under /tmp (see web/nginx.conf), so the rest of the container can be read-only.
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
     depends_on:
       - edge
