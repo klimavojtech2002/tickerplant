@@ -53,6 +53,8 @@ export function barPct(size: string, maxSize: string): number {
   if (max === 0n) {
     return 0;
   }
+  // A whole percent from bigint division, 0 to 100 for a size not above the maximum: exact, never a float.
+  // eslint-disable-next-line no-restricted-syntax
   return Number((toScaled(size) * 100n) / max);
 }
 
