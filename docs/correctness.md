@@ -206,6 +206,15 @@ simulation, by this method (ADR-0005):
   (§4, §8). The never-crosses guard (§5) is *driven*, not just watched: the simulation injects a
   crossing delta so the engine must apply, detect, reject, and resync it — counted exactly
   (`WouldCrosses`) so a regression that stopped rejecting crosses fails loudly.
+- A coverage-guided fuzz target (`FuzzEngineSteps`) goes beyond the seeded scenarios. It decodes a byte
+  string into a script of legal changes mixed with gaps, reorders, duplicates, coalesced deltas,
+  disconnects, crossing and locking deltas, crossed, locked and old snapshots, and stale deltas, and
+  replays it against the engine in step with an independent map oracle of the venue's book. After every
+  step the published book must not cross and its sides must be strictly ordered; after a fault-free tail
+  the engine must equal the oracle exactly; and the resync, gap, disconnect and crossing counters must
+  stay within what the script's faults explain. The seed corpus, and any input the fuzzer saved under
+  `internal/book/testdata/fuzz`, is replayed by a plain `go test`; a longer exploration is
+  `go test -run=^$ -fuzz=FuzzEngineSteps -fuzztime=10m ./internal/book`.
 - CI runs `go test -race` on every change; the book has one documented writer and lock-free
   reads (ADR-0008), and the absence of data races is verified, not assumed.
 - Latency claims are measured with the clock source and span stated, under a defined load harness, and
@@ -215,6 +224,11 @@ simulation, by this method (ADR-0005):
 
 ## What this does not cover
 
+- **A plausible lie.** The engine detects what a feed can be caught doing: a sequence gap, stale data, a
+  delta that crosses the book and, on checksum venues, drift. A venue that sends a contiguous, well-formed
+  delta with wrong levels that do not cross (or one that reuses a sequence number) cannot be told from
+  the truth, and no reconstruction can. The fuzz does not generate such input; it checks the faults the
+  engine is meant to catch.
 - **Crash persistence.** State lives in memory. The checks cover reconnects, gaps, and slow consumers
   given a live process; surviving a process crash is out of scope ([scope.md](scope.md)).
 - **Execution.** This is the data layer. It places no orders and models no risk; reconstruction
