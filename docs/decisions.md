@@ -621,6 +621,20 @@ lines on stderr) and the Next.js dashboard.
   root-master/unprivileged-worker split is its standard pattern for exactly this exposure (a static file
   server, no exec, no user input reaching a shell), and hand-patching a stock config adds fragility for
   little extra hardening. Stated as a trade-off.
+- **Amended: rootless nginx and a Content-Security-Policy computed from the build.** The root master process above is
+  gone. The image is the same `nginx:1.27-alpine`, pinned by digest (nginx 1.27.5; the pin is refreshed on purpose), run as the
+  `nginx` user on port 8080 with its own `nginx.conf`: the pid file and every temp path are under `/tmp`, the logs go to the
+  container's stdout and stderr, and compose runs it with a read-only file system, a `/tmp` tmpfs, all capabilities dropped and
+  `no-new-privileges`. (The upstream `nginx-unprivileged` image would do the same; this one was chosen because it needs no new
+  image.) `scripts/csp-hash.mjs` reads the exported pages at build time and writes `security-headers.conf`: the policy lists the
+  SHA-256 of every inline script and style body, so there is no `'unsafe-inline'`, and `connect-src` names the edge origin the
+  page was built for (`NEXT_PUBLIC_EDGE_URL`, one default in the Dockerfile). The script stops the build if the export has no
+  inline script, if `index.html` carries a `style` attribute or an inline handler, or if the edge URL is not an http(s) URL. The
+  built-in 404 pages carry four `style` attributes that a hash cannot cover; the policy blocks them and the error page loses
+  that cosmetic styling. Headers are sent with `always`, so error responses carry them. Checked by `scripts/csp-hash.test.mjs` and
+  by `scripts/check-image.sh`, which starts the pinned image the way compose does and tests the headers on a page, a hashed asset,
+  the favicon and a 404, and that every inline script of the served page is allowed. Not checked: a full `docker build ./web` (the
+  `node:22-alpine` builder is a tag, not pinned by digest) and the page loading in a browser without a CSP violation.
 - **`NEXT_PUBLIC_EDGE_URL` stays at its code default for the compose demo.** A static export inlines
   environment variables at build time, not request time, so the edge URL cannot be picked up from
   the container's runtime environment the way a server-rendered app could. The dashboard's existing

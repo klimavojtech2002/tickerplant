@@ -3,3 +3,10 @@ node_modules
 out
 coverage
 *.tsbuildinfo
+.env*
+.git
+README.md
+Dockerfile
+.dockerignore
+scripts/*.test.*
+scripts/check-*

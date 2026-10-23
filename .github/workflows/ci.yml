@@ -101,8 +101,16 @@ jobs:
       - name: test (with coverage)
         run: pnpm test:coverage
 
+      - name: script tests
+        run: pnpm test:scripts
+
       - name: build
         run: pnpm build
+
+      # Runs the pinned nginx image as the unprivileged user on a read-only file system, with the
+      # exported pages and the rendered headers, and checks what is served.
+      - name: image check
+        run: sh scripts/check-image.sh
 
   # Live-venue tests hit real exchange endpoints, so they run only on demand — a venue
   # outage or rate limit must never block a merge. Not in the required-checks set.

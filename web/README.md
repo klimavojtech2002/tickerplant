@@ -39,6 +39,14 @@ real modules with the real config, so the rule cannot be dropped quietly. It gua
 evasion: `globalThis.parseFloat`, `x['toFixed']()` or a unary `+x` get past it. The pnpm version is the
 `packageManager` field of `package.json`; the `Dockerfile` repeats it and must be changed with it.
 
+## Image
+
+`docker build ./web` builds the static export and renders `security-headers.conf` from it (`scripts/csp-hash.mjs`), then
+serves both with nginx as an unprivileged user on port 8080. `--build-arg NEXT_PUBLIC_EDGE_URL=https://edge.example.com` sets where
+the page connects; it is inlined into the page and is the one origin the Content-Security-Policy allows. After `pnpm build`,
+`sh scripts/check-image.sh` runs the pinned nginx image the way compose does and checks the headers and the policy (it needs
+Docker and the nginx image).
+
 ## What the page trusts
 
 Every body from the edge is checked before it is used: `parseStatus`, `parseTelemetry` and `parseView`
