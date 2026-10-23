@@ -195,6 +195,11 @@ distribution (p50/p99/p99.9/max), with the clock source and the measured span st
 load harness. The benchmark harness additionally measures through the fan-out's `Publish`. The benchmark
 is open-loop and coordinated-omission-aware.
 
+**Amended.** The benchmark reports three figures and names each: the engine span (the frame taken off the adapter's
+channel to the view stored for readers, what the running system reports), the time from when an event was due to
+when `Publish` returned (which includes queueing and goroutine wake-up), and the `Publish` time alone. One run is
+published from a committed log, made on Linux because the Windows clock is too coarse to hold a 50 µs schedule.
+
 **Consequences.**
 - What is reported is defined by its span and clock; a figure is meaningful only with its hardware, Go
   version and interval.
