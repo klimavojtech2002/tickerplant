@@ -5,6 +5,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"log"
@@ -33,6 +34,28 @@ func main() {
 	out := flag.String("out", "docs/figures/fig1-recovery.svg", "output SVG path")
 	flag.Parse()
 
+	svg, st, err := run()
+	if err != nil {
+		log.Fatal(err)
+	}
+	if err := os.WriteFile(*out, []byte(svg), 0o644); err != nil {
+		log.Fatalf("write: %v", err)
+	}
+	fmt.Printf("wrote %s: %d published states, gap detected at update %d, cross rejected at update %d\n",
+		*out, st.states, st.gapAt, st.crossAt)
+	fmt.Printf("gaps=%d resyncs=%d would-cross=%d\n", st.gaps, st.resyncs, st.wouldCross)
+}
+
+// stats is what the run counted; render prints it and main reports it.
+type stats struct {
+	states, gapAt, crossAt    int
+	gaps, resyncs, wouldCross int
+}
+
+// run drives the deterministic source through the real engine and returns the figure.
+// It touches neither the file system nor the clock, so a test can compare its output
+// with the committed SVG.
+func run() (string, stats, error) {
 	cfg := source.Config{
 		Venue: "synthetic", Symbol: "DEMO", Seed: seed, Steps: steps,
 		Faults: map[int]source.Fault{gapStep: source.FaultGap, crossStp: source.FaultCross},
@@ -42,25 +65,28 @@ func main() {
 
 	eng, err := book.New(src, 10)
 	if err != nil {
-		log.Fatalf("engine: %v", err)
+		return "", stats{}, fmt.Errorf("engine: %w", err)
 	}
 	ctx := context.Background()
 	if err := eng.Bootstrap(ctx); err != nil {
-		log.Fatalf("bootstrap: %v", err)
+		return "", stats{}, fmt.Errorf("bootstrap: %w", err)
 	}
 
 	var points []point
-	record := func(idx int) {
+	record := func(idx int) error {
 		v := eng.View()
 		if v == nil || len(v.Bids) == 0 || len(v.Asks) == 0 {
-			return
+			return nil
 		}
 		if v.Crosses() {
-			log.Fatalf("invariant violated: published view at update %d crosses", idx)
+			return fmt.Errorf("invariant violated: published view at update %d crosses", idx)
 		}
 		points = append(points, point{idx, int64(v.Bids[0].Price), int64(v.Asks[0].Price)})
+		return nil
 	}
-	record(0)
+	if err := record(0); err != nil {
+		return "", stats{}, err
+	}
 
 	prevGaps, prevCross := eng.Gaps(), eng.WouldCrosses()
 	gapAt, crossAt := -1, -1
@@ -68,7 +94,7 @@ func main() {
 	for {
 		ok, err := eng.Step(ctx)
 		if err != nil {
-			log.Fatalf("step: %v", err)
+			return "", stats{}, fmt.Errorf("step: %w", err)
 		}
 		if !ok {
 			break
@@ -80,25 +106,27 @@ func main() {
 		if eng.WouldCrosses() > prevCross {
 			crossAt, prevCross = idx, eng.WouldCrosses()
 		}
-		record(idx)
+		if err := record(idx); err != nil {
+			return "", stats{}, err
+		}
 	}
 
 	if len(points) == 0 {
-		log.Fatalf("no published view captured (empty book)")
+		return "", stats{}, errors.New("no published view captured (empty book)")
 	}
-	if err := os.WriteFile(*out, []byte(render(points, gapAt, crossAt, eng)), 0o644); err != nil {
-		log.Fatalf("write: %v", err)
+	st := stats{
+		states: len(points), gapAt: gapAt, crossAt: crossAt,
+		gaps: int(eng.Gaps()), resyncs: int(eng.Resyncs()), wouldCross: int(eng.WouldCrosses()),
 	}
-	fmt.Printf("wrote %s: %d published states, gap detected at update %d, cross rejected at update %d\n",
-		*out, len(points), gapAt, crossAt)
-	fmt.Printf("gaps=%d resyncs=%d would-cross=%d\n", eng.Gaps(), eng.Resyncs(), eng.WouldCrosses())
+	return render(points, st), st, nil
 }
 
 const (
 	plotW, plotH = card.ContentWidth, 420
 )
 
-func render(points []point, gapAt, crossAt int, eng *book.Engine) string {
+func render(points []point, st stats) string {
+	gapAt, crossAt := st.gapAt, st.crossAt
 	crossed := 0
 	for _, p := range points {
 		if p.bid >= p.ask {
@@ -161,7 +189,7 @@ func render(points []point, gapAt, crossAt int, eng *book.Engine) string {
 		Caption: []card.CaptionLine{
 			{Text: fmt.Sprintf("%d of %d published book states ever crossed — not through the missing sequence", crossed, len(points)), Bold: true},
 			{Text: "number, not through the rejected illegal quote."},
-			{Text: fmt.Sprintf("Gaps: %d · Resyncs: %d · Rejected cross attempts: %d", eng.Gaps(), eng.Resyncs(), eng.WouldCrosses())},
+			{Text: fmt.Sprintf("Gaps: %d · Resyncs: %d · Rejected cross attempts: %d", st.gaps, st.resyncs, st.wouldCross)},
 			{Text: fmt.Sprintf("Synthetic source (internal/source/synthetic.go), seed %d, %d steps: a FaultGap", seed, steps), Italic: true},
 			{Text: fmt.Sprintf("(update %d) and a FaultCross (update %d), both detected and resynced within the", gapAt, crossAt), Italic: true},
 			{Text: "update they occurred.", Italic: true},
