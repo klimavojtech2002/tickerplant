@@ -17,14 +17,21 @@ set -eu
 profile="$1"; packages="$2"; minimums="$3"; module="$4"
 
 # The names go in through the environment: awk -v would read backslashes in a Windows path as escapes.
+report="$(mktemp)"
+trap 'rm -f "$report"' EXIT
+rc=0
 MODULE="$module" MINFILE="$minimums" PKGFILE="$packages" awk '
 BEGIN {
   module = ENVIRON["MODULE"]; minfile = ENVIRON["MINFILE"]; pkgfile = ENVIRON["PKGFILE"]
   while ((getline line < minfile) > 0) {
     sub(/#.*/, "", line)
+    gsub(/^[ \t]+|[ \t]+$/, "", line)
+    if (line == "") continue
     n = split(line, f, /[ \t]+/)
-    if (n == 0 || f[1] == "") continue
-    if (f[2] == "exclude") { excluded[f[1]] = 1; continue }
+    if (f[2] == "exclude") {
+      if (n < 3) { printf "an exclusion needs a reason in %s: %s\n", minfile, line; bad = 1; continue }
+      excluded[f[1]] = 1; continue
+    }
     if (f[2] == "" || f[2] !~ /^[0-9]+(\.[0-9]+)?$/) { printf "bad line in %s: %s\n", minfile, line; bad = 1; continue }
     min[f[1]] = f[2] + 0
   }
@@ -63,4 +70,6 @@ END {
   for (pkg in min) if (!(pkg in listed)) { printf "FAIL %s is in %s but is not a package\n", pkg, minfile; status = 1 }
   for (pkg in excluded) if (!(pkg in listed)) { printf "FAIL %s is excluded in %s but is not a package\n", pkg, minfile; status = 1 }
   exit status
-}' "$profile"
+}' "$profile" > "$report" || rc=$?
+sort "$report"
+exit "$rc"

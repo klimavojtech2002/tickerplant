@@ -10,6 +10,7 @@ updates:
     open-pull-requests-limit: 5
     groups:
       go-minor-patch:
+        patterns: ["*"]
         update-types: [minor, patch]
 
   - package-ecosystem: npm
@@ -19,6 +20,7 @@ updates:
     open-pull-requests-limit: 5
     groups:
       web-minor-patch:
+        patterns: ["*"]
         update-types: [minor, patch]
 
   - package-ecosystem: github-actions
@@ -28,10 +30,11 @@ updates:
     open-pull-requests-limit: 5
     groups:
       actions-minor-patch:
+        patterns: ["*"]
         update-types: [minor, patch]
 
   - package-ecosystem: docker
-    directories: [/, /web]
+    directories: [/, /web, /bench]
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
@@ -39,4 +42,5 @@ updates:
       - dependency-name: golang
     groups:
       images-minor-patch:
+        patterns: ["*"]
         update-types: [minor, patch]

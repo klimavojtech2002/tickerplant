@@ -1,7 +1,7 @@
 #!/bin/sh
 # Versions that are written twice must agree. Run from the repository root.
 #
-#   go.mod toolchain          == the golang image tag in Dockerfile
+#   go.mod toolchain          == the golang image tag in Dockerfile and bench/Dockerfile
 #   web/package.json pnpm     == the pnpm version in web/Dockerfile (corepack prepare)
 #   web/package.json node     == the node image major in web/Dockerfile
 # (The Go version the runner uses comes from go.mod itself, and ci.yml compares it with the toolchain line.)
@@ -12,9 +12,12 @@ status=0
 fail() { echo "version drift: $*"; status=1; }
 
 toolchain="$(awk '$1 == "toolchain" { sub(/^go/, "", $2); print $2 }' "$root/go.mod")"
-tags="$(sed -n 's/^FROM golang:\([0-9][0-9.]*\)-alpine.*/\1/p' "$root/Dockerfile")"
+# Every Dockerfile that builds Go: the service image and the benchmark image.
+dockerfiles="$root/Dockerfile"
+[ ! -f "$root/bench/Dockerfile" ] || dockerfiles="$dockerfiles $root/bench/Dockerfile"
+tags="$(sed -n 's/^FROM golang:\([0-9][0-9.]*\)-alpine.*/\1/p' $dockerfiles)"
 if [ -z "$toolchain" ]; then fail "go.mod has no toolchain line"; fi
-if [ -z "$tags" ]; then fail "Dockerfile has no golang:<version>-alpine image"; fi
+if [ -z "$tags" ]; then fail "no Dockerfile has a golang:<version>-alpine image"; fi
 for tag in $tags; do
   [ "$tag" = "$toolchain" ] || fail "go.mod toolchain is go$toolchain but Dockerfile uses golang:$tag"
 done

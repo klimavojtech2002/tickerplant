@@ -48,6 +48,10 @@ b 100
 c exclude gone"
 expect fail "a bad minimum"                   "a high
 b 100"
+expect fail "an exclusion without a reason"  "a 70
+b exclude"
+expect pass "indented lines"                  "   a 70
+	b 100"
 expect pass "comments and blank lines"        "# note
 
 a 70 # trailing

@@ -24,6 +24,7 @@ pins "pinned with a version"       pass "      - uses: actions/checkout@$sha # v
 pins "pinned, two-part version"    pass "      - uses: actions/setup-go@$sha # v6.5"
 pins "a subpath action"            pass "      - uses: github/codeql-action/init@$sha # v3.1.0"
 pins "a local action"              pass "      - uses: ./.github/actions/x"
+pins "a major-only version comment" pass "      - uses: actions/checkout@$sha # v4"
 pins "a tag"                       fail "      - uses: actions/checkout@v4"
 pins "a branch"                    fail "      - uses: actions/checkout@main"
 pins "a short sha"                 fail "      - uses: actions/checkout@0123456 # v4.4.0"
@@ -48,6 +49,11 @@ mkversions 1.26.10 1.26.10 10.21.0 10.21.0 22 22; versions "all agree" pass
 mkversions 1.26.10 1.26.9 10.21.0 10.21.0 22 22;  versions "image behind the toolchain" fail
 mkversions 1.26.10 1.26 10.21.0 10.21.0 22 22;    versions "image without a patch" fail
 mkversions 1.26.10 1.26.10 10.21.0 10.20.0 22 22; versions "pnpm differs" fail
+mkversions 1.26.10 1.26.10 10.21.0 10.21.0 22 22
+mkdir -p "$tmp/r/bench"; printf 'FROM golang:1.26.9-alpine AS b
+' > "$tmp/r/bench/Dockerfile"; versions "bench image behind the toolchain" fail
+printf 'FROM golang:1.26.10-alpine AS b
+' > "$tmp/r/bench/Dockerfile"; versions "bench image agrees" pass
 mkversions 1.26.10 1.26.10 10.21.0 10.21.0 22 24; versions "node differs" fail
 rm "$tmp/r/Dockerfile"; printf 'FROM scratch\n' > "$tmp/r/Dockerfile"; versions "no golang image" fail
 

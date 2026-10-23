@@ -14,7 +14,7 @@ internal/venue/binance 99.0
 internal/venue/kraken 99.0
 internal/version 99.0
 
-bench exclude benchmarks only, no statements
+bench exclude the benchmark harness: test files only, no statements
 bench/header exclude prints the header of a benchmark log; no tests of its own
 tools/figuregen exclude package of documentation only
 tools/figuregen/card exclude drawing helpers, exercised through the figure tests

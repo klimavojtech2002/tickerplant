@@ -14,7 +14,7 @@ for file in "$@"; do
     case "$line" in
       *"uses: ./"*) continue ;;
     esac
-    if ! printf '%s\n' "$line" | grep -qE 'uses:[[:space:]]+[A-Za-z0-9_.-]+/[A-Za-z0-9_./-]+@[0-9a-f]{40}[[:space:]]+#[[:space:]]*v[0-9]+(\.[0-9]+){1,2}[[:space:]]*$'; then
+    if ! printf '%s\n' "$line" | grep -qE 'uses:[[:space:]]+[A-Za-z0-9_.-]+/[A-Za-z0-9_./-]+@[0-9a-f]{40}[[:space:]]+#[[:space:]]*v[0-9]+(\.[0-9]+){0,2}[[:space:]]*$'; then
       echo "$file:${hit%%:*}: not pinned to a commit with a version comment: $(printf '%s' "$line" | sed 's/^[[:space:]]*//')"
       exit 1
     fi
