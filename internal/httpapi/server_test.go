@@ -346,83 +346,6 @@ func TestClientDisconnectUnsubscribes(t *testing.T) {
 	}
 }
 
-// /metrics must report the exact counters and stats — observability that doesn't lie.
-func TestMetricsExact(t *testing.T) {
-	hub := delivery.New(8)
-	defer hub.Close()
-	c := hub.Subscribe()
-	_ = c
-	hub.Publish(view(1)) // delivered = 1
-	hub.Publish(view(2)) // superseded -> dropped = 1
-
-	lat := metrics.NewHistogram()
-	for range 100 {
-		lat.Record(100 * time.Microsecond)
-	}
-	eng := &stubEngine{gaps: 1, resyncs: 2, disconnects: 3, crosses: 4, mismatches: 5, rejects: 6, snapErrors: 7}
-	srv := newEdge(t, hub, eng, lat, 0)
-
-	resp, err := http.Get(srv.URL + "/metrics")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer resp.Body.Close()
-	if ct := resp.Header.Get("Content-Type"); ct != "application/json" {
-		t.Fatalf("Content-Type = %q", ct)
-	}
-	if ao := resp.Header.Get("Access-Control-Allow-Origin"); ao != "*" {
-		t.Fatalf("Allow-Origin = %q; the dashboard polls /metrics cross-origin in dev", ao)
-	}
-	var doc metricsJSON
-	if err := json.NewDecoder(resp.Body).Decode(&doc); err != nil {
-		t.Fatal(err)
-	}
-	if doc.Venue != "kraken" || doc.Symbol != "BTC/USD" {
-		t.Fatalf("identity = %s/%s", doc.Venue, doc.Symbol)
-	}
-	if doc.Delivery.Consumers != 1 || doc.Delivery.Delivered != 1 || doc.Delivery.Dropped != 1 {
-		t.Fatalf("delivery = %+v, want 1/1/1", doc.Delivery)
-	}
-	if doc.Engine != (engineJSON{Gaps: 1, Resyncs: 2, Disconnects: 3, WouldCrosses: 4, ChecksumMismatches: 5, SnapshotRejects: 6, SnapshotErrors: 7}) {
-		t.Fatalf("engine = %+v", doc.Engine)
-	}
-	if doc.Latency == nil || doc.Latency.Count != 100 {
-		t.Fatalf("latency = %+v, want count 100", doc.Latency)
-	}
-	if doc.Latency.Max != "100µs" {
-		t.Fatalf("latency max = %q, want the exact recorded sample", doc.Latency.Max)
-	}
-	for _, q := range []string{doc.Latency.P50, doc.Latency.P99, doc.Latency.P999} {
-		d, err := time.ParseDuration(q)
-		if err != nil {
-			t.Fatalf("quantile %q does not parse: %v", q, err)
-		}
-		if d < 98*time.Microsecond || d > 102*time.Microsecond {
-			t.Fatalf("quantile %v outside the histogram's 2%% band around 100µs", d)
-		}
-	}
-}
-
-// Without a latency histogram the field is omitted, not zeroed — absent means "not
-// measured", never "measured as zero".
-func TestMetricsOmitsAbsentLatency(t *testing.T) {
-	hub := delivery.New(8)
-	defer hub.Close()
-	srv := newEdge(t, hub, &stubEngine{}, nil, 0)
-	resp, err := http.Get(srv.URL + "/metrics")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer resp.Body.Close()
-	var raw map[string]json.RawMessage
-	if err := json.NewDecoder(resp.Body).Decode(&raw); err != nil {
-		t.Fatal(err)
-	}
-	if _, present := raw["latency"]; present {
-		t.Fatal("latency must be omitted when nothing records it")
-	}
-}
-
 // A nil engine view means "nothing published yet": the stream opens and waits for the
 // first publish instead of sending an empty opener.
 func TestStreamNoOpenerBeforeFirstPublish(t *testing.T) {
@@ -459,20 +382,12 @@ func TestWriteViewRequiresDeadlineSupport(t *testing.T) {
 	}
 }
 
-// The encode-failure log path: a writer that fails mid-encode must not panic and must
-// be loggable (the error branch is real on a dead connection).
+// failingWriter is a response writer whose writes fail, like a client that has gone away.
 type failingWriter struct{ hdr http.Header }
 
 func (f *failingWriter) Header() http.Header       { return f.hdr }
 func (f *failingWriter) Write([]byte) (int, error) { return 0, errors.New("client gone") }
 func (f *failingWriter) WriteHeader(int)           {}
-
-func TestMetricsEncodeFailureIsHandled(t *testing.T) {
-	hub := delivery.New(8)
-	defer hub.Close()
-	s := &server{cfg: Config{Hub: hub, Engine: &stubEngine{}, Log: quietLog()}}
-	s.metrics(&failingWriter{hdr: http.Header{}}, nil) // must not panic
-}
 
 func quietLog() *slog.Logger { return slog.New(slog.DiscardHandler) }
 

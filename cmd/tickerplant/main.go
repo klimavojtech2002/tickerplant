@@ -65,7 +65,7 @@ func parseFlags(args []string, out io.Writer) (options, error) {
 	fs.BoolVar(&o.live, "live", false, "connect to a live venue instead of the synthetic source")
 	fs.StringVar(&o.venue, "venue", app.DefaultVenue, "live venue (with -live): binance|kraken")
 	fs.StringVar(&o.symbol, "symbol", app.DefaultSymbol, "live symbol (with -live)")
-	fs.StringVar(&o.httpAddr, "http", "", "serve the SSE stream and /metrics on this address (e.g. :8080); empty = off")
+	fs.StringVar(&o.httpAddr, "http", "", "serve the SSE stream, /api/status and Prometheus /metrics on this address (e.g. :8080); empty = off")
 	fs.IntVar(&o.maxStreams, "max-streams", httpapi.DefaultMaxStreams, "most simultaneous stream clients the HTTP edge serves (1 to 10000); more get a 503")
 	fs.StringVar(&o.corsOrigin, "cors-origin", "*", "origin allowed to read the HTTP edge from a browser: * or one origin such as https://app.example")
 	fs.BoolVar(&o.healthcheck, "healthcheck", false, "ask the HTTP edge on 127.0.0.1 at the -http port whether it is up (GET /healthz) and exit 0 if so, 1 if not")

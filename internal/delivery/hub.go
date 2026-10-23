@@ -77,16 +77,16 @@ func (c *Consumer) Take() *book.View {
 	return v
 }
 
-// Stats is a point-in-time snapshot of fan-out activity, for a /metrics endpoint.
+// Stats is a point-in-time snapshot of fan-out activity, for the HTTP edge's metrics.
 //
 // Consumers, Delivered and Dropped count the consumers made by Subscribe and
 // TrySubscribe, not the internal one from SubscribeInternal. Published counts every
-// Publish call, with or without consumers, and is not part of the JSON.
+// Publish call, with or without consumers.
 type Stats struct {
-	Consumers int    `json:"consumers"`
-	Delivered uint64 `json:"delivered"`
-	Dropped   uint64 `json:"dropped"`
-	Published uint64 `json:"-"`
+	Consumers int
+	Delivered uint64
+	Dropped   uint64
+	Published uint64
 }
 
 // New returns a Hub. maxLag is the consecutive-supersede count at which a consumer is

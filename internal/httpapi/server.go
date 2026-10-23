@@ -12,6 +12,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"sync/atomic"
 	"time"
 
 	"github.com/klimavojtech2002/tickerplant/internal/book"
@@ -21,7 +22,7 @@ import (
 )
 
 // Engine is what the edge needs from the book engine: the current view (served as a
-// new subscriber's first event) and the counters for /metrics. *book.Engine satisfies
+// new subscriber's first event) and the counters for /metrics and /api/status. *book.Engine satisfies
 // it; tests inject fixed values.
 type Engine interface {
 	View() *book.View
@@ -85,9 +86,9 @@ const retryAfter = "5"
 const maxScale = 18
 
 // New returns the edge handler: GET /stream (SSE: a complete top-N view per view event, and
-// a telemetry event every second), GET /healthz and /readyz, GET /metrics (JSON snapshot of
-// delivery stats, engine counters, and latency) and GET /api/status (the same facts with
-// integer latency, the mode, version and start time). It refuses a configuration that would only
+// a telemetry event every second), GET /healthz and /readyz, GET /metrics (the counters and
+// latency in the Prometheus text format) and GET /api/status (the same facts as one JSON
+// document with integer latency, the mode, version and start time). It refuses a configuration that would only
 // fail later, or show a wrong price: a nil hub or engine, a price or size scale outside 0 to 18,
 // a mode other than synthetic or live, or a negative depth.
 func New(cfg Config) (http.Handler, error) {
@@ -131,7 +132,15 @@ func New(cfg Config) (http.Handler, error) {
 	return chain(mux, cfg.Log, cfg.CORSOrigin), nil
 }
 
-type server struct{ cfg Config }
+// server serves the edge. Its stream counters are atomics read by /metrics; a server is never
+// copied.
+type server struct {
+	cfg     Config
+	streams streamCounts
+}
+
+// streamCounts counts stream requests by outcome since the process started.
+type streamCounts struct{ accepted, closed, full atomic.Uint64 }
 
 // maxStreams is the effective cap: the configured value, or the default when none was set. It
 // is applied here, not in New, so a server built without New keeps working.
@@ -148,10 +157,12 @@ func (s *server) maxStreams() int {
 // drop would not be.
 func (s *server) refuse(w http.ResponseWriter, err error) {
 	if errors.Is(err, delivery.ErrFull) {
+		s.streams.full.Add(1)
 		w.Header().Set("Retry-After", retryAfter)
 		probe(w, http.StatusServiceUnavailable, "too many streams")
 		return
 	}
+	s.streams.closed.Add(1) // the hub returns only ErrFull and ErrClosed
 	probe(w, http.StatusServiceUnavailable, "shutting down")
 }
 
@@ -236,6 +247,7 @@ func (s *server) stream(w http.ResponseWriter, r *http.Request) {
 		s.refuse(w, err)
 		return
 	}
+	s.streams.accepted.Add(1) // counted before the headers: a later write failure is still an accepted stream
 	defer s.cfg.Hub.Unsubscribe(c.ID())
 
 	h := w.Header()
@@ -293,64 +305,4 @@ func (s *server) stream(w http.ResponseWriter, r *http.Request) {
 // venue transport's Close-unblock).
 func (s *server) writeView(w http.ResponseWriter, v *book.View) bool {
 	return s.writeEvent(w, "view", s.viewPayload(v))
-}
-
-// metricsJSON is the /metrics document. Latency quantiles are duration strings
-// ("1.2ms") — display-ready and float-free for any consumer.
-type metricsJSON struct {
-	Venue    string         `json:"venue"`
-	Symbol   string         `json:"symbol"`
-	Delivery delivery.Stats `json:"delivery"`
-	Engine   engineJSON     `json:"engine"`
-	Latency  *latencyJSON   `json:"latency,omitempty"`
-}
-
-type engineJSON struct {
-	Gaps               int `json:"gaps"`
-	Resyncs            int `json:"resyncs"`
-	Disconnects        int `json:"disconnects"`
-	WouldCrosses       int `json:"wouldCrosses"`
-	ChecksumMismatches int `json:"checksumMismatches"`
-	SnapshotRejects    int `json:"snapshotRejects"`
-	SnapshotErrors     int `json:"snapshotErrors"`
-}
-
-type latencyJSON struct {
-	Count uint64 `json:"count"`
-	P50   string `json:"p50"`
-	P99   string `json:"p99"`
-	P999  string `json:"p99_9"`
-	Max   string `json:"max"`
-}
-
-func (s *server) metrics(w http.ResponseWriter, _ *http.Request) {
-	doc := metricsJSON{
-		Venue:    string(s.cfg.Venue),
-		Symbol:   string(s.cfg.Symbol),
-		Delivery: s.cfg.Hub.Stats(),
-		Engine: engineJSON{
-			Gaps:               s.cfg.Engine.Gaps(),
-			Resyncs:            s.cfg.Engine.Resyncs(),
-			Disconnects:        s.cfg.Engine.Disconnects(),
-			WouldCrosses:       s.cfg.Engine.WouldCrosses(),
-			ChecksumMismatches: s.cfg.Engine.ChecksumMismatches(),
-			SnapshotRejects:    s.cfg.Engine.SnapshotRejects(),
-			SnapshotErrors:     s.cfg.Engine.SnapshotErrors(),
-		},
-	}
-	if s.cfg.Latency != nil {
-		// Each read locks separately; the block is a near-instant of a live histogram,
-		// not one frozen snapshot — fine for a health scrape, each value exact.
-		doc.Latency = &latencyJSON{
-			Count: s.cfg.Latency.Count(),
-			P50:   s.cfg.Latency.Percentile(0.50).String(),
-			P99:   s.cfg.Latency.Percentile(0.99).String(),
-			P999:  s.cfg.Latency.Percentile(0.999).String(),
-			Max:   s.cfg.Latency.Max().String(),
-		}
-	}
-	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(doc); err != nil {
-		s.cfg.Log.Error("metrics encode failed", "err", err)
-	}
 }

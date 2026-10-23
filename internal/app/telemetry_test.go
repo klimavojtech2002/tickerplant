@@ -44,7 +44,7 @@ func telemetryOf(t *testing.T, src source.Source, release func()) (rejected uint
 	base := "http://" + ln.Addr().String()
 	deadline := time.Now().Add(5 * time.Second)
 	for { // wait until the engine has recorded the disconnect
-		resp, err := http.Get(base + "/metrics")
+		resp, err := http.Get(base + "/api/status")
 		if err == nil {
 			var doc struct {
 				Engine struct {
