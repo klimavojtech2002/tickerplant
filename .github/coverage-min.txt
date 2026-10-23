@@ -1,7 +1,7 @@
 # Minimum statement coverage per package, in percent. Checked by scripts/check-coverage.sh.
 # A package must be here, or excluded with a reason. Raise a number when coverage rises; lowering one
 # needs a reason in the commit message.
-cmd/tickerplant 89.0
+cmd/tickerplant 99.0
 internal/app 96.0
 internal/book 100.0
 internal/delivery 100.0
