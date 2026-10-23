@@ -4,6 +4,7 @@
 # produces plain static files and the runtime image needs no Node server at all.
 FROM node:22-alpine AS builder
 WORKDIR /app
+# Keep this version equal to "packageManager" in package.json.
 RUN corepack enable && corepack prepare pnpm@10.21.0 --activate
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 RUN pnpm install --frozen-lockfile
