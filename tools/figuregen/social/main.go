@@ -6,6 +6,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"log"
@@ -32,6 +33,20 @@ func main() {
 	out := flag.String("out", "docs/figures/social-preview.svg", "output SVG path")
 	flag.Parse()
 
+	svg, states, crossed, err := run()
+	if err != nil {
+		log.Fatal(err)
+	}
+	if err := os.WriteFile(*out, []byte(svg), 0o644); err != nil {
+		log.Fatalf("write: %v", err)
+	}
+	fmt.Printf("wrote %s: %d published states, %d crossed\n", *out, states, crossed)
+}
+
+// run drives the deterministic source through the real engine and returns the card.
+// It touches neither the file system nor the clock, so a test can compare its output
+// with the committed SVG.
+func run() (svg string, states, crossed int, err error) {
 	cfg := source.Config{
 		Venue: "synthetic", Symbol: "DEMO", Seed: seed, Steps: steps,
 		Faults: map[int]source.Fault{gapStep: source.FaultGap, crossStp: source.FaultCross},
@@ -41,53 +56,53 @@ func main() {
 
 	eng, err := book.New(src, 10)
 	if err != nil {
-		log.Fatalf("engine: %v", err)
+		return "", 0, 0, fmt.Errorf("engine: %w", err)
 	}
 	ctx := context.Background()
 	if err := eng.Bootstrap(ctx); err != nil {
-		log.Fatalf("bootstrap: %v", err)
+		return "", 0, 0, fmt.Errorf("bootstrap: %w", err)
 	}
 
 	var points []point
-	record := func(idx int) {
+	record := func(idx int) error {
 		v := eng.View()
 		if v == nil || len(v.Bids) == 0 || len(v.Asks) == 0 {
-			return
+			return nil
 		}
 		if v.Crosses() {
-			log.Fatalf("invariant violated: published view at update %d crosses", idx)
+			return fmt.Errorf("invariant violated: published view at update %d crosses", idx)
 		}
 		points = append(points, point{idx, int64(v.Bids[0].Price), int64(v.Asks[0].Price)})
+		return nil
 	}
-	record(0)
+	if err := record(0); err != nil {
+		return "", 0, 0, err
+	}
 
 	idx := 0
 	for {
 		ok, err := eng.Step(ctx)
 		if err != nil {
-			log.Fatalf("step: %v", err)
+			return "", 0, 0, fmt.Errorf("step: %w", err)
 		}
 		if !ok {
 			break
 		}
 		idx++
-		record(idx)
+		if err := record(idx); err != nil {
+			return "", 0, 0, err
+		}
 	}
 	if len(points) == 0 {
-		log.Fatalf("no published view captured (empty book)")
+		return "", 0, 0, errors.New("no published view captured (empty book)")
 	}
 
-	crossed := 0
 	for _, p := range points {
 		if p.bid >= p.ask {
 			crossed++
 		}
 	}
-
-	if err := os.WriteFile(*out, []byte(render(points, len(points), crossed)), 0o644); err != nil {
-		log.Fatalf("write: %v", err)
-	}
-	fmt.Printf("wrote %s: %d published states, %d crossed\n", *out, len(points), crossed)
+	return render(points, len(points), crossed), len(points), crossed, nil
 }
 
 const (
