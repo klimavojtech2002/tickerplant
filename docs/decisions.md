@@ -622,7 +622,7 @@ lines on stderr) and the Next.js dashboard.
   server, no exec, no user input reaching a shell), and hand-patching a stock config adds fragility for
   little extra hardening. Stated as a trade-off.
 - **Amended: rootless nginx and a Content-Security-Policy computed from the build.** The root master process above is
-  gone. The image is the same `nginx:1.27-alpine`, pinned by digest (nginx 1.27.5; the pin is refreshed on purpose), run as the
+  gone. The image is the stock `nginx:alpine` of the day (1.27 when this was written, 1.29 after a Dependabot update), pinned by digest and run as the
   `nginx` user on port 8080 with its own `nginx.conf`: the pid file and every temp path are under `/tmp`, the logs go to the
   container's stdout and stderr, and compose runs it with a read-only file system, a `/tmp` tmpfs, all capabilities dropped and
   `no-new-privileges`. (The upstream `nginx-unprivileged` image would do the same; this one was chosen because it needs no new
@@ -655,7 +655,7 @@ lines on stderr) and the Next.js dashboard.
 - A multi-instrument or server-rendered dashboard would force revisiting the static-export choice;
   out of scope while the page serves one instrument (ADR-0018).
 - Image sizes, measured: the Go service is **15.9 MB** (distroless static + a stripped, trimmed
-  binary); the dashboard is **74.7 MB**, dominated by the `nginx:1.27-alpine` base rather than the
+  binary); the dashboard is **74.7 MB** (measured on `nginx:1.27-alpine`, not measured again on 1.29), dominated by the nginx base rather than the
   handful of static files it serves.
 
 ## ADR-0020 — The process stops on SIGINT and SIGTERM and refuses bad flags

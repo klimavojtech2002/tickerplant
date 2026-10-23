@@ -218,7 +218,7 @@ docker compose run --rm --service-ports edge -http :8080 -live -venue kraken -sy
 ```
 
 Both images are multi-stage: the Go service on `gcr.io/distroless/static-debian12:nonroot` (no shell,
-non-root; 15.9 MB), the dashboard as a static export on `nginx:1.27-alpine` (74.7 MB).
+non-root; 15.9 MB), the dashboard as a static export on `nginx:1.29-alpine` (74.7 MB measured on the earlier 1.27 base; not measured again).
 
 The edge answers `/healthz` (the process is up) and `/readyz` (the book has a view and is not being
 rebuilt). `tickerplant -healthcheck -http :8080` asks `/healthz` from inside the container, where there is
