@@ -43,6 +43,10 @@ type Config struct {
 	Seed   int64
 	Steps  int           // number of generation steps to run before the stream ends
 	Faults map[int]Fault // step index -> fault to inject on the emitted stream (looked up, never ranged)
+	// FaultAt, when set, gives the fault for a step that has no entry in Faults, so a long run needs
+	// no table (see ChaosSchedule). An entry in Faults wins; an explicit FaultNone entry does not
+	// suppress it. It is called once per step and must be a pure function of the step.
+	FaultAt func(step int) Fault
 
 	// CrossingSnapshot makes the next Snapshot return a crossed book (best bid >=
 	// best ask) — an illegal snapshot the engine must reject and resync from.
@@ -181,6 +185,9 @@ func (s *Synthetic) Next(ctx context.Context) (Event, bool) {
 	// step's own fault (via the recursive Next), never dropping it.
 	for s.step < s.cfg.Steps {
 		fault := s.cfg.Faults[s.step]
+		if fault == FaultNone && s.cfg.FaultAt != nil {
+			fault = s.cfg.FaultAt(s.step)
+		}
 		s.step++
 		switch fault {
 		case FaultDisconnect:

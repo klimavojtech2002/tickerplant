@@ -34,6 +34,13 @@ func TestParseFlags(t *testing.T) {
 			wantCadence: 500,
 		},
 		{
+			name: "chaos is an opt-in switch",
+			args: []string{"-chaos"},
+			want: options{seed: 1, steps: 5000, depth: 10, every: 500, everySet: false,
+				pace: 150 * time.Millisecond, chaos: true, venue: "binance", symbol: "BTCUSDT", logLevel: "info", logFormat: "text", corsOrigin: "*", maxStreams: httpapi.DefaultMaxStreams},
+			wantCadence: 500,
+		},
+		{
 			name: "live with default cadence logs every update",
 			args: []string{"-live"},
 			want: options{seed: 1, steps: 5000, depth: 10, every: 500, everySet: false,
@@ -131,6 +138,8 @@ func TestValidate(t *testing.T) {
 		{"depth negative", func(o *options) { o.depth = -1 }, "-depth -1"},
 		{"depth too big", func(o *options) { o.depth = maxDepth + 1 }, "-depth 1001"},
 		{"steps zero", func(o *options) { o.steps = 0 }, ""},
+		{"chaos alone", func(o *options) { o.chaos = true }, ""},
+		{"chaos with live", func(o *options) { o.chaos = true; o.live = true; o.venue = "binance" }, "-chaos cannot be used with -live"},
 		{"steps negative", func(o *options) { o.steps = -5 }, "-steps -5"},
 		{"every zero", func(o *options) { o.every = 0 }, ""},
 		{"every negative", func(o *options) { o.every = -1 }, "-every -1"},
@@ -192,7 +201,7 @@ func TestParseFlagsRefusesOutOfRange(t *testing.T) {
 func TestMainRefusesBadFlags(t *testing.T) {
 	cases := [][]string{
 		{"-depth", "-1"}, {"-depth", "99999"}, {"-steps", "-5"}, {"-every", "-1"}, {"-pace", "-1s"},
-		{"-log-level", "loud"}, {"-log-format", "xml"}, {"-max-streams", "0"},
+		{"-log-level", "loud"}, {"-log-format", "xml"}, {"-max-streams", "0"}, {"-chaos", "-live"},
 	}
 	for _, args := range cases {
 		cmd := exec.Command(os.Args[0], args...)
@@ -255,5 +264,27 @@ func TestMainPrintsVersion(t *testing.T) {
 	}
 	if !strings.HasPrefix(string(out), "tickerplant ") {
 		t.Fatalf("output = %q, want \"tickerplant <version>\"", out)
+	}
+}
+
+// -chaos reaches the pipeline: the built command logs the mode with chaos on, and a short run
+// with the schedule's first period finishes cleanly (the engine heals from every fault).
+func TestMainPassesChaosOn(t *testing.T) {
+	run := func(extra ...string) string {
+		args := append([]string{"-steps", "350", "-pace", "0", "-every", "100000", "-log-format", "json"}, extra...)
+		cmd := exec.Command(os.Args[0], args...)
+		cmd.Env = append(os.Environ(), "TICKERPLANT_AS_MAIN=1")
+		var stderr bytes.Buffer
+		cmd.Stderr = &stderr
+		if err := cmd.Run(); err != nil {
+			t.Fatalf("%v: %v\n%s", args, err, stderr.String())
+		}
+		return stderr.String()
+	}
+	if out := run("-chaos"); !strings.Contains(out, `"chaos":true`) {
+		t.Fatalf("a run with -chaos should log chaos:true, got:\n%s", out)
+	}
+	if out := run(); !strings.Contains(out, `"chaos":false`) {
+		t.Fatalf("a run without -chaos should log chaos:false, got:\n%s", out)
 	}
 }

@@ -17,6 +17,10 @@ services:
     # step count keeps it running for a full session (100,000,000 steps at 150ms is
     # over 170 days, effectively indefinite); it still exits cleanly (never wedges)
     # once exhausted.
+    #
+    # To show the engine healing itself, add "-chaos": the synthetic source then injects a gap, a
+    # reorder, a duplicate, a disconnect, a crossing delta and a coalesced delta in every 300 steps.
+    # The recoveries show in /metrics and /api/status; the dashboard does not display them yet.
     command: ["-http", ":8080", "-steps", "100000000"]
     # A fatal exit (for example a venue that stays down past the snapshot retries) is
     # retried a few times; on-failure also caps a bad-flag exit, which unless-stopped would loop on.

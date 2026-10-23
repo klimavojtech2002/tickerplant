@@ -56,7 +56,8 @@ checksum mismatch short-circuits this flow into a resync (§6) instead of produc
 The transport port is the seam. It is a small interface the engine reads source events through and
 issues snapshot requests across — no sockets, no HTTP, no venue knowledge. Two implementations satisfy
 it: the deterministic synthetic source (a seeded generator that can be scheduled to emit gaps, reorders,
-duplicates, disconnects, crossing deltas and coalesced deltas) and the live venue adapters. Because the
+duplicates, disconnects, crossing deltas and coalesced deltas; `-chaos` turns on a repeating schedule of all six,
+ADR-0024) and the live venue adapters. Because the
 seam is small and pure, the correctness-critical code is the code under test, and live data is an
 integration concern, never a test dependency (ADR-0001, ADR-0005).
 
