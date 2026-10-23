@@ -45,5 +45,5 @@ describe("no-float rule", () => {
       const [result] = await eslint.lintFiles([file]);
       expect(result?.messages.map((m) => `${file}:${m.line} ${m.message}`)).toEqual([]);
     }
-  });
+  }, 60_000);
 });

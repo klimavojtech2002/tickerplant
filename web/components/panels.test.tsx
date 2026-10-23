@@ -124,7 +124,7 @@ describe("HealthPanel", () => {
     for (const [label, value] of want) {
       expect(tile(label), label).toBe(value);
     }
-    expect(screen.getByText("live · kraken · BTC/USD · v1.2.3")).toBeInTheDocument();
+    expect(screen.getByText(/live · kraken/)).toHaveTextContent("live · kraken · BTC/USD · v1.2.3");
   });
 
   it("gives every tile its own test id", () => {

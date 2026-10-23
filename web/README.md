@@ -35,7 +35,8 @@ pnpm build
 The lint config refuses `parseFloat`, `Number.parseFloat`, `.toFixed(` and `Number(...)`: they are the ways a
 price or size string becomes a binary float. The one place that needs `Number` (a whole percent from bigint
 division, in `lib/ticks.ts`) says why where it disables the rule. `lib/noFloat.test.ts` lints snippets and the
-real modules with the real config, so the rule cannot be dropped quietly. The pnpm version is the
+real modules with the real config, so the rule cannot be dropped quietly. It guards against accidents, not against
+evasion: `globalThis.parseFloat`, `x['toFixed']()` or a unary `+x` get past it. The pnpm version is the
 `packageManager` field of `package.json`; the `Dockerfile` repeats it and must be changed with it.
 
 ## What the page trusts
