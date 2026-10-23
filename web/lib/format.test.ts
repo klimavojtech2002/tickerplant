@@ -25,12 +25,9 @@ describe("formatNs", () => {
     expect(formatNs(n)).toBe(want);
   });
 
-  it.each([-1, 1.5, Number.NaN, Number.POSITIVE_INFINITY, Number.MAX_SAFE_INTEGER + 1])(
-    "refuses %d",
-    (n) => {
-      expect(formatNs(n)).toBe("n/a");
-    },
-  );
+  it.each([-1, 1.5, Number.NaN, Number.POSITIVE_INFINITY, Number.MAX_SAFE_INTEGER + 1])("refuses %d", (n) => {
+    expect(formatNs(n)).toBe("n/a");
+  });
 });
 
 describe("formatAgeMs", () => {

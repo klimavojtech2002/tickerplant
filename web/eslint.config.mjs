@@ -10,9 +10,29 @@ const eslintConfig = defineConfig([
     // Default ignores of eslint-config-next:
     ".next/**",
     "out/**",
+    "coverage/**",
     "build/**",
     "next-env.d.ts",
   ]),
+  // Prices and sizes are decimal strings and bigints; a float anywhere near them can round. These forms
+  // are how a string or bigint becomes a binary float, so they are refused (lib/noFloat.test.ts holds the rule to this).
+  {
+    rules: {
+      "no-restricted-syntax": [
+        "error",
+        { selector: "CallExpression[callee.name='parseFloat']", message: "parseFloat makes a binary float" },
+        {
+          selector: "CallExpression[callee.object.name='Number'][callee.property.name='parseFloat']",
+          message: "Number.parseFloat makes a binary float",
+        },
+        { selector: "CallExpression[callee.property.name='toFixed']", message: "toFixed formats a binary float" },
+        {
+          selector: "CallExpression[callee.name='Number']",
+          message: "Number() can turn a price or size into a binary float; keep decimals as strings and bigints",
+        },
+      ],
+    },
+  },
 ]);
 
 export default eslintConfig;

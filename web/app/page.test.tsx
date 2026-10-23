@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { FakeEventSource } from "@/lib/testing/fakeEventSource";
 
 import Page from "./page";
+import { at } from "@/lib/testing/at";
 
 const statusBody = JSON.stringify({
   schema: 1,
@@ -76,8 +77,8 @@ describe("Page under React Strict Mode", () => {
     const open = FakeEventSource.instances.filter((es) => es.close.mock.calls.length === 0);
     expect(FakeEventSource.instances.length).toBeGreaterThanOrEqual(2); // mounted, cleaned up, mounted
     expect(open).toHaveLength(1);
-    const live = open[0];
-    const discarded = FakeEventSource.instances[0];
+    const live = at(open, 0);
+    const discarded = at(FakeEventSource.instances, 0);
     expect(discarded).not.toBe(live);
 
     await act(async () => {
@@ -144,7 +145,7 @@ describe("Page under React Strict Mode", () => {
       await vi.advanceTimersByTimeAsync(10); // the status poll settles
     });
     unmount();
-    expect(live[0].close).toHaveBeenCalled();
+    expect(at(live, 0).close).toHaveBeenCalled();
     expect(vi.getTimerCount()).toBe(0);
   });
 

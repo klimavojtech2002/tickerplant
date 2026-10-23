@@ -60,11 +60,7 @@ export function retryDelayMs(attempt: number, random: number): number {
   return Math.max(minDelayMs, random * cap);
 }
 
-export function connectStream(
-  baseURL: string,
-  store: StreamStore,
-  overrides: Partial<StreamDeps> = {},
-): () => void {
+export function connectStream(baseURL: string, store: StreamStore, overrides: Partial<StreamDeps> = {}): () => void {
   const d: StreamDeps = { ...defaultDeps, ...overrides };
   let current: EventSourceLike | null = null;
   let attempt = 0;

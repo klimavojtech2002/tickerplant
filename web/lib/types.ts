@@ -205,7 +205,9 @@ export function parseView(text: string): ViewEvent | null {
   if (!oneScale(bids, 0) || !oneScale(bids, 1) || !oneScale(asks, 0) || !oneScale(asks, 1)) {
     return null;
   }
-  if (bids.length > 0 && asks.length > 0 && scaleOf(bids[0][0]) !== scaleOf(asks[0][0])) {
+  const bestBid = bids[0];
+  const bestAsk = asks[0];
+  if (bestBid !== undefined && bestAsk !== undefined && scaleOf(bestBid[0]) !== scaleOf(bestAsk[0])) {
     return null;
   }
   if (!strictly(bids, (a, b) => a > b) || !strictly(asks, (a, b) => a < b)) {
@@ -231,15 +233,19 @@ function isLevels(x: unknown): x is [string, string][] {
 
 /** Every price (col 0) or size (col 1) of a side has the same fraction width. */
 function oneScale(levels: [string, string][], col: 0 | 1): boolean {
-  return levels.every((l) => scaleOf(l[col]) === scaleOf(levels[0][col]));
+  const first = levels[0];
+  return first === undefined || levels.every((l) => scaleOf(l[col]) === scaleOf(first[col]));
 }
 
 /** Each price relates to the one before it by `before`: strict order, so no repeats. */
 function strictly(levels: [string, string][], before: (a: bigint, b: bigint) => boolean): boolean {
-  for (let i = 1; i < levels.length; i++) {
-    if (!before(toScaled(levels[i - 1][0]), toScaled(levels[i][0]))) {
+  let prev: bigint | undefined;
+  for (const l of levels) {
+    const price = toScaled(l[0]);
+    if (prev !== undefined && !before(prev, price)) {
       return false;
     }
+    prev = price;
   }
   return true;
 }

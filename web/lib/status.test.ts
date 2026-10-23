@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { initialPollState, nextPollState, pollStatus, type PollState } from "./status";
 import type { Status } from "./types";
+import { at } from "./testing/at";
 
 const status: Status = {
   schema: 1,
@@ -99,7 +100,7 @@ describe("pollStatus", () => {
     const got: PollState[] = [];
     const stop = pollStatus("http://edge", (s) => got.push(s), { fetchFn: f });
     await vi.advanceTimersByTimeAsync(1);
-    expect(raw.mock.calls[0][0]).toBe("http://edge/api/status");
+    expect(at(raw.mock.calls, 0)[0]).toBe("http://edge/api/status");
     expect(got.map((s) => s.kind)).toEqual(["ok"]);
     await vi.advanceTimersByTimeAsync(2000);
     expect(calls).toHaveLength(2);

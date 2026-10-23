@@ -27,9 +27,17 @@ Point it at another edge with `NEXT_PUBLIC_EDGE_URL`.
 ```bash
 pnpm lint
 pnpm type-check
-pnpm test
+pnpm format:check   # pnpm format rewrites the files
+pnpm test:coverage  # pnpm test runs the same tests without the report
 pnpm build
 ```
+
+The lint config refuses `parseFloat`, `Number.parseFloat`, `.toFixed(` and `Number(...)`: they are the ways a
+price or size string becomes a binary float. The one place that needs `Number` (a whole percent from bigint
+division, in `lib/ticks.ts`) says why where it disables the rule. `lib/noFloat.test.ts` lints snippets and the
+real modules with the real config, so the rule cannot be dropped quietly. It guards against accidents, not against
+evasion: `globalThis.parseFloat`, `x['toFixed']()` or a unary `+x` get past it. The pnpm version is the
+`packageManager` field of `package.json`; the `Dockerfile` repeats it and must be changed with it.
 
 ## What the page trusts
 
@@ -53,14 +61,14 @@ Run the tests from a full checkout for that reason.
 
 The status pill is computed from what has arrived, on the browser's own clock:
 
-| Pill | When |
-|---|---|
-| Connecting… | before the first connection opens |
-| Live · 1.2 s | open; telemetry is fresh; the last view is 1.2 s old |
-| Live · market quiet | open; telemetry is fresh; no view for 10 s |
-| No data from edge · 4 s | open, but no telemetry for more than 3 s |
-| Reconnecting… | the browser is reconnecting by itself, or a rebuilt connection is still opening |
-| Reconnecting in 4 s (attempt 3) | the connection was refused; a new one is scheduled |
+| Pill                            | When                                                                            |
+| ------------------------------- | ------------------------------------------------------------------------------- |
+| Connecting…                     | before the first connection opens                                               |
+| Live · 1.2 s                    | open; telemetry is fresh; the last view is 1.2 s old                            |
+| Live · market quiet             | open; telemetry is fresh; no view for 10 s                                      |
+| No data from edge · 4 s         | open, but no telemetry for more than 3 s                                        |
+| Reconnecting…                   | the browser is reconnecting by itself, or a rebuilt connection is still opening |
+| Reconnecting in 4 s (attempt 3) | the connection was refused; a new one is scheduled                              |
 
 After a refusal (for example the edge's stream cap) the page builds a new connection after a wait
 that starts at 1 s, doubles to at most 30 s, has random jitter and never goes below 250 ms. A
