@@ -27,11 +27,7 @@ export function HealthPanel({ state, now }: { state: PollState; now: number }) {
   }
   const s = state.status;
   return (
-    <section
-      aria-label="health"
-      data-state={state.kind}
-      className={unavailable ? "health-dimmed" : undefined}
-    >
+    <section aria-label="health" data-state={state.kind} className={unavailable ? "health-dimmed" : undefined}>
       {unavailable ? <p>{unavailableText(state.lastOkAt, now)}</p> : null}
       <p className="identity">
         {s.mode} · {s.venue} · {s.symbol} · {s.version}

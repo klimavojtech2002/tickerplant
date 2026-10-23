@@ -12,10 +12,7 @@ import { describe, expect, it } from "vitest";
 
 import { parseStatus, parseTelemetry, parseView } from "./types";
 
-const dir = path.resolve(
-  path.dirname(fileURLToPath(import.meta.url)),
-  "../../internal/httpapi/testdata",
-);
+const dir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../internal/httpapi/testdata");
 
 function golden(name: string): string {
   return readFileSync(path.join(dir, name), "utf-8");

@@ -46,11 +46,7 @@ export type PollOptions = {
 };
 
 /** pollStatus starts polling and returns the function that stops it. */
-export function pollStatus(
-  baseURL: string,
-  onUpdate: (state: PollState) => void,
-  opts: PollOptions = {},
-): () => void {
+export function pollStatus(baseURL: string, onUpdate: (state: PollState) => void, opts: PollOptions = {}): () => void {
   const intervalMs = opts.intervalMs ?? 2000;
   const timeoutMs = opts.timeoutMs ?? 1500;
   const fetchFn = opts.fetchFn ?? fetch;

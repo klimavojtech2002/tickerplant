@@ -95,6 +95,9 @@ jobs:
       - name: type-check
         run: pnpm type-check
 
+      - name: format
+        run: pnpm format:check
+
       - name: test (with coverage)
         run: pnpm test:coverage
 

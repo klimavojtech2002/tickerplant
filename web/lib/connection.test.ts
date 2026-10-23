@@ -28,7 +28,11 @@ describe("connection reducer", () => {
   });
 
   it("closes with the attempt and the time of the rebuild", () => {
-    const next = connection(st({ link: "open", openAt: 1, beatAt: 1 }), { type: "closed", attempt: 3, retryAt: 12_000 });
+    const next = connection(st({ link: "open", openAt: 1, beatAt: 1 }), {
+      type: "closed",
+      attempt: 3,
+      retryAt: 12_000,
+    });
     expect(next).toMatchObject({ link: "closed", attempt: 3, retryAt: 12_000 });
   });
 
@@ -91,33 +95,102 @@ describe("connectionLabel", () => {
   const rows: [string, ConnectionState, number, string, string][] = [
     ["first connect", initialConnection, 0, "connecting", "Connecting…"],
     ["first connect, any clock", initialConnection, 99_999, "connecting", "Connecting…"],
-    ["reconnecting after it had opened", st({ link: "connecting", everOpened: true }), 5000, "reconnecting", "Reconnecting…"],
-    ["browser reconnecting by itself", st({ link: "transient", everOpened: true, beatAt: 1 }), 90_000, "transient", "Reconnecting…"],
+    [
+      "reconnecting after it had opened",
+      st({ link: "connecting", everOpened: true }),
+      5000,
+      "reconnecting",
+      "Reconnecting…",
+    ],
+    [
+      "browser reconnecting by itself",
+      st({ link: "transient", everOpened: true, beatAt: 1 }),
+      90_000,
+      "transient",
+      "Reconnecting…",
+    ],
     ["transient before the first open", st({ link: "transient" }), 5000, "transient", "Reconnecting…"],
-    ["closed, 4 s to go", st({ link: "closed", attempt: 3, retryAt: 14_000 }), 10_000, "reconnecting", "Reconnecting in 4 s (attempt 3)"],
-    ["closed, a fraction of a second to go", st({ link: "closed", attempt: 1, retryAt: 10_001 }), 10_000, "reconnecting", "Reconnecting in 1 s (attempt 1)"],
-    ["closed, due now", st({ link: "closed", attempt: 2, retryAt: 10_000 }), 10_000, "reconnecting", "Reconnecting in 0 s (attempt 2)"],
-    ["closed, overdue", st({ link: "closed", attempt: 2, retryAt: 9000 }), 10_000, "reconnecting", "Reconnecting in 0 s (attempt 2)"],
-    ["closed, clock not ticked yet", st({ link: "closed", attempt: 1, retryAt: 1_700_000_000_000 }), 0, "reconnecting", "Reconnecting in 30 s (attempt 1)"],
+    [
+      "closed, 4 s to go",
+      st({ link: "closed", attempt: 3, retryAt: 14_000 }),
+      10_000,
+      "reconnecting",
+      "Reconnecting in 4 s (attempt 3)",
+    ],
+    [
+      "closed, a fraction of a second to go",
+      st({ link: "closed", attempt: 1, retryAt: 10_001 }),
+      10_000,
+      "reconnecting",
+      "Reconnecting in 1 s (attempt 1)",
+    ],
+    [
+      "closed, due now",
+      st({ link: "closed", attempt: 2, retryAt: 10_000 }),
+      10_000,
+      "reconnecting",
+      "Reconnecting in 0 s (attempt 2)",
+    ],
+    [
+      "closed, overdue",
+      st({ link: "closed", attempt: 2, retryAt: 9000 }),
+      10_000,
+      "reconnecting",
+      "Reconnecting in 0 s (attempt 2)",
+    ],
+    [
+      "closed, clock not ticked yet",
+      st({ link: "closed", attempt: 1, retryAt: 1_700_000_000_000 }),
+      0,
+      "reconnecting",
+      "Reconnecting in 30 s (attempt 1)",
+    ],
     ["open, no view yet, just opened", open(), 1000, "live", "Live"],
     ["open, no view yet, 9999 ms of telemetry only", open({ beatAt: 10_999 }), 10_999, "live", "Live"],
     ["open, no view yet, 10000 ms of telemetry only", open({ beatAt: 11_000 }), 11_000, "quiet", "Live · market quiet"],
     ["open, view 200 ms ago", open({ viewAt: 4800, beatAt: 4900 }), 5000, "live", "Live · 200 ms"],
     ["open, view 1.5 s ago", open({ viewAt: 3500, beatAt: 4900 }), 5000, "live", "Live · 1.5 s"],
     ["open, view 9999 ms ago", open({ viewAt: 1001, beatAt: 10_900 }), 11_000, "live", "Live · 9.9 s"],
-    ["open, view 10000 ms ago, telemetry fresh", open({ viewAt: 1000, beatAt: 10_900 }), 11_000, "quiet", "Live · market quiet"],
+    [
+      "open, view 10000 ms ago, telemetry fresh",
+      open({ viewAt: 1000, beatAt: 10_900 }),
+      11_000,
+      "quiet",
+      "Live · market quiet",
+    ],
     ["open, telemetry exactly 3000 ms old", open({ viewAt: 4000, beatAt: 2000 }), 5000, "live", "Live · 1.0 s"],
     ["open, telemetry 3001 ms old", open({ viewAt: 4000, beatAt: 1999 }), 5000, "no-data", "No data from edge · 3 s"],
-    ["open, telemetry 4 s old while views continue", open({ viewAt: 4990, beatAt: 1000 }), 5000, "no-data", "No data from edge · 4 s"],
-    ["open, views stopped while telemetry continues", open({ viewAt: 1100, beatAt: 14_900 }), 15_000, "quiet", "Live · market quiet"],
-    ["open, an event stamped after the clock reads 0 ms", open({ viewAt: 6000, beatAt: 6000 }), 5000, "live", "Live · 0 ms"],
+    [
+      "open, telemetry 4 s old while views continue",
+      open({ viewAt: 4990, beatAt: 1000 }),
+      5000,
+      "no-data",
+      "No data from edge · 4 s",
+    ],
+    [
+      "open, views stopped while telemetry continues",
+      open({ viewAt: 1100, beatAt: 14_900 }),
+      15_000,
+      "quiet",
+      "Live · market quiet",
+    ],
+    [
+      "open, an event stamped after the clock reads 0 ms",
+      open({ viewAt: 6000, beatAt: 6000 }),
+      5000,
+      "live",
+      "Live · 0 ms",
+    ],
   ];
   it.each(rows)("%s", (_name, state, now, kind, text) => {
     expect(connectionLabel(state, now)).toEqual({ kind, text });
   });
 
   it("an open link whose clock has not ticked reads Live, not Connecting", () => {
-    expect(connectionLabel(open({ viewAt: 5000, beatAt: 5000, openAt: 5000 }), 0)).toEqual({ kind: "live", text: "Live · 0 ms" });
+    expect(connectionLabel(open({ viewAt: 5000, beatAt: 5000, openAt: 5000 }), 0)).toEqual({
+      kind: "live",
+      text: "Live · 0 ms",
+    });
     expect(connectionLabel(open({ openAt: 5000, beatAt: 5000 }), 0)).toEqual({ kind: "live", text: "Live" });
   });
 });

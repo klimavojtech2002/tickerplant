@@ -95,9 +95,8 @@ describe("HealthPanel", () => {
 
   /** The value shown in the tile with this label. */
   function tile(label: string): string {
-    return within(screen.getByTestId(tileID(label))).getByText((_, el) =>
-      el?.className === "tile-value",
-    ).textContent as string;
+    return within(screen.getByTestId(tileID(label))).getByText((_, el) => el?.className === "tile-value")
+      .textContent as string;
   }
 
   it("shows every counter and quantile in its own labelled tile", () => {

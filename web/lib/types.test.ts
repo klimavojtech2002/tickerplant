@@ -107,8 +107,24 @@ const telemetry = (): Tel => ({
   rejected: 9,
   consumers: 1,
   events: [
-    { id: 1, kind: "gap", atUnixMs: 1699999990000, expectedSeq: 4182, gotSeq: 4185, reason: "sequence gap", durationMs: 38 },
-    { id: 2, kind: "disconnect", atUnixMs: 1699999995000, expectedSeq: 0, gotSeq: 0, reason: "source disconnected", durationMs: -1 },
+    {
+      id: 1,
+      kind: "gap",
+      atUnixMs: 1699999990000,
+      expectedSeq: 4182,
+      gotSeq: 4185,
+      reason: "sequence gap",
+      durationMs: 38,
+    },
+    {
+      id: 2,
+      kind: "disconnect",
+      atUnixMs: 1699999995000,
+      expectedSeq: 0,
+      gotSeq: 0,
+      reason: "source disconnected",
+      durationMs: -1,
+    },
   ],
 });
 
@@ -176,26 +192,85 @@ describe("parseView", () => {
   });
 
   const refused: [string, (v: Doc) => void][] = [
-    ["bids ascending", (v) => (v.bids = [["62721.6", "1.00000000"], ["62721.7", "1.00000000"]])],
-    ["asks descending", (v) => (v.asks = [["62721.9", "1.00000000"], ["62721.8", "1.00000000"]])],
-    ["a duplicate bid price", (v) => (v.bids = [["62721.7", "1.00000000"], ["62721.7", "2.00000000"]])],
-    ["a duplicate ask price", (v) => (v.asks = [["62721.8", "1.00000000"], ["62721.8", "2.00000000"]])],
+    [
+      "bids ascending",
+      (v) =>
+        (v.bids = [
+          ["62721.6", "1.00000000"],
+          ["62721.7", "1.00000000"],
+        ]),
+    ],
+    [
+      "asks descending",
+      (v) =>
+        (v.asks = [
+          ["62721.9", "1.00000000"],
+          ["62721.8", "1.00000000"],
+        ]),
+    ],
+    [
+      "a duplicate bid price",
+      (v) =>
+        (v.bids = [
+          ["62721.7", "1.00000000"],
+          ["62721.7", "2.00000000"],
+        ]),
+    ],
+    [
+      "a duplicate ask price",
+      (v) =>
+        (v.asks = [
+          ["62721.8", "1.00000000"],
+          ["62721.8", "2.00000000"],
+        ]),
+    ],
     // Order alone would accept these two (62721.70 > 62721.6, 62721.8 < 62721.90), and the
     // other side matches the first price's width, so only the per-side scale check can refuse them.
     [
       "mixed price scale in bids that still sort",
       (v) => {
-        v.bids = [["62721.70", "1.00000000"], ["62721.6", "1.00000000"]];
-        v.asks = [["62721.80", "1.00000000"], ["62721.90", "1.00000000"]];
+        v.bids = [
+          ["62721.70", "1.00000000"],
+          ["62721.6", "1.00000000"],
+        ];
+        v.asks = [
+          ["62721.80", "1.00000000"],
+          ["62721.90", "1.00000000"],
+        ];
       },
     ],
     [
       "mixed price scale in asks that still sort",
-      (v) => (v.asks = [["62721.8", "1.00000000"], ["62721.90", "1.00000000"]]),
+      (v) =>
+        (v.asks = [
+          ["62721.8", "1.00000000"],
+          ["62721.90", "1.00000000"],
+        ]),
     ],
-    ["mixed price scale in bids", (v) => (v.bids = [["62721.7", "1.00000000"], ["62721.60", "1.00000000"]])],
-    ["mixed size scale in bids", (v) => (v.bids = [["62721.7", "1.00000000"], ["62721.6", "1.0"]])],
-    ["mixed size scale in asks", (v) => (v.asks = [["62721.8", "1.00000000"], ["62721.9", "1.0"]])],
+    [
+      "mixed price scale in bids",
+      (v) =>
+        (v.bids = [
+          ["62721.7", "1.00000000"],
+          ["62721.60", "1.00000000"],
+        ]),
+    ],
+    [
+      "mixed size scale in bids",
+      (v) =>
+        (v.bids = [
+          ["62721.7", "1.00000000"],
+          ["62721.6", "1.0"],
+        ]),
+    ],
+    [
+      "mixed size scale in asks",
+      (v) =>
+        (v.asks = [
+          ["62721.8", "1.00000000"],
+          ["62721.9", "1.0"],
+        ]),
+    ],
     ["different price scales per side", (v) => (v.asks = [["62721.80", "1.00000000"]])],
     ["fractional seq", (v) => (v.seq = 1.5)],
     ["negative seq", (v) => (v.seq = -1)],
