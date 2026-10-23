@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { parseStatus, parseTelemetry, parseView } from "./types";
+import { at } from "./testing/at";
 
 type Doc = Record<string, unknown>;
 
@@ -118,24 +119,24 @@ describe("parseTelemetry", () => {
     expect(okT(telemetry())).not.toBeNull();
     expect(okT({ ...telemetry(), events: [] })).not.toBeNull();
     const t = telemetry();
-    t.events[0].kind = "from-the-future";
+    at(t.events, 0).kind = "from-the-future";
     expect(okT(t)).not.toBeNull();
   });
 
   const refused: [string, (t: Tel) => void][] = [
-    ["equal ids", (t) => (t.events[1].id = 1)],
-    ["decreasing ids", (t) => (t.events[1].id = 0)],
-    ["duration below the sentinel", (t) => (t.events[0].durationMs = -2)],
-    ["fractional duration", (t) => (t.events[0].durationMs = 1.5)],
-    ["negative event seq", (t) => (t.events[0].gotSeq = -1)],
+    ["equal ids", (t) => (at(t.events, 1).id = 1)],
+    ["decreasing ids", (t) => (at(t.events, 1).id = 0)],
+    ["duration below the sentinel", (t) => (at(t.events, 0).durationMs = -2)],
+    ["fractional duration", (t) => (at(t.events, 0).durationMs = 1.5)],
+    ["negative event seq", (t) => (at(t.events, 0).gotSeq = -1)],
     ["events null", (t) => (t.events = null as unknown as Doc[])],
     ["events an object", (t) => (t.events = {} as unknown as Doc[])],
     ["t missing", (t) => delete t.t],
     ["seq negative", (t) => (t.seq = -1)],
     ["rejected missing", (t) => delete t.rejected],
     ["consumers missing", (t) => delete t.consumers],
-    ["reason a number", (t) => (t.events[0].reason = 1)],
-    ["kind a number", (t) => (t.events[0].kind = 1)],
+    ["reason a number", (t) => (at(t.events, 0).reason = 1)],
+    ["kind a number", (t) => (at(t.events, 0).kind = 1)],
   ];
   it.each(refused)("refuses %s", (_name, mutate) => {
     const t = telemetry();

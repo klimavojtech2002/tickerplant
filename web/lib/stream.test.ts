@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { StreamStore } from "./store";
 import { connectStream, retryDelayMs } from "./stream";
 import { FakeEventSource } from "./testing/fakeEventSource";
+import { at } from "./testing/at";
 
 const goodView = JSON.stringify({
   venue: "kraken",
@@ -74,7 +75,7 @@ describe("connectStream", () => {
     FakeEventSource.last().fail();
     // attempt 1: cap 1000 ms, random 0.5 -> 500 ms
     expect(store.getSnapshot().conn).toMatchObject({ link: "closed", attempt: 1, retryAt: 1_000_500 });
-    expect(FakeEventSource.instances[0].close).toHaveBeenCalled();
+    expect(at(FakeEventSource.instances, 0).close).toHaveBeenCalled();
     vi.advanceTimersByTime(499);
     expect(FakeEventSource.instances).toHaveLength(1);
     vi.advanceTimersByTime(1);

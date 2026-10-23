@@ -59,8 +59,10 @@ export class StreamStore {
 
   /** pushView accepts the next view, or drops it (counted and logged) if it is crossed. */
   pushView(v: ViewEvent): void {
-    if (v.bids.length > 0 && v.asks.length > 0 && crossed(v.bids[0][0], v.asks[0][0])) {
-      this.reject("crossed view", `bid ${v.bids[0][0]} >= ask ${v.asks[0][0]} at seq ${v.seq}`);
+    const bestBid = v.bids[0];
+    const bestAsk = v.asks[0];
+    if (bestBid !== undefined && bestAsk !== undefined && crossed(bestBid[0], bestAsk[0])) {
+      this.reject("crossed view", `bid ${bestBid[0]} >= ask ${bestAsk[0]} at seq ${v.seq}`);
       return;
     }
     this.set({ ...this.snap, conn: connection(this.snap.conn, { type: "view", now: this.now() }), view: v });
