@@ -120,7 +120,7 @@ from the adapter taking the raw frame off its frame channel to the applied view 
 stamped on each event at dequeue and observed by the engine for every applied delta (monotonic clock),
 so no wire-wait is ever inside a sample. Queue-wait before the dequeue is excluded by construction — this
 is service time; sojourn under load is the bench harness's job, measured open-loop and
-coordinated-omission-aware (ADR-0009). Samples of 1ns or less land in the lowest bucket and read as about
+coordinated-omission-aware (ADR-0009), with one published run in `bench/results`. Samples of 1ns or less land in the lowest bucket and read as about
 1ns, which is the histogram's lowest bucket, not a real duration. End-to-end latency from the exchange is
 dominated by network round-trip, which this system does not control and does not claim to optimise
 (ADR-0009).

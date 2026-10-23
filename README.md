@@ -110,9 +110,83 @@ crash).
 The engine measures internal processing latency — raw frame off the adapter's frame channel to the
 applied view stored for readers — as a measured distribution (p50/p99/p99.9/max). Figure 3 above is a
 live 5-minute capture: 83.7% of updates were within the 1µs resolution floor, and the percentiles shown
-are of the remaining 16.3%. The open-loop benchmark harness in `bench/` is machine-dependent, and no
-benchmark run is published. End-to-end latency from the exchange is network round-trip, which this
+are of the remaining 16.3%. End-to-end latency from the exchange is network round-trip, which this
 system doesn't control.
+
+The open-loop benchmark in `bench/` is published as one stated run, below, copied from the committed log
+(`bench/results/2026-10-23-i7-10870h-linux-vm.txt`) by a test that fails if the two differ. Read it with its limits:
+
+- **Where it ran.** A Linux container under Docker Desktop (a WSL2 virtual machine) on a Windows 11 laptop
+  with an Intel i7-10870H, in ordinary use, not bare metal. Other hardware will differ, and so does another
+  run on the same laptop: the log holds ten runs, and the min and max columns show the spread.
+- **Why Linux.** On the same laptop under Windows the clock advances in steps of about half a millisecond or more (the
+  benchmarks measure the step when they start and refuse to run when it is too coarse for the interval), which
+  cannot hold or measure a schedule of 50 µs. The engine's own latency histogram reads the same clock, so on
+  Windows small spans are quantised to zero or one step.
+- **What the two benchmarks send.** `svc` is the synthetic pipeline at 20,000 events a second. `due`, `engine` and
+  `publish` come from generated Binance `depthUpdate` frames (synthetic, 8 levels per side, a book of about 300
+  levels) sent at 5,000 frames a second through the real adapter. Both rates are stress rates: Binance's depth
+  streams update every 100 ms or 1000 ms, and this system subscribes to the 1000 ms one.
+- **The three spans.** `engine` is the span the system reports (frame off the adapter's channel to the view
+  stored). `due` runs from when a frame was due to when `Publish` returned, so it also holds the scheduler's
+  wake-up of a parked goroutine and the channel hand-off. By subtraction (the median of `due` less the medians of
+  `engine` and `publish`) about 115 µs of the 155 µs median lies outside the measured spans; that is attributed
+  to the wake-up and hand-off in this virtual machine, but it was not measured separately. `publish` is the time
+  around `hub.Publish`, which includes signalling the consumer: sub-microsecond in the synthetic run and about 18 µs
+  in the wire run; the cause of the difference was not measured (a consumer that has to be woken is a guess).
+- **Statistic.** The median of ten per-run values, each from 100,000 events after a 2,000-event warmup; min and max
+  are across the ten runs. Quantiles are histogram estimates with 2% bucket resolution; a `max` is the worst single
+  event of its run. The tail includes garbage-collection pauses (3 cycles a run, `gc-cycles` in
+  [`bench/README.md`](bench/README.md)) and ordinary scheduler preemption of the spinning pacer.
+
+<!-- bench:begin summary bench/results/2026-10-23-i7-10870h-linux-vm.txt -->
+Run facts, from the header of the log:
+
+| | |
+|---|---|
+| go-version | go1.26.10 |
+| goos-goarch | linux/amd64 |
+| cpu | Intel(R) Core(TM) i7-10870H CPU @ 2.20GHz |
+| logical-cpus | 16 |
+| clock-tick-ns | 100 |
+| date | 2026-10-23T04:38:23Z |
+| commit | 4a5f01f8c4f3f21b04756e6d0b15cf6ecb9fe3e6 |
+| note | Linux container (golang:1.26.10-alpine) under Docker Desktop, a WSL2 virtual machine, on a Windows 11 laptop in ordinary use; not bare metal; no attempt was made to quiet the machine |
+
+BenchmarkPipelineLatency (-cpu 4, 10 runs; median, then min and max across the runs)
+
+| metric | median | min | max |
+|---|---|---|---|
+| publish-p50-ns | 399 ns | 302 ns | 399 ns |
+| publish-p99-ns | 26.4 µs | 19.4 µs | 35.1 µs |
+| samples | 100000 | 100000 | 100000 |
+| sender-late | 271.5 | 75 | 946 |
+| svc-max-ns | 677 µs | 236 µs | 7.33 ms |
+| svc-p50-ns | 2.17 µs | 1.91 µs | 2.73 µs |
+| svc-p99-ns | 36.2 µs | 24.6 µs | 76 µs |
+| svc-p999-ns | 157 µs | 63.6 µs | 2.53 ms |
+
+BenchmarkWireLatency (-cpu 4, 10 runs; median, then min and max across the runs)
+
+| metric | median | min | max |
+|---|---|---|---|
+| due-max-ns | 9.96 ms | 4.69 ms | 14.8 ms |
+| due-p50-ns | 155 µs | 152 µs | 164 µs |
+| due-p99-ns | 295 µs | 249 µs | 349 µs |
+| due-p999-ns | 2.34 ms | 573 µs | 8.8 ms |
+| engine-max-ns | 1.17 ms | 283 µs | 10.2 ms |
+| engine-mean-ns | 24.5 µs | 23.4 µs | 28.3 µs |
+| engine-p50-ns | 22 µs | 20.6 µs | 25.1 µs |
+| engine-p99-ns | 57.6 µs | 53.2 µs | 85.5 µs |
+| engine-p999-ns | 103 µs | 90.8 µs | 171 µs |
+| publish-p50-ns | 17.7 µs | 17.2 µs | 19 µs |
+| publish-p99-ns | 30.2 µs | 26.6 µs | 39.5 µs |
+| samples | 100000 | 100000 | 100000 |
+| sender-late | 159 | 29 | 623 |
+| util-pct | 19.8 % | 18.9 % | 22.1 % |
+<!-- bench:end -->
+
+Method, the full table and how to reproduce: [`bench/README.md`](bench/README.md).
 
 ## Tech stack
 
@@ -171,7 +245,7 @@ The Go build needs Go 1.21 or newer: with the default `GOTOOLCHAIN=auto` the `go
 | Dashboard (Next.js, `web/`: live book + health from the HTTP edge, no floats on the price path) | Done — tested |
 | Metrics: engine counters (gaps/resyncs/disconnects/refused snapshots) + latency histogram | Done — tested |
 | HTTP edge: SSE `/stream` (complete top-N views and a 1 Hz telemetry event), `/metrics` (Prometheus text), `/api/status` JSON, `/healthz` and `/readyz` (`-http :8080`; `-cors-origin`, `-healthcheck`) | Done — tested |
-| Benchmark harness (open-loop, coordinated-omission-aware) | Done — tested (no published figures) |
+| Benchmark harness (open-loop, coordinated-omission-aware, wire frames through the adapter) | Done — tested; one stated run published |
 | CI (`.github/workflows/ci.yml`: gofmt / vet / staticcheck / build / `-race`, plus a front-end lint/type-check/test/build job) | Done |
 | Docker, docker-compose (`docker compose up`, synthetic by default) | Done (built and run by hand; no CI job builds the images) |
 

@@ -20,7 +20,7 @@ import (
 // `-benchtime=1x -count=10 -cpu 4`.
 const (
 	benchInterval   = 50 * time.Microsecond  // synthetic pipeline: 20,000 events a second, a stress rate
-	wireInterval    = 200 * time.Microsecond // wire frames: 5,000 a second; a frame took about 19 µs to decode and apply on the published run
+	wireInterval    = 200 * time.Microsecond // wire frames: 5,000 a second; a frame takes tens of microseconds to decode and apply
 	benchWarmup     = 2_000                  // run, not recorded
 	benchSamples    = 100_000                // recorded per run
 	benchMinSamples = 10_000                 // the fewest recorded events a published tail may rest on
