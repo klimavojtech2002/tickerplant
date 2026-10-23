@@ -27,9 +27,16 @@ Point it at another edge with `NEXT_PUBLIC_EDGE_URL`.
 ```bash
 pnpm lint
 pnpm type-check
-pnpm test
+pnpm format:check   # pnpm format rewrites the files
+pnpm test:coverage  # pnpm test runs the same tests without the report
 pnpm build
 ```
+
+The lint config refuses `parseFloat`, `Number.parseFloat`, `.toFixed(` and `Number(...)`: they are the ways a
+price or size string becomes a binary float. The one place that needs `Number` (a whole percent from bigint
+division, in `lib/ticks.ts`) says why where it disables the rule. `lib/noFloat.test.ts` lints snippets and the
+real modules with the real config, so the rule cannot be dropped quietly. The pnpm version is the
+`packageManager` field of `package.json`; the `Dockerfile` repeats it and must be changed with it.
 
 ## What the page trusts
 
