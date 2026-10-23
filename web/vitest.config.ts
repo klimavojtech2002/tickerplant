@@ -9,6 +9,7 @@ export default defineConfig({
   test: {
     environment: "jsdom",
     include: ["**/*.test.{ts,tsx}"],
+    setupFiles: ["./vitest.setup.ts"],
     globals: true, // lets Testing Library auto-clean the DOM between tests
   },
 });

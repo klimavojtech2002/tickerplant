@@ -34,15 +34,15 @@ describe("BookPanel", () => {
     render(<BookPanel view={view} />);
     // "0.50000000" is the float detector: a parseFloat->String path renders it
     // "0.5", dropping the venue's trailing zeros. The others pin verbatim output.
-    expect(screen.getByText("0.50000000")).toBeDefined();
-    expect(screen.getByText("2.00000000")).toBeDefined();
-    expect(screen.getByText("1.35823999")).toBeDefined();
+    expect(screen.getByText("0.50000000")).toBeInTheDocument();
+    expect(screen.getByText("2.00000000")).toBeInTheDocument();
+    expect(screen.getByText("1.35823999")).toBeInTheDocument();
     expect(screen.getAllByText("62721.7").length).toBeGreaterThan(0); // best bid tile + row
   });
 
   it("derives the spread exactly and sizes bars as integer shares", () => {
     const { container } = render(<BookPanel view={view} />);
-    expect(screen.getByText("0.1")).toBeDefined(); // 62721.8 - 62721.7
+    expect(screen.getByText("0.1")).toBeInTheDocument(); // 62721.8 - 62721.7
     const bidBars = container.querySelectorAll(".bar-bids");
     expect((bidBars[0] as HTMLElement).style.width).toBe("100%"); // 1.35823999 is the side's max
     expect((bidBars[1] as HTMLElement).style.width).toBe("36%"); // floor(0.5*100/1.35823999)
@@ -125,7 +125,7 @@ describe("HealthPanel", () => {
     for (const [label, value] of want) {
       expect(tile(label), label).toBe(value);
     }
-    expect(screen.getByText("live · kraken · BTC/USD · v1.2.3")).toBeDefined();
+    expect(screen.getByText("live · kraken · BTC/USD · v1.2.3")).toBeInTheDocument();
   });
 
   it("gives every tile its own test id", () => {
@@ -140,7 +140,7 @@ describe("HealthPanel", () => {
     const quiet: Status = { ...status, lastEventAgeMs: -1, latency: undefined };
     render(<HealthPanel state={{ kind: "ok", status: quiet, lastOkAt: 1 }} now={0} />);
     expect(tile("last event")).toBe("no event yet");
-    expect(screen.queryByTestId("tile-p50")).toBeNull();
+    expect(screen.queryByTestId("tile-p50")).not.toBeInTheDocument();
   });
 
   it("keeps the numbers, unflagged, while a poll or two fail", () => {
@@ -149,8 +149,8 @@ describe("HealthPanel", () => {
     );
     expect(tile("delivered")).toBe("12");
     expect(container.querySelector("[data-state]")?.getAttribute("data-state")).toBe("degraded");
-    expect(container.querySelector(".health-dimmed")).toBeNull();
-    expect(screen.queryByText(/Unavailable/)).toBeNull();
+    expect(container.querySelector(".health-dimmed")).not.toBeInTheDocument();
+    expect(screen.queryByText(/Unavailable/)).not.toBeInTheDocument();
   });
 
   it("dims the numbers and says how stale they are once the endpoint is unavailable", () => {
@@ -159,36 +159,36 @@ describe("HealthPanel", () => {
     const section = container.querySelector("section");
     expect(section?.getAttribute("data-state")).toBe("unavailable");
     expect(section?.className).toBe("health-dimmed");
-    expect(screen.getByText("Unavailable · last updated 12 s ago")).toBeDefined();
+    expect(screen.getByText("Unavailable · last updated 12 s ago")).toBeInTheDocument();
     expect(tile("delivered")).toBe("12"); // still shown, never hidden
   });
 
   it("never shows a negative age when the clocks disagree, and none before the first tick", () => {
     const state: PollState = { kind: "unavailable", status, failures: 3, lastOkAt: 9_000 };
     const { rerender } = render(<HealthPanel state={state} now={1_000} />);
-    expect(screen.getByText("Unavailable · last updated 0 s ago")).toBeDefined();
+    expect(screen.getByText("Unavailable · last updated 0 s ago")).toBeInTheDocument();
     rerender(<HealthPanel state={state} now={0} />);
-    expect(screen.getByText("Unavailable")).toBeDefined();
+    expect(screen.getByText("Unavailable")).toBeInTheDocument();
   });
 
   it("says plainly that nothing was ever received", () => {
     const state: PollState = { kind: "unavailable", status: null, failures: 3, lastOkAt: null };
     const { container } = render(<HealthPanel state={state} now={50_000} />);
-    expect(screen.getByText("Unavailable")).toBeDefined();
+    expect(screen.getByText("Unavailable")).toBeInTheDocument();
     expect(container.querySelector("section")?.getAttribute("data-state")).toBe("unavailable");
-    expect(screen.queryByTestId("tile-delivered")).toBeNull();
+    expect(screen.queryByTestId("tile-delivered")).not.toBeInTheDocument();
   });
 
   it("says loading while the first polls are still out", () => {
     render(<HealthPanel state={{ kind: "loading", failures: 2 }} now={0} />);
-    expect(screen.getByText(/loading status/)).toBeDefined();
+    expect(screen.getByText(/loading status/)).toBeInTheDocument();
   });
 
   it("renders a hostile venue name as text, not markup", () => {
     const hostile: Status = { ...status, venue: "<img src=x onerror=alert(1)>" };
     const { container } = render(<HealthPanel state={{ kind: "ok", status: hostile, lastOkAt: 1 }} now={0} />);
-    expect(container.querySelector("img")).toBeNull();
-    expect(screen.getByText(/<img src=x onerror=alert\(1\)>/)).toBeDefined();
+    expect(container.querySelector("img")).not.toBeInTheDocument();
+    expect(screen.getByText(/<img src=x onerror=alert\(1\)>/)).toBeInTheDocument();
   });
 });
 
@@ -207,9 +207,9 @@ describe("HealthSection", () => {
     const state = { kind: "unavailable", status, failures: 3, lastOkAt: 5000 } as PollState;
     const { unmount } = render(<HealthSection state={state} />);
     expect(vi.getTimerCount()).toBe(2);
-    expect(screen.getByText("Unavailable")).toBeDefined(); // the clock has not ticked: no age yet
+    expect(screen.getByText("Unavailable")).toBeInTheDocument(); // the clock has not ticked: no age yet
     act(() => vi.advanceTimersByTime(0));
-    expect(screen.getByText("Unavailable · last updated 15 s ago")).toBeDefined();
+    expect(screen.getByText("Unavailable · last updated 15 s ago")).toBeInTheDocument();
     unmount();
     expect(vi.getTimerCount()).toBe(0);
   });
@@ -219,6 +219,6 @@ describe("HealthSection", () => {
     const state = { kind: "unavailable", status: null, failures: 3, lastOkAt: null } as PollState;
     render(<HealthSection state={state} />);
     act(() => vi.advanceTimersByTime(0));
-    expect(screen.getByText("Unavailable")).toBeDefined();
+    expect(screen.getByText("Unavailable")).toBeInTheDocument();
   });
 });

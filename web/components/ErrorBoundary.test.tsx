@@ -1,4 +1,5 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ErrorBoundary } from "./ErrorBoundary";
@@ -30,12 +31,13 @@ describe("ErrorBoundary", () => {
       </div>,
     );
     expect(screen.getAllByText("This panel failed to render.")).toHaveLength(1);
-    expect(screen.getByRole("alert")).toBeDefined();
-    expect(screen.getByText("fine")).toBeDefined();
+    expect(screen.getByRole("alert")).toBeInTheDocument();
+    expect(screen.getByText("fine")).toBeInTheDocument();
     expect(errors).toHaveBeenCalled(); // React reported it
   });
 
-  it("Retry renders the child again, and a child that still fails shows the fallback again", () => {
+  it("Retry renders the child again, and a child that still fails shows the fallback again", async () => {
+    const user = userEvent.setup();
     let explode = true;
     function Flaky() {
       return <Bomb explode={explode} />;
@@ -45,12 +47,12 @@ describe("ErrorBoundary", () => {
         <Flaky />
       </ErrorBoundary>,
     );
-    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
-    expect(screen.getByText("This panel failed to render.")).toBeDefined(); // still failing
+    await user.click(screen.getByRole("button", { name: "Retry" }));
+    expect(screen.getByText("This panel failed to render.")).toBeInTheDocument(); // still failing
     explode = false;
-    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
-    expect(screen.getByText("fine")).toBeDefined();
-    expect(screen.queryByText("This panel failed to render.")).toBeNull();
+    await user.click(screen.getByRole("button", { name: "Retry" }));
+    expect(screen.getByText("fine")).toBeInTheDocument();
+    expect(screen.queryByText("This panel failed to render.")).not.toBeInTheDocument();
   });
 
   it("clears itself when the reset key changes, by identity, even if the content looks the same", () => {
@@ -61,19 +63,19 @@ describe("ErrorBoundary", () => {
         <Bomb explode />
       </ErrorBoundary>,
     );
-    expect(screen.getByText("This panel failed to render.")).toBeDefined();
+    expect(screen.getByText("This panel failed to render.")).toBeInTheDocument();
     rerender(
       <ErrorBoundary resetKey={a}>
         <Bomb explode={false} />
       </ErrorBoundary>,
     );
-    expect(screen.getByText("This panel failed to render.")).toBeDefined(); // same key: stays failed
+    expect(screen.getByText("This panel failed to render.")).toBeInTheDocument(); // same key: stays failed
     rerender(
       <ErrorBoundary resetKey={sameSeqDifferentObject}>
         <Bomb explode={false} />
       </ErrorBoundary>,
     );
-    expect(screen.getByText("fine")).toBeDefined();
+    expect(screen.getByText("fine")).toBeInTheDocument();
   });
 
   it("a new key that arrives with a throwing child costs one failed render, not two", () => {
@@ -110,7 +112,7 @@ describe("ErrorBoundary", () => {
       </ErrorBoundary>,
     );
     expect(renders).toBe(unchangedKey);
-    expect(screen.getByText("This panel failed to render.")).toBeDefined();
+    expect(screen.getByText("This panel failed to render.")).toBeInTheDocument();
   });
 
   it("does not grow its error reports when it re-renders while failed", () => {
