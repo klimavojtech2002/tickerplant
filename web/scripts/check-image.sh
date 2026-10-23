@@ -1,8 +1,8 @@
 #!/bin/sh
 # Runs the dashboard the way the image does, without building it: the exported pages and the rendered
 # headers go into the pinned nginx image, as the unprivileged user, on a read-only file system with only
-# /tmp writable. Then scripts/check-served.mjs checks what comes out. Needs `pnpm build` first and the
-# nginx image already pulled (it pulls nothing).
+# /tmp writable. Then scripts/check-served.mjs checks what comes out. Needs `pnpm build` first. `docker run`
+# pulls the pinned nginx image if the machine does not have it.
 #
 #   sh scripts/check-image.sh            # edge URL http://127.0.0.1:8080
 #   NEXT_PUBLIC_EDGE_URL=https://edge.example.com sh scripts/check-image.sh

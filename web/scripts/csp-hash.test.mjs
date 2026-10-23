@@ -6,7 +6,7 @@ import { dirname, join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 
-import { edgeOrigin, parseInline, renderHeaders, sha256Source } from "./csp-hash.mjs";
+import { edgeOrigin, hasInlineStyleOrHandler, parseInline, renderHeaders, sha256Source } from "./csp-hash.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const TEMPLATE =
@@ -61,6 +61,50 @@ test("parseInline takes inline scripts and styles, and skips external and data s
 test("parseInline keeps the body as it is: no trimming and no entity decoding", () => {
   const { scripts } = parseInline("<script> a &amp; b </script>");
   assert.deepEqual(scripts, [" a &amp; b "]);
+});
+
+test("a > inside a quoted attribute value does not end the start tag", () => {
+  const { scripts } = parseInline("<script data-x=\"a>b\" id='c>d'>real()</script>");
+  assert.deepEqual(scripts, ["real()"]);
+});
+
+test("a slash may separate attributes, and <script/> forms are still seen", () => {
+  assert.deepEqual(parseInline("<script/>a()</script>").scripts, ["a()"]);
+  assert.deepEqual(parseInline("<script/ >b()</script>").scripts, ["b()"]);
+  assert.deepEqual(parseInline('<script/type="module">c()</script>').scripts, ["c()"]);
+});
+
+test("offsets come from the original text, not a lower-cased copy", () => {
+  // "İ" lower-cases to two code units, which would shift every later offset.
+  const { scripts } = parseInline("<p>İİİ</p><script>abcdef()</script>");
+  assert.deepEqual(scripts, ["abcdef()"]);
+});
+
+test("a script ends at </script followed by whitespace, a slash or >, not at </scripts", () => {
+  assert.deepEqual(parseInline('<script>a="</scripts>";b()</script>').scripts, ['a="</scripts>";b()']);
+  assert.deepEqual(parseInline("<script>x()</script\n>").scripts, ["x()"]);
+  assert.deepEqual(parseInline("<script>y()</script/ >").scripts, ["y()"]);
+});
+
+test("CRLF and a lone CR become LF before hashing, as a browser reads them", () => {
+  assert.deepEqual(parseInline("<script>a\r\nb\rc</script>").scripts, ["a\nb\nc"]);
+});
+
+test("legacy JavaScript types run; a type with parameters or an unknown type is refused or treated as data", () => {
+  assert.deepEqual(parseInline('<script type="text/jscript">a()</script>').scripts, ["a()"]);
+  assert.deepEqual(parseInline('<script type="application/x-javascript">b()</script>').scripts, ["b()"]);
+  assert.deepEqual(parseInline('<script type="speculationrules">{}</script>').scripts, []);
+  assert.throws(() => parseInline('<script type="text/javascript;charset=utf-8">a()</script>'), /cannot tell/);
+  assert.throws(() => parseInline('<script type="text/x-unknown">a()</script>'), /cannot tell/);
+});
+
+test("hasInlineStyleOrHandler finds attributes, not words in script text", () => {
+  assert.ok(hasInlineStyleOrHandler('<p style="color:red">'));
+  assert.ok(hasInlineStyleOrHandler("<a onclick=f()>"));
+  assert.ok(hasInlineStyleOrHandler("<div class='x' ONCLICK = \"f()\">"));
+  assert.ok(!hasInlineStyleOrHandler('<script>var one = "1"; var style = 2;</script><p class="x">'));
+  assert.ok(!hasInlineStyleOrHandler('<style>a { b: c }</style><!-- <p style="x"> --><p>'));
+  assert.ok(!hasInlineStyleOrHandler('<meta name="description" content="one = two">'));
 });
 
 test("parseInline refuses a script that never ends", () => {

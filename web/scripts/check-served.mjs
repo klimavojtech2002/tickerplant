@@ -15,7 +15,7 @@ if (!base || !edge) {
 }
 
 async function get(path, headers = {}) {
-  // node's fetch would decompress for us; ask for the raw bytes so the encoding header is the server's.
+  // fetch decompresses the body but keeps the Content-Encoding header, which is what is asserted below.
   const res = await fetch(base + path, { headers, redirect: "manual" });
   return { res, body: await res.text() };
 }
@@ -33,10 +33,11 @@ function assertSecurityHeaders(res, where) {
   return csp;
 }
 
-const page = await get("/");
+const page = await get("/", { "accept-encoding": "gzip" });
 assert.equal(page.res.status, 200, "/ status");
 const csp = assertSecurityHeaders(page.res, "/");
 assert.match(page.res.headers.get("cache-control") ?? "", /no-cache/, "/: cache-control");
+assert.equal(page.res.headers.get("content-encoding"), "gzip", "/: gzip");
 
 // Every inline script the page carries must be allowed, and the connect origin must be the edge's.
 const { scripts } = parseInline(page.body);
@@ -54,6 +55,19 @@ assert.equal(js.res.status, 200, "asset status");
 assertSecurityHeaders(js.res, asset);
 assert.equal(js.res.headers.get("cache-control"), "public, max-age=31536000, immutable", "asset cache-control");
 assert.match(js.res.headers.get("content-type") ?? "", /javascript/, "asset content-type");
+assert.equal(js.res.headers.get("content-encoding"), "gzip", "asset: gzip");
+
+// The edge URL the policy allows must be the one built into the page, or the page would connect to a place
+// the policy forbids (or the policy would allow a place the page never uses).
+const chunks = [...page.body.matchAll(/<script src="(\/_next\/static\/[^"]+\.js)"/g)].map((m) => m[1]);
+let inlined = false;
+for (const chunk of chunks) {
+  if ((await get(chunk)).body.includes(edge.replace(/\/$/, ""))) {
+    inlined = true;
+    break;
+  }
+}
+assert.ok(inlined, `no script of the page contains the edge URL ${edge}; the build and the policy disagree`);
 
 // The error page keeps the policy, and an unknown path is a real 404.
 const missing = await get("/no-such-page");

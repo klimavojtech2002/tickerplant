@@ -12,8 +12,33 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-/** Script types a browser runs. Anything else (application/json, importmap, ld+json) is data and is not hashed. */
-const JS_TYPES = new Set(["", "module", "text/javascript", "application/javascript", "text/ecmascript"]);
+/**
+ * The script types a browser runs as classic or module code (the HTML standard's list of JavaScript MIME type
+ * essences, plus "" and "module"). The comparison is exact: a type with parameters is not on the list.
+ */
+const JS_TYPES = new Set([
+  "",
+  "module",
+  "application/ecmascript",
+  "application/javascript",
+  "application/x-ecmascript",
+  "application/x-javascript",
+  "text/ecmascript",
+  "text/javascript",
+  "text/javascript1.0",
+  "text/javascript1.1",
+  "text/javascript1.2",
+  "text/javascript1.3",
+  "text/javascript1.4",
+  "text/javascript1.5",
+  "text/jscript",
+  "text/livescript",
+  "text/x-ecmascript",
+  "text/x-javascript",
+]);
+
+/** Types a browser never runs; their bodies are data. Any other type is refused: the build cannot tell if it runs. */
+const DATA_TYPES = new Set(["application/json", "application/ld+json", "importmap", "speculationrules"]);
 
 /** Every file with the given extension under dir, sorted, so the output does not depend on directory order. */
 export function filesUnder(dir, ext) {
@@ -29,42 +54,110 @@ export function filesUnder(dir, ext) {
   return found;
 }
 
-function attr(tag, name) {
-  const m = new RegExp(`\\s${name}\\s*=\\s*("([^"]*)"|'([^']*)'|([^\\s>]+))`, "i").exec(tag);
-  return m ? (m[2] ?? m[3] ?? m[4]) : null;
+/**
+ * readStartTag reads the attributes of a start tag whose name ends at `from`. It follows the HTML rules that
+ * matter here: whitespace and "/" separate attributes, and a ">" inside a quoted value does not end the tag.
+ * It returns the lower-cased attribute map and the index just after the closing ">".
+ */
+function readStartTag(html, from) {
+  const attrs = new Map();
+  let i = from;
+  for (;;) {
+    while (i < html.length && /[\s/]/.test(html[i])) {
+      i++;
+    }
+    if (i >= html.length) {
+      throw new Error(`unterminated start tag at offset ${from}`);
+    }
+    if (html[i] === ">") {
+      return { attrs, end: i + 1 };
+    }
+    let j = i;
+    while (j < html.length && !/[\s/>=]/.test(html[j])) {
+      j++;
+    }
+    if (j === i) {
+      j++; // a stray "=" starts an attribute name, as in the standard
+    }
+    const name = html.slice(i, j).toLowerCase();
+    i = j;
+    while (i < html.length && /\s/.test(html[i])) {
+      i++;
+    }
+    let value = "";
+    if (html[i] === "=") {
+      i++;
+      while (i < html.length && /\s/.test(html[i])) {
+        i++;
+      }
+      if (html[i] === '"' || html[i] === "'") {
+        const close = html.indexOf(html[i], i + 1);
+        if (close < 0) {
+          throw new Error(`unterminated attribute value at offset ${i}`);
+        }
+        value = html.slice(i + 1, close);
+        i = close + 1;
+      } else {
+        let k = i;
+        while (k < html.length && !/[\s>]/.test(html[k])) {
+          k++;
+        }
+        value = html.slice(i, k);
+        i = k;
+      }
+    }
+    if (!attrs.has(name)) {
+      attrs.set(name, value);
+    }
+  }
+}
+
+/** A browser turns CRLF and a lone CR into LF before it tokenises, and the policy hashes the result. */
+function normalizeNewlines(text) {
+  return text.replace(/\r\n?/g, "\n");
 }
 
 /**
- * parseInline returns the executable inline script bodies and the inline style bodies of one HTML document,
- * and counts what it saw so the caller can check the parse is complete.
+ * parseInline returns the executable inline script bodies and the inline style bodies of one HTML document.
+ * It throws if it cannot be sure it saw every script: the count of "<script" openings must equal the count of
+ * start tags it parsed.
  */
 export function parseInline(html) {
   const scripts = [];
   const styles = [];
-  let scriptTags = 0;
-  const open = /<(script|style)(?=[\s>])([^>]*)>/gi;
+  const open = /<(script|style)(?=[\s/>])/gi;
+  let parsed = 0;
   let m;
   while ((m = open.exec(html)) !== null) {
     const kind = m[1].toLowerCase();
-    const end = html.toLowerCase().indexOf(`</${kind}`, open.lastIndex);
-    if (end < 0) {
+    const tag = readStartTag(html, open.lastIndex);
+    // The element ends at "</script" followed by whitespace, "/" or ">" (the standard's rule), not at any "</script".
+    const close = new RegExp(`</${kind}(?=[\\s/>])`, "gi");
+    close.lastIndex = tag.end;
+    const found = close.exec(html);
+    if (found === null) {
       throw new Error(`unterminated <${kind}> at offset ${m.index}`);
     }
-    const body = html.slice(open.lastIndex, end);
-    open.lastIndex = end;
+    const body = normalizeNewlines(html.slice(tag.end, found.index));
+    open.lastIndex = found.index;
     if (kind === "style") {
       styles.push(body);
       continue;
     }
-    scriptTags++;
-    const type = (attr(m[2], "type") ?? "").trim().toLowerCase();
-    if (attr(m[2], "src") === null && JS_TYPES.has(type)) {
+    parsed++;
+    if (tag.attrs.has("src")) {
+      continue;
+    }
+    const type = (tag.attrs.get("type") ?? "").trim().toLowerCase();
+    if (JS_TYPES.has(type)) {
       scripts.push(body);
+    } else if (!DATA_TYPES.has(type)) {
+      throw new Error(`a script of type ${JSON.stringify(type)} at offset ${m.index}: cannot tell if it runs`);
     }
   }
-  const opened = (html.match(/<script(?=[\s>])/gi) ?? []).length;
-  if (opened !== scriptTags) {
-    throw new Error(`found ${opened} <script> tags but parsed ${scriptTags}`);
+  const opened = (html.match(/<script(?=[\s/>])/gi) ?? []).length;
+  if (opened !== parsed) {
+    throw new Error(`found ${opened} <script> tags but parsed ${parsed}`);
   }
   return { scripts, styles };
 }
@@ -97,6 +190,24 @@ function replaceOnce(text, placeholder, value) {
   return text.replace(placeholder, () => value);
 }
 
+/**
+ * hasInlineStyleOrHandler reports a style attribute or an event-handler attribute on any tag outside script and
+ * style bodies and comments. A hash cannot cover either, so the build should say so.
+ */
+export function hasInlineStyleOrHandler(html) {
+  const bare = html.replace(/<!--[\s\S]*?-->/g, "").replace(/<(script|style)(?=[\s/>])[\s\S]*?<\/\1(?=[\s/>])/gi, "");
+  const tag = /<[a-zA-Z][^\s/>]*/g;
+  let m;
+  while ((m = tag.exec(bare)) !== null) {
+    const { attrs, end } = readStartTag(bare, tag.lastIndex);
+    if ([...attrs.keys()].some((name) => name === "style" || /^on[a-z]+$/.test(name))) {
+      return true;
+    }
+    tag.lastIndex = end;
+  }
+  return false;
+}
+
 /** renderHeaders fills the template from the files in outDir. */
 export function renderHeaders(template, outDir, edgeUrl) {
   const origin = edgeOrigin(edgeUrl);
@@ -119,7 +230,7 @@ export function renderHeaders(template, outDir, edgeUrl) {
       }
       // A style attribute or an inline handler cannot be covered by a hash; React sets styles through the
       // CSSOM, which the policy does not block, so the page itself has none. If one appears, say so.
-      if (/\sstyle\s*=/i.test(html) || /\son[a-z]+\s*=\s*["']/i.test(html)) {
+      if (hasInlineStyleOrHandler(html)) {
         throw new Error("index.html has a style attribute or an inline event handler, which the policy would block");
       }
     }
@@ -130,11 +241,9 @@ export function renderHeaders(template, outDir, edgeUrl) {
   let out = replaceOnce(template, "__SCRIPT_HASHES__", [...scripts].sort().join(" "));
   out = replaceOnce(out, "__STYLE_HASHES__", [...styles].sort().join(" "));
   out = replaceOnce(out, "__CONNECT_ORIGIN__", origin);
-  if (out.includes("__")) {
-    const left = /__[A-Z_]+__/.exec(out);
-    if (left) {
-      throw new Error(`placeholder left in the output: ${left[0]}`);
-    }
+  const left = /__[A-Z_]+__/.exec(out);
+  if (left) {
+    throw new Error(`placeholder left in the output: ${left[0]}`);
   }
   return out;
 }
