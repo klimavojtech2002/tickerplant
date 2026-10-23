@@ -36,6 +36,7 @@ type options struct {
 	everySet    bool // -every given explicitly, even if equal to the default
 	pace        time.Duration
 	live        bool
+	chaos       bool
 	venue       string
 	symbol      string
 	httpAddr    string
@@ -63,6 +64,7 @@ func parseFlags(args []string, out io.Writer) (options, error) {
 	// too far behind.
 	fs.DurationVar(&o.pace, "pace", 150*time.Millisecond, "delay between updates (mimics a live feed; 0 floods to stress backpressure)")
 	fs.BoolVar(&o.live, "live", false, "connect to a live venue instead of the synthetic source")
+	fs.BoolVar(&o.chaos, "chaos", false, "inject faults on a repeating schedule (synthetic source only)")
 	fs.StringVar(&o.venue, "venue", app.DefaultVenue, "live venue (with -live): binance|kraken")
 	fs.StringVar(&o.symbol, "symbol", app.DefaultSymbol, "live symbol (with -live)")
 	fs.StringVar(&o.httpAddr, "http", "", "serve the SSE stream, /api/status and Prometheus /metrics on this address (e.g. :8080); empty = off")
@@ -113,6 +115,9 @@ func (o options) validate() error {
 		return fmt.Errorf("-every %d is negative: want 0 (never) or more", o.every)
 	case o.pace < 0:
 		return fmt.Errorf("-pace %v is negative: want 0 or more", o.pace)
+	}
+	if o.chaos && o.live {
+		return errors.New("-chaos cannot be used with -live: faults are injected into the synthetic source only")
 	}
 	if o.live && o.venue != "binance" && o.venue != "kraken" {
 		return fmt.Errorf("-venue %q is not one of binance, kraken", o.venue)
@@ -238,7 +243,7 @@ func main() {
 
 	src, cfg, err := app.Prepare(ctx, log, app.Options{
 		Seed: opts.seed, Steps: opts.steps, Depth: opts.depth, Every: opts.every, EverySet: opts.everySet,
-		Pace: opts.pace, Live: opts.live, Venue: opts.venue, Symbol: opts.symbol, CORSOrigin: opts.corsOrigin, MaxStreams: opts.maxStreams,
+		Pace: opts.pace, Live: opts.live, Chaos: opts.chaos, Venue: opts.venue, Symbol: opts.symbol, CORSOrigin: opts.corsOrigin, MaxStreams: opts.maxStreams,
 	})
 	if err != nil {
 		if errors.Is(err, context.Canceled) {

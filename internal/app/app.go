@@ -76,8 +76,11 @@ type Options struct {
 	EverySet bool // -every given explicitly, even if equal to the default
 	Pace     time.Duration
 	Live     bool
-	Venue    string
-	Symbol   string
+	// Chaos injects faults into the synthetic source on a repeating, seeded schedule; it cannot be
+	// combined with Live.
+	Chaos  bool
+	Venue  string
+	Symbol string
 	// CORSOrigin is the HTTP edge's cross-origin policy: "*" or empty for any origin, or one origin.
 	CORSOrigin string
 	// MaxStreams is the most simultaneous stream consumers the HTTP edge serves (0 = its default).
@@ -87,6 +90,10 @@ type Options struct {
 // Prepare builds the source for o and the pipeline Config that source implies, and logs the
 // mode. The caller adds HTTPListener if it wants the HTTP edge, then calls Run.
 func Prepare(ctx context.Context, log *slog.Logger, o Options) (source.Source, Config, error) {
+	if o.Chaos && o.Live {
+		// Refused before anything is dialled: chaos is for the synthetic source, a live venue sends no injected faults.
+		return nil, Config{}, errors.New("app: Chaos cannot be used with Live: faults are injected into the synthetic source only")
+	}
 	src, vs, err := newSource(ctx, log, o)
 	if err != nil {
 		if !errors.Is(err, context.Canceled) { // an interrupt during setup is a shutdown, not a failure
@@ -100,7 +107,7 @@ func Prepare(ctx context.Context, log *slog.Logger, o Options) (source.Source, C
 		venue: venueName(o.Live, o.Venue), symbol: symbolName(o.Live, o.Symbol), scales: vs.scales,
 		corsOrigin: o.CORSOrigin, maxStreams: o.MaxStreams, mode: modeName(o.Live),
 	}
-	log.Info("mode", "live", o.Live, "venue", cfg.venue, "symbol", cfg.symbol)
+	log.Info("mode", "live", o.Live, "chaos", o.Chaos, "venue", cfg.venue, "symbol", cfg.symbol)
 	if liveFlagsIgnored(o.Live, o.Venue, o.Symbol) {
 		log.Warn("live venue/symbol flags ignored without -live", "venue", o.Venue, "symbol", o.Symbol)
 	}
@@ -158,7 +165,11 @@ type venueSetup struct {
 // newSource builds the synthetic source, or a live venue adapter when -live is set.
 func newSource(ctx context.Context, log *slog.Logger, o Options) (source.Source, venueSetup, error) {
 	if !o.Live {
-		return source.New(source.Config{Venue: "synthetic", Symbol: "DEMO", Seed: o.Seed, Steps: o.Steps}), venueSetup{pace: o.Pace}, nil
+		sc := source.Config{Venue: "synthetic", Symbol: "DEMO", Seed: o.Seed, Steps: o.Steps}
+		if o.Chaos {
+			sc.FaultAt = source.ChaosSchedule(o.Seed)
+		}
+		return source.New(sc), venueSetup{pace: o.Pace}, nil
 	}
 	switch o.Venue {
 	case "binance":
