@@ -1,0 +1,24 @@
+# Minimum statement coverage per package, in percent. Checked by scripts/check-coverage.sh.
+# A package must be here, or excluded with a reason. Raise a number when coverage rises; lowering one
+# needs a reason in the commit message.
+cmd/tickerplant 85.0
+internal/app 90.0
+internal/book 99.0
+internal/delivery 99.0
+internal/httpapi 99.0
+internal/market 99.0
+internal/metrics 99.0
+internal/source 99.0
+internal/venue 97.0
+internal/venue/binance 99.0
+internal/venue/kraken 99.0
+internal/version 99.0
+
+bench exclude benchmarks only, no statements
+bench/header exclude prints the header of a benchmark log; no tests of its own
+tools/figuregen exclude package of documentation only
+tools/figuregen/card exclude drawing helpers, exercised through the figure tests
+tools/figuregen/fig1 exclude live-run main; the drawing is pinned by a golden test
+tools/figuregen/fig2 exclude live-capture main; the drawing is checked by render tests
+tools/figuregen/fig3 exclude live-capture main; the drawing is pinned by a golden test
+tools/figuregen/social exclude live-run main; the drawing is pinned by a golden test
