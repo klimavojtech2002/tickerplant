@@ -69,7 +69,7 @@ func main() {
 		log.Warn("capture saw drift or gaps", "checksumMismatches", eng.ChecksumMismatches(), "gaps", eng.Gaps())
 	}
 
-	if err := os.WriteFile(*out, []byte(render(v, priceScale, *symbol, eng)), 0o644); err != nil {
+	if err := os.WriteFile(*out, []byte(render(v, priceScale, *symbol, runStats{eng.ChecksumMismatches(), eng.Gaps(), eng.Resyncs()}, time.Now().UTC())), 0o644); err != nil {
 		log.Error("write failed", "err", err)
 		os.Exit(1)
 	}
@@ -80,7 +80,12 @@ func main() {
 
 const plotW, plotH = card.ContentWidth, 460
 
-func render(v *book.View, priceScale int, symbol string, eng *book.Engine) string {
+// runStats is what the engine counted during the capture.
+type runStats struct{ checksumMismatches, gaps, resyncs int }
+
+// render draws the view. The capture time is an argument so the same input always gives
+// the same bytes; main reads the clock once, after the capture.
+func render(v *book.View, priceScale int, symbol string, st runStats, at time.Time) string {
 	bidCum := cumulative(v.Bids)
 	askCum := cumulative(v.Asks)
 	maxCum := max(bidCum[len(bidCum)-1], askCum[len(askCum)-1])
@@ -136,9 +141,9 @@ func render(v *book.View, priceScale int, symbol string, eng *book.Engine) strin
 		Plot:       plot,
 		Caption: []card.CaptionLine{
 			{Text: fmt.Sprintf("Live kraken %s, captured %s via tickerplant's own engine.", symbol,
-				time.Now().UTC().Format("Mon, 02 Jan 2006 15:04:05 GMT")), Italic: true},
+				at.Format("Mon, 02 Jan 2006 15:04:05 GMT")), Italic: true},
 			{Text: fmt.Sprintf("CRC32 checksum-verified: %d mismatches, %d gaps, %d resyncs.",
-				eng.ChecksumMismatches(), eng.Gaps(), eng.Resyncs()), Italic: true},
+				st.checksumMismatches, st.gaps, st.resyncs), Italic: true},
 		},
 	}
 	return card.Render(d)
