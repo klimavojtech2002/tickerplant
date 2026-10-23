@@ -1,0 +1,8 @@
+# Filled in at build time by scripts/csp-hash.mjs from the exported pages and the edge URL.
+# `always` so the headers are on error responses too. nginx does not inherit add_header into a
+# location that sets its own, so this file is included in the server block and in each such location.
+add_header Content-Security-Policy "default-src 'self'; script-src 'self' __SCRIPT_HASHES__; style-src 'self' __STYLE_HASHES__; connect-src 'self' __CONNECT_ORIGIN__; img-src 'self' data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'" always;
+add_header X-Content-Type-Options "nosniff" always;
+add_header Referrer-Policy "no-referrer" always;
+add_header Permissions-Policy "camera=(), microphone=(), geolocation=()" always;
+add_header Cross-Origin-Opener-Policy "same-origin" always;

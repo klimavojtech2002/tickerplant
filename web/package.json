@@ -11,7 +11,8 @@
     "test": "vitest run",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "test:coverage": "vitest run --coverage"
+    "test:coverage": "vitest run --coverage",
+    "test:scripts": "node --test scripts/*.test.mjs"
   },
   "dependencies": {
     "next": "16.2.10",
