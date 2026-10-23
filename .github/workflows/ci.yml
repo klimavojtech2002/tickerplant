@@ -9,13 +9,19 @@ on:
 permissions:
   contents: read
 
+# A newer push to the same pull request replaces the older run. Every push to main keeps its own run.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   build-test:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
-      - uses: actions/setup-go@v6
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
         with:
           go-version-file: go.mod
           cache: true
@@ -27,6 +33,15 @@ jobs:
           if [ "$got" != "$want" ]; then
             echo "go is $got but go.mod asks for $want"; exit 1
           fi
+
+      - name: pins and versions
+        run: |
+          sh scripts/check-pins_test.sh
+          sh scripts/check-pins.sh .github/workflows/*.yml
+          sh scripts/check-versions.sh
+
+      - name: go.mod and go.sum are tidy
+        run: go mod tidy -diff
 
       - name: gofmt
         run: |
@@ -64,23 +79,32 @@ jobs:
       - name: build
         run: go build ./...
 
-      - name: test (race + coverage)
-        run: go test -race -coverprofile=coverage.out ./...
+      # -count=1: a cached result would replay an old shuffle seed. The seed is printed; a failure can be
+      # repeated with -shuffle=<seed>.
+      - name: test (race, shuffled, with coverage)
+        run: go test -race -shuffle=on -count=1 -timeout 7m -coverprofile=coverage.out ./...
+
+      - name: coverage per package
+        run: |
+          sh scripts/check-coverage_test.sh
+          go list ./... > packages.txt
+          sh scripts/check-coverage.sh coverage.out packages.txt .github/coverage-min.txt "$(go list -m)"
 
   web:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     defaults:
       run:
         working-directory: web
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       # The pnpm version is the packageManager field of web/package.json.
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
         with:
           package_json_file: web/package.json
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: '22'
           cache: 'pnpm'
@@ -117,10 +141,11 @@ jobs:
   integration:
     if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
-      - uses: actions/setup-go@v6
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
         with:
           go-version-file: go.mod
           cache: true

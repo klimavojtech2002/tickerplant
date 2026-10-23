@@ -249,7 +249,7 @@ The Go build needs Go 1.21 or newer: with the default `GOTOOLCHAIN=auto` the `go
 | Metrics: engine counters (gaps/resyncs/disconnects/refused snapshots) + latency histogram | Done — tested |
 | HTTP edge: SSE `/stream` (complete top-N views and a 1 Hz telemetry event), `/metrics` (Prometheus text), `/api/status` JSON, `/healthz` and `/readyz` (`-http :8080`; `-cors-origin`, `-healthcheck`) | Done — tested |
 | Benchmark harness (open-loop, coordinated-omission-aware, wire frames through the adapter) | Done — tested; one stated run published |
-| CI (`.github/workflows/ci.yml`: gofmt / vet / staticcheck / build / `-race`, plus a front-end lint/type-check/test/build job) | Done |
+| CI (`.github/workflows/ci.yml`: gofmt / vet / staticcheck / govulncheck / build, `go mod tidy -diff`, `-race` with shuffled test order, a coverage minimum per package, pinned actions and matching version pins; a front-end lint/format/type-check/test/build job that also runs the dashboard image) | Done |
 | Docker, docker-compose (`docker compose up`, synthetic by default) | Done (built and run by hand; no CI job builds the images) |
 
 ## Limitations
