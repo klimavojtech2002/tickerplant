@@ -98,6 +98,27 @@ test("legacy JavaScript types run; a type with parameters or an unknown type is 
   assert.throws(() => parseInline('<script type="text/x-unknown">a()</script>'), /cannot tell/);
 });
 
+test("only HTML whitespace separates attributes: a no-break space does not", () => {
+  // The browser reads the value of type as "module" + nbsp + "src=x", which is no known type: refused, not guessed.
+  assert.throws(() => parseInline("<script type=module\u00a0src=x>a()</script>"), /cannot tell/);
+  // "<script" + nbsp is not a script start tag at all.
+  assert.deepEqual(parseInline("<script\u00a0>a()</script>").scripts, []);
+});
+
+test("a NUL in a body is refused, because a browser reads it as U+FFFD", () => {
+  assert.throws(() => parseInline("<script>a\0b</script>"), /NUL/);
+  assert.throws(() => parseInline("<style>a\0b</style>"), /NUL/);
+});
+
+test("hasInlineStyleOrHandler: comments and script bodies are removed in one pass", () => {
+  assert.ok(hasInlineStyleOrHandler('<script>var a = "<!--";</script><p style="x"><!-- end -->'));
+  assert.ok(!hasInlineStyleOrHandler('<!-- <p style="x"> --><p>'));
+  // An unclosed comment runs to the end, and a long run of them must not take quadratic time.
+  const started = Date.now();
+  assert.ok(!hasInlineStyleOrHandler("<!--".repeat(200_000)));
+  assert.ok(Date.now() - started < 2000, "slow on unclosed comments");
+});
+
 test("hasInlineStyleOrHandler finds attributes, not words in script text", () => {
   assert.ok(hasInlineStyleOrHandler('<p style="color:red">'));
   assert.ok(hasInlineStyleOrHandler("<a onclick=f()>"));

@@ -63,7 +63,7 @@ function readStartTag(html, from) {
   const attrs = new Map();
   let i = from;
   for (;;) {
-    while (i < html.length && /[\s/]/.test(html[i])) {
+    while (i < html.length && /[\t\n\f\r /]/.test(html[i])) {
       i++;
     }
     if (i >= html.length) {
@@ -73,7 +73,7 @@ function readStartTag(html, from) {
       return { attrs, end: i + 1 };
     }
     let j = i;
-    while (j < html.length && !/[\s/>=]/.test(html[j])) {
+    while (j < html.length && !/[\t\n\f\r />=]/.test(html[j])) {
       j++;
     }
     if (j === i) {
@@ -81,13 +81,13 @@ function readStartTag(html, from) {
     }
     const name = html.slice(i, j).toLowerCase();
     i = j;
-    while (i < html.length && /\s/.test(html[i])) {
+    while (i < html.length && /[\t\n\f\r ]/.test(html[i])) {
       i++;
     }
     let value = "";
     if (html[i] === "=") {
       i++;
-      while (i < html.length && /\s/.test(html[i])) {
+      while (i < html.length && /[\t\n\f\r ]/.test(html[i])) {
         i++;
       }
       if (html[i] === '"' || html[i] === "'") {
@@ -99,7 +99,7 @@ function readStartTag(html, from) {
         i = close + 1;
       } else {
         let k = i;
-        while (k < html.length && !/[\s>]/.test(html[k])) {
+        while (k < html.length && !/[\t\n\f\r >]/.test(html[k])) {
           k++;
         }
         value = html.slice(i, k);
@@ -114,6 +114,10 @@ function readStartTag(html, from) {
 
 /** A browser turns CRLF and a lone CR into LF before it tokenises, and the policy hashes the result. */
 function normalizeNewlines(text) {
+  if (text.includes("\0")) {
+    // A browser reads a NUL in script data as U+FFFD, so a hash of the raw text would be wrong.
+    throw new Error("a script or style body contains a NUL character");
+  }
   return text.replace(/\r\n?/g, "\n");
 }
 
@@ -125,14 +129,14 @@ function normalizeNewlines(text) {
 export function parseInline(html) {
   const scripts = [];
   const styles = [];
-  const open = /<(script|style)(?=[\s/>])/gi;
+  const open = /<(script|style)(?=[\t\n\f\r />])/gi;
   let parsed = 0;
   let m;
   while ((m = open.exec(html)) !== null) {
     const kind = m[1].toLowerCase();
     const tag = readStartTag(html, open.lastIndex);
     // The element ends at "</script" followed by whitespace, "/" or ">" (the standard's rule), not at any "</script".
-    const close = new RegExp(`</${kind}(?=[\\s/>])`, "gi");
+    const close = new RegExp(`</${kind}(?=[\\t\\n\\f\\r />])`, "gi");
     close.lastIndex = tag.end;
     const found = close.exec(html);
     if (found === null) {
@@ -155,7 +159,7 @@ export function parseInline(html) {
       throw new Error(`a script of type ${JSON.stringify(type)} at offset ${m.index}: cannot tell if it runs`);
     }
   }
-  const opened = (html.match(/<script(?=[\s/>])/gi) ?? []).length;
+  const opened = (html.match(/<script(?=[\t\n\f\r />])/gi) ?? []).length;
   if (opened !== parsed) {
     throw new Error(`found ${opened} <script> tags but parsed ${parsed}`);
   }
@@ -191,14 +195,38 @@ function replaceOnce(text, placeholder, value) {
 }
 
 /**
+ * withoutCommentsAndBodies drops comments and the bodies of script and style elements in one pass, so text
+ * inside them is not read as markup. An unclosed comment runs to the end, as in a browser.
+ */
+function withoutCommentsAndBodies(html) {
+  const next = /<!--|<(script|style)(?=[\t\n\f\r />])/gi;
+  let out = "";
+  let at = 0;
+  let m;
+  while ((m = next.exec(html)) !== null) {
+    out += html.slice(at, m.index);
+    if (m[0] === "<!--") {
+      const end = html.indexOf("-->", m.index + 4);
+      at = end < 0 ? html.length : end + 3;
+    } else {
+      const close = new RegExp(`</${m[1]}(?=[\\t\\n\\f\\r />])`, "gi");
+      close.lastIndex = m.index;
+      const found = close.exec(html);
+      at = found === null ? html.length : found.index;
+    }
+    next.lastIndex = at;
+  }
+  return out + html.slice(at);
+}
+
+/**
  * hasInlineStyleOrHandler reports a style attribute or an event-handler attribute on any tag outside script and
  * style bodies and comments. A hash cannot cover either, so the build should say so.
  */
 export function hasInlineStyleOrHandler(html) {
-  const bare = html.replace(/<!--[\s\S]*?-->/g, "").replace(/<(script|style)(?=[\s/>])[\s\S]*?<\/\1(?=[\s/>])/gi, "");
-  const tag = /<[a-zA-Z][^\s/>]*/g;
-  let m;
-  while ((m = tag.exec(bare)) !== null) {
+  const bare = withoutCommentsAndBodies(html);
+  const tag = /<[a-zA-Z][^\t\n\f\r />]*/g;
+  while (tag.exec(bare) !== null) {
     const { attrs, end } = readStartTag(bare, tag.lastIndex);
     if ([...attrs.keys()].some((name) => name === "style" || /^on[a-z]+$/.test(name))) {
       return true;
