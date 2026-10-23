@@ -68,6 +68,14 @@ func TestStreamCapRefusesWith503(t *testing.T) {
 		}
 	}
 	waitConsumers(t, hub, 2)
+	// A handler subscribes first and starts its ticker after, so a consumer count of 2 does not yet
+	// mean both tickers exist. Wait for them, or the count below could include a late one.
+	for deadline := time.Now().Add(5 * time.Second); ts.opened.Load() < 2; {
+		if time.Now().After(deadline) {
+			t.Fatalf("%d tickers started for 2 streams", ts.opened.Load())
+		}
+		time.Sleep(2 * time.Millisecond)
+	}
 	opened := ts.opened.Load()
 
 	resp := open(t, srv.URL)
