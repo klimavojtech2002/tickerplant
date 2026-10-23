@@ -783,6 +783,41 @@ promises what an operator's tooling expects: something a Prometheus server can s
   `-cors-origin` narrows it, so any page the operator opens can read it. Prometheus needs no cross-origin
   access; access control belongs to the proxy in front.
 
+## ADR-0024 — `-chaos`: a repeating fault schedule for the synthetic source
+
+**Status:** Accepted
+
+**Context.** The synthetic source can inject six faults (a gap, a reorder, a duplicate, a disconnect, a crossing
+delta and a coalesced delta), and the simulation tests prove the engine recovers from each. A normal run injects none,
+so a running process never shows the recovery that is the point of the project.
+
+**Decision.**
+- `-chaos` (off by default, synthetic source only) turns on `source.ChaosSchedule(seed)`: in every period of 300 steps
+  each of the six faults happens once, at its own window plus a jitter of up to 19 steps taken from a hash of the seed,
+  the period and the kind. The windows are at steps 40, 100, 150, 200, 240 and 270 of the period, so the closest two
+  faults can be is 11 steps (a cross at its latest, a coalesce at its earliest) and the first is after step 40.
+- The schedule is a pure function of the step (`Config.FaultAt`), not a table: a long run (the compose demo uses
+  100,000,000 steps) needs no memory for it, and the same seed always gives the same faults at the same steps. A map
+  entry for a step still wins, and an explicit `FaultNone` entry does not suppress the schedule.
+- Eleven steps are far more than the engine needs. A resync happens inside the same step and the synthetic snapshot is the
+  truth at the current sequence, so after any of the faults the engine is caught up at once, and a crossing delta is
+  applied only to a caught-up engine. The cross relies on the truth book having an ask side, which the seeded book always
+  has. Per period the engine counts exactly 2 gaps (the gap and the reorder), 4 resyncs (gap, reorder, disconnect and
+  cross), 1 refused crossing and 1 disconnect; a duplicate and a coalesced delta cost nothing. A test runs ten periods
+  over many seeds and checks those numbers, that the view never crosses and that the run ends equal to the truth.
+- `-chaos` is refused with `-live` (exit code 2): a live venue sends no injected faults. The seed (`-seed`, default 1)
+  drives both the book and the schedule, so a run with the default seed is the same every time.
+- It is opt-in. The recoveries are visible in `/api/status`, `/metrics` and the stream's telemetry; the dashboard shows
+  only the status pill and the book, and a resync on the synthetic source is instant, so making `-chaos` the default of the
+  compose demo waits for a dashboard that shows a fault log.
+
+**Consequences.**
+- Nothing in the engine changes and nothing is faked: the faults are the same code paths the simulation tests exercise.
+- The schedule depends on the order of the `Fault` constants (the hash mixes the kind), so reordering them changes it;
+  a golden file for two seeds notices.
+- `-steps` below 40 injects nothing, and a stream that ends in the middle of a period may end between a fault and its
+  heal (a gap is noticed only by the next delta). The recovery test uses whole periods.
+
 ## Verified against
 
 - Go language specification — `internal` package import rule (ADR-0002).

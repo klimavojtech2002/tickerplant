@@ -129,6 +129,11 @@ docker compose up --build
 Brings up the edge (`:8080`) and the dashboard (`:3000`) together. No account or API key required —
 the edge defaults to the deterministic synthetic source. Open `http://localhost:3000`.
 
+To watch the book heal itself, add `-chaos` to the edge command in `docker-compose.yml`: the synthetic source then
+injects a gap, a reorder, a duplicate, a disconnect, a crossing delta and a coalesced delta in every 300 steps, on a
+schedule fixed by `-seed`. The recoveries show in `/api/status` and `/metrics` (gaps, resyncs, disconnects,
+would-crosses) and in the stream's telemetry. `-chaos` cannot be combined with `-live`.
+
 For live data instead:
 
 ```
@@ -157,7 +162,7 @@ The Go build needs Go 1.21 or newer: with the default `GOTOOLCHAIN=auto` the `go
 | Canonical book model and `Trade` type (scaled integers, no float); no adapter emits trades | Done — tested |
 | Per-venue normalization to the canonical model | Done — tested (Binance, Kraken) |
 | Order-book engine (snapshot + delta, gap detect, resync, invariants) | Done — tested |
-| Transport port + deterministic synthetic source (seeded, fault-injecting) | Done — tested |
+| Transport port + deterministic synthetic source (seeded, fault-injecting; `-chaos` runs a repeating fault schedule) | Done — tested |
 | Binance live adapter (WebSocket diff-depth + REST snapshot) | Done — tested (`-live`) |
 | Kraken live adapter (WS v2 in-band book + CRC32 drift detection) | Done — tested (`-live -venue kraken -symbol BTC/USD`) |
 | OKX live adapter | Not planned (two venues, see docs/scope.md) |
