@@ -6,7 +6,7 @@ import (
 )
 
 // The committed figure must be what the command produces. If this fails after a change
-// to the engine, the source or the card layout, regenerate the file with
+// to the engine, the source or this card's drawing code, regenerate the file with
 //
 //	go run ./tools/figuregen/social
 //

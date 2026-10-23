@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"os"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -69,6 +70,10 @@ func TestRenderRefusesDataItCannotDraw(t *testing.T) {
 		want string
 	}{
 		{"wrong schema", mutate(func(c *capture) { c.Schema = 9 }), "schema"},
+		{"negative floor", mutate(func(c *capture) { c.ResolutionNS = -100; c.TailNS = []int64{-5} }), "resolution"},
+		{"no window", mutate(func(c *capture) { c.WindowNS = 0 }), "window"},
+		{"no symbol", mutate(func(c *capture) { c.Symbol = "" }), "symbol"},
+		{"sample near the int64 limit", mutate(func(c *capture) { c.TailNS[len(c.TailNS)-1] = 1<<63 - 1 }), "refusing"},
 		{"no tail", mutate(func(c *capture) { c.TailNS = nil }), "nothing to plot"},
 		{"total below tail", mutate(func(c *capture) { c.Total = 5 }), "in total"},
 		{"sample at the floor", mutate(func(c *capture) { c.TailNS[0] = c.ResolutionNS }), "floor"},
@@ -134,7 +139,7 @@ func TestPercentile(t *testing.T) {
 	}
 }
 
-// Every sample is counted once, including one exactly at the top edge, which falls in the last bin.
+// A tail of one sample, or of equal samples, still draws (the top sample falls in the last bin).
 func TestRenderWithAllEqualAndSingleSample(t *testing.T) {
 	for _, tail := range [][]int64{{5000}, {5000, 5000, 5000}} {
 		c := capture{Schema: captureSchema, Symbol: "X", WindowNS: int64(time.Minute), ResolutionNS: 1000, Total: 10, TailNS: tail}
@@ -142,4 +147,28 @@ func TestRenderWithAllEqualAndSingleSample(t *testing.T) {
 			t.Fatalf("tail %v: %v", tail, err)
 		}
 	}
+}
+
+// negativeCoordinate matches an x position left of the plot, which an overflow would produce.
+var negativeCoordinate = regexp.MustCompile(`\bx[12]?="-`)
+
+// Whatever a stored file holds, render either draws it or returns an error; it never panics
+// and never writes NaN, Inf or a negative x position into the SVG.
+func FuzzRender(f *testing.F) {
+	f.Add(int64(1000), int64(60e9), int64(5000), int64(9000), 10)
+	f.Add(int64(-100), int64(1), int64(-5), int64(0), 1)
+	f.Add(int64(1000), int64(1), int64(1<<62), int64(1<<63-1), 1<<30)
+	f.Fuzz(func(t *testing.T, floor, window, a, b int64, total int) {
+		tail := []int64{a, b}
+		if a > b {
+			tail = []int64{b, a}
+		}
+		svg, err := render(capture{Schema: captureSchema, Symbol: "X", WindowNS: window, ResolutionNS: floor, Total: total, TailNS: tail})
+		if err != nil {
+			return
+		}
+		if strings.Contains(svg, "NaN") || strings.Contains(svg, "Inf") || negativeCoordinate.MatchString(svg) {
+			t.Fatalf("bad number in the figure for floor %d window %d tail %v total %d", floor, window, tail, total)
+		}
+	})
 }

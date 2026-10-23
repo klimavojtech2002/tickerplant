@@ -30,6 +30,10 @@ import (
 // practical resolution on this platform).
 const resolution = time.Microsecond
 
+// maxLatency bounds a sample the figure will draw. A per-update latency of an hour is already
+// absurd; the bound keeps the axis arithmetic far from overflow.
+const maxLatency = time.Hour
+
 // captureSchema is bumped when the stored fields change meaning.
 const captureSchema = 1
 
@@ -185,6 +189,10 @@ func render(c capture) (string, error) {
 	if c.Schema != captureSchema {
 		return "", fmt.Errorf("capture schema %d, want %d", c.Schema, captureSchema)
 	}
+	if c.ResolutionNS != int64(resolution) || c.WindowNS <= 0 || c.Symbol == "" {
+		return "", fmt.Errorf("capture has resolution %d ns, window %d ns, symbol %q; want %d ns, a positive window and a symbol",
+			c.ResolutionNS, c.WindowNS, c.Symbol, int64(resolution))
+	}
 	if len(c.TailNS) == 0 {
 		return "", errors.New("every sample was within measurement resolution; nothing to plot")
 	}
@@ -197,6 +205,9 @@ func render(c capture) (string, error) {
 		if ns <= c.ResolutionNS || (i > 0 && ns < c.TailNS[i-1]) {
 			return "", fmt.Errorf("tail sample %d (%d ns) is at or below the floor or out of order", i, ns)
 		}
+	}
+	if top := tail[len(tail)-1]; top > maxLatency {
+		return "", fmt.Errorf("largest sample %v is above %v; refusing to draw it", top, maxLatency)
 	}
 	window, symbol := time.Duration(c.WindowNS), c.Symbol
 	p50, p90, p99 := percentile(tail, 0.50), percentile(tail, 0.90), percentile(tail, 0.99)
