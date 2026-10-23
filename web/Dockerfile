@@ -17,8 +17,8 @@ ENV NEXT_PUBLIC_EDGE_URL=${NEXT_PUBLIC_EDGE_URL}
 RUN pnpm build \
  && node scripts/csp-hash.mjs out security-headers.conf.template > security-headers.conf
 
-# nginx 1.27.5, pinned by digest (taken from the image on the author's machine, April 2025 build).
-# Refresh the pin on purpose, not by tag drift.
+# Pinned by digest, so a moved tag cannot change what ships. Dependabot proposes new digests; each one
+# is merged only after the image check in CI has run against it.
 FROM nginx:1.29-alpine@sha256:5616878291a2eed594aee8db4dade5878cf7edcb475e59193904b198d9b830de AS final
 COPY nginx.conf /etc/nginx/nginx.conf
 COPY --from=builder /app/security-headers.conf /etc/nginx/security-headers.conf
