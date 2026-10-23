@@ -1,14 +1,22 @@
 // Command fig3 regenerates docs/figures/fig3-latency.svg from a real, timed capture of
 // tickerplant's own per-update latency (adapter frame-dequeue to view published, per
 // ARCHITECTURE §9) against the real Kraken exchange.
+//
+// A live run writes the capture (docs/figures/fig3-capture.json) and then draws it. With
+// -from the drawing is made from a stored capture alone, with no network, so the figure
+// can be checked against the data it claims to show.
 package main
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"log/slog"
 	"os"
+	"runtime"
+	"runtime/debug"
 	"slices"
 	"time"
 
@@ -22,20 +30,82 @@ import (
 // practical resolution on this platform).
 const resolution = time.Microsecond
 
+// captureSchema is bumped when the stored fields change meaning.
+const captureSchema = 1
+
+// capture is one live run, stored so the figure can be drawn again and checked. Only the
+// samples above the resolution floor are kept; the rest are counted in Total.
+type capture struct {
+	Schema       int       `json:"schema"`
+	Venue        string    `json:"venue"`
+	Symbol       string    `json:"symbol"`
+	Start        time.Time `json:"start"`
+	WindowNS     int64     `json:"window_ns"`
+	ResolutionNS int64     `json:"resolution_ns"`
+	GoVersion    string    `json:"go_version"`
+	GOOS         string    `json:"goos"`
+	GOARCH       string    `json:"goarch"`
+	Commit       string    `json:"commit"`
+	Total        int       `json:"total_samples"`
+	TailNS       []int64   `json:"tail_ns"` // sorted, each above ResolutionNS
+}
+
 func main() {
 	out := flag.String("out", "docs/figures/fig3-latency.svg", "output SVG path")
+	dataOut := flag.String("capture-out", "docs/figures/fig3-capture.json", "where a live run stores its capture")
+	from := flag.String("from", "", "draw from this stored capture instead of capturing (no network)")
 	symbol := flag.String("symbol", "BTC/USD", "Kraken v2 symbol")
-	capture := flag.Duration("capture", 5*time.Minute, "how long to capture live samples")
+	window := flag.Duration("capture", 5*time.Minute, "how long to capture live samples")
 	flag.Parse()
 
-	ctx, cancel := context.WithTimeout(context.Background(), *capture+30*time.Second)
+	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
+	fail := func(msg string, err error) {
+		log.Error(msg, "err", err)
+		os.Exit(1)
+	}
+
+	var c capture
+	if *from != "" {
+		raw, err := os.ReadFile(*from)
+		if err != nil {
+			fail("read capture", err)
+		}
+		if err := json.Unmarshal(raw, &c); err != nil {
+			fail("parse capture", err)
+		}
+	} else {
+		var err error
+		if c, err = liveCapture(*symbol, *window, log); err != nil {
+			fail("capture", err)
+		}
+		raw, err := json.MarshalIndent(c, "", " ")
+		if err != nil {
+			fail("encode capture", err)
+		}
+		if err := os.WriteFile(*dataOut, append(raw, '\n'), 0o644); err != nil {
+			fail("write capture", err)
+		}
+		fmt.Printf("wrote %s\n", *dataOut)
+	}
+
+	svg, err := render(c)
+	if err != nil {
+		fail("render", err)
+	}
+	if err := os.WriteFile(*out, []byte(svg), 0o644); err != nil {
+		fail("write", err)
+	}
+	fmt.Printf("wrote %s: %d raw samples over %s\n", *out, c.Total, time.Duration(c.WindowNS))
+}
+
+// liveCapture runs the engine against Kraken for the window and records every update's latency.
+func liveCapture(symbol string, window time.Duration, log *slog.Logger) (capture, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), window+30*time.Second)
 	defer cancel()
 
-	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
-	src, err := kraken.Live(ctx, kraken.LiveConfig{Symbol: *symbol, Logger: log})
+	src, err := kraken.Live(ctx, kraken.LiveConfig{Symbol: symbol, Logger: log})
 	if err != nil {
-		log.Error("kraken live connect failed", "err", err)
-		os.Exit(1)
+		return capture{}, fmt.Errorf("kraken live connect: %w", err)
 	}
 	defer src.Close()
 
@@ -44,40 +114,49 @@ func main() {
 		book.WithChecksum(kraken.Checksum), book.WithMaxDepth(kraken.BookDepth),
 		book.WithLatencyObserver(func(d time.Duration) { samples = append(samples, d) }))
 	if err != nil {
-		log.Error("engine setup failed", "err", err)
-		os.Exit(1)
+		return capture{}, fmt.Errorf("engine setup: %w", err)
 	}
 	if err := eng.Bootstrap(ctx); err != nil {
-		log.Error("bootstrap failed", "err", err)
-		os.Exit(1)
+		return capture{}, fmt.Errorf("bootstrap: %w", err)
 	}
 
-	deadline := time.Now().Add(*capture)
-	for time.Now().Before(deadline) {
+	start := time.Now()
+	for time.Since(start) < window {
 		ok, err := eng.Step(ctx)
 		if err != nil {
-			log.Error("step failed", "err", err)
-			os.Exit(1)
+			return capture{}, fmt.Errorf("step: %w", err)
 		}
 		if !ok {
 			break
 		}
 	}
 	if len(samples) == 0 {
-		log.Error("no latency samples captured")
-		os.Exit(1)
+		return capture{}, errors.New("no latency samples captured")
 	}
-	tail := tailAboveResolution(samples)
-	if len(tail) == 0 {
-		log.Error("every sample was within measurement resolution; nothing to plot", "totalSamples", len(samples))
-		os.Exit(1)
+	c := capture{
+		Schema: captureSchema, Venue: "kraken", Symbol: symbol, Start: start.UTC(),
+		WindowNS: int64(window), ResolutionNS: int64(resolution),
+		GoVersion: runtime.Version(), GOOS: runtime.GOOS, GOARCH: runtime.GOARCH, Commit: buildCommit(),
+		Total: len(samples),
 	}
+	for _, d := range tailAboveResolution(samples) {
+		c.TailNS = append(c.TailNS, int64(d))
+	}
+	return c, nil
+}
 
-	if err := os.WriteFile(*out, []byte(render(samples, tail, *capture, *symbol)), 0o644); err != nil {
-		log.Error("write failed", "err", err)
-		os.Exit(1)
+// buildCommit is the revision the binary was built from, or "unknown" (for example under go run).
+func buildCommit() string {
+	info, ok := debug.ReadBuildInfo()
+	if !ok {
+		return "unknown"
 	}
-	fmt.Printf("wrote %s: %d raw samples over %s\n", *out, len(samples), *capture)
+	for _, s := range info.Settings {
+		if s.Key == "vcs.revision" {
+			return s.Value
+		}
+	}
+	return "unknown"
 }
 
 // tailAboveResolution returns the sorted samples above the measurement floor: the
@@ -93,14 +172,34 @@ func tailAboveResolution(samples []time.Duration) []time.Duration {
 	return tail
 }
 
+// percentile is the sample at index floor(p*(n-1)) of the sorted tail. That is a floor, not
+// the nearest-rank rule; with tens of thousands of samples the two differ by one sample.
+func percentile(tail []time.Duration, p float64) time.Duration {
+	return tail[int(p*float64(len(tail)-1))]
+}
+
 const plotW, plotH = card.ContentWidth, 420
 
-func render(samples, tail []time.Duration, window time.Duration, symbol string) string {
-	percentile := func(p float64) time.Duration {
-		idx := int(p * float64(len(tail)-1))
-		return tail[idx]
+// render draws a stored capture. It fails on data that cannot be drawn rather than drawing nonsense.
+func render(c capture) (string, error) {
+	if c.Schema != captureSchema {
+		return "", fmt.Errorf("capture schema %d, want %d", c.Schema, captureSchema)
 	}
-	p50, p90, p99 := percentile(0.50), percentile(0.90), percentile(0.99)
+	if len(c.TailNS) == 0 {
+		return "", errors.New("every sample was within measurement resolution; nothing to plot")
+	}
+	if c.Total < len(c.TailNS) {
+		return "", fmt.Errorf("capture has %d samples in total but %d above the floor", c.Total, len(c.TailNS))
+	}
+	tail := make([]time.Duration, len(c.TailNS))
+	for i, ns := range c.TailNS {
+		tail[i] = time.Duration(ns)
+		if ns <= c.ResolutionNS || (i > 0 && ns < c.TailNS[i-1]) {
+			return "", fmt.Errorf("tail sample %d (%d ns) is at or below the floor or out of order", i, ns)
+		}
+	}
+	window, symbol := time.Duration(c.WindowNS), c.Symbol
+	p50, p90, p99 := percentile(tail, 0.50), percentile(tail, 0.90), percentile(tail, 0.99)
 
 	const bins = 32
 	maxTail := tail[len(tail)-1]
@@ -148,7 +247,7 @@ func render(samples, tail []time.Duration, window time.Duration, symbol string) 
 	plot += percentileLine(xOf(p90), plotH, fmt.Sprintf("p90 %s", fmtMs(p90)))
 	plot += percentileLine(xOf(p99), plotH, fmt.Sprintf("p99 %s", fmtMs(p99)))
 
-	total := len(samples)
+	total := c.Total
 	sub := total - len(tail)
 	pct := float64(sub) / float64(total) * 100
 
@@ -170,7 +269,7 @@ func render(samples, tail []time.Duration, window time.Duration, symbol string) 
 			{Text: fmt.Sprintf("Histogram of the %d samples above measurement resolution, %d bins.", len(tail), bins), Italic: true},
 		},
 	}
-	return card.Render(d)
+	return card.Render(d), nil
 }
 
 func percentileLine(x float64, plotH int, label string) string {
