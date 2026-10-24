@@ -19,6 +19,8 @@ IMAGE="$(sed -n 's/^FROM \(nginx:[^ ]*\) AS final/\1/p' Dockerfile)"
 TMP="$(mktemp -d)"
 cleanup() { docker rm -f "$NAME" >/dev/null 2>&1 || true; rm -rf "$TMP"; }
 trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 NEXT_PUBLIC_EDGE_URL="$EDGE" node scripts/csp-hash.mjs out security-headers.conf.template > "$TMP/security-headers.conf"
 

@@ -46,4 +46,14 @@ until curl -fsS http://127.0.0.1:8080/readyz >/dev/null 2>&1; do
   sleep 1
 done
 
-BROWSER_CHECK=1 REQUIRE_BOOK=1 sh scripts/check-image.sh
+if ! BROWSER_CHECK=1 REQUIRE_BOOK=1 sh scripts/check-image.sh; then
+  echo "--- edge log ---" >&2
+  tail -n 40 "$TMP/edge.log" >&2
+  exit 1
+fi
+
+# The long watches in the browser check are meant to span an injected fault; make sure one happened.
+if ! curl -fsS http://127.0.0.1:8080/api/status | grep -Eq '"resyncs":[1-9]'; then
+  echo "no fault was injected during the run, so the layout was not watched across a repair" >&2
+  exit 1
+fi

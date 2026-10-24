@@ -182,12 +182,26 @@ try {
       consoleErrors.push("log: " + d.params.entry.text + (d.params.entry.url ? " " + d.params.entry.url : ""));
     }
   };
+  // A command that Chrome never answers (it crashed, or the page hung) fails after 30 s instead of hanging the job.
   const send = (method, params = {}) =>
-    new Promise((resolve) => {
+    new Promise((resolve, reject) => {
       const i = ++id;
-      pending.set(i, resolve);
+      const timer = setTimeout(() => {
+        pending.delete(i);
+        reject(new Error(`Chrome did not answer ${method} within 30 s`));
+      }, 30_000);
+      pending.set(i, (v) => {
+        clearTimeout(timer);
+        resolve(v);
+      });
       ws.send(JSON.stringify({ id: i, method, params }));
     });
+  ws.onclose = () => {
+    for (const resolve of pending.values()) {
+      resolve({ error: "the connection to Chrome closed" });
+    }
+    pending.clear();
+  };
   // evaluate returns the value, or undefined if the page context went away (a navigation); callers retry.
   const evaluate = async (expression) =>
     (await send("Runtime.evaluate", { expression, returnByValue: true, awaitPromise: true })).result?.value;
@@ -250,13 +264,6 @@ try {
     );
     check(state.small.length === 0, `${tag}: text under 12px: ${state.small.slice(0, 5).join("; ")}`);
     check(state.csp.length === 0, `${tag}: CSP violations: ${state.csp.join("; ")}`);
-    check(
-      consoleErrors.length === 0,
-      `${tag}: console errors: ${consoleErrors
-        .slice(0, 3)
-        .map((e) => e.slice(0, 200))
-        .join(" | ")}`,
-    );
     const shiftWhileUpdating = state.cls - clsAtReady;
     check(
       shiftWhileUpdating <= shiftLimit,
@@ -300,9 +307,18 @@ try {
       check(!big.hscroll, `${tag} at 200% text: horizontal scroll (${big.scrollW} > ${big.innerW})`);
     }
     await evaluate(`document.documentElement.style.fontSize = ""; 0`);
+    // read last, so errors raised while the scheme and the text size were switched count too
+    check(
+      consoleErrors.length === 0,
+      `${tag}: console errors: ${consoleErrors
+        .slice(0, 3)
+        .map((e) => e.slice(0, 200))
+        .join(" | ")}`,
+    );
 
     if (outDir && failures.some((f) => f.startsWith(tag))) {
       mkdirSync(outDir, { recursive: true });
+      await send("Emulation.setEmulatedMedia", { features: [{ name: "prefers-color-scheme", value: "light" }] });
       const shot = await send("Page.captureScreenshot", { format: "png", captureBeyondViewport: true });
       writeFileSync(join(outDir, `browser-check-${w}.png`), Buffer.from(shot.data, "base64"));
     }
