@@ -1,9 +1,16 @@
 import { render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
+import { mid } from "@/lib/mid";
 import type { ViewEvent } from "@/lib/types";
 
 import { DepthChart } from "./DepthChart";
+
+// DepthChart works out the mid once per render, so counting its calls counts renders.
+vi.mock("@/lib/mid", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/mid")>();
+  return { ...actual, mid: vi.fn(actual.mid) };
+});
 
 const view: ViewEvent = {
   venue: "kraken",
@@ -99,6 +106,17 @@ describe("DepthChart", () => {
   it("keeps the legend out of the accessibility tree, since the colours are named by the order book's headers", () => {
     const { container } = render(<DepthChart view={view} />);
     expect(container.querySelector(".legend")).toHaveAttribute("aria-hidden", "true");
+  });
+
+  it("does not render again for the same view, only for a new one", () => {
+    const renders = () => vi.mocked(mid).mock.calls.length;
+    const start = renders();
+    const { rerender } = render(<DepthChart view={view} />);
+    expect(renders()).toBe(start + 1);
+    rerender(<DepthChart view={view} />); // a telemetry-only change: the page re-renders, the view is the same object
+    expect(renders()).toBe(start + 1);
+    rerender(<DepthChart view={{ ...view, seq: 2 }} />);
+    expect(renders()).toBe(start + 2);
   });
 
   it("puts no style attribute inside the svg", () => {
