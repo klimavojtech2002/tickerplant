@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { groupThousands, ungroup } from "./group";
+import { groupThousands, splitFraction, ungroup } from "./group";
 
 function rng(seed: number) {
   let s = seed >>> 0;
@@ -51,5 +51,16 @@ describe("groupThousands", () => {
     const g = groupThousands("1234567.1234567");
     expect(g.split(".")[1]).toBe("1234567");
     expect(g).not.toMatch(/^,|,$|,\./);
+  });
+});
+
+describe("splitFraction", () => {
+  it.each([
+    ["62,721.75", ["62,721", ".75"]],
+    ["100", ["100", ""]],
+    ["0.5", ["0", ".5"]],
+    ["", ["", ""]],
+  ])("%s", (input, want) => {
+    expect(splitFraction(input)).toEqual(want);
   });
 });

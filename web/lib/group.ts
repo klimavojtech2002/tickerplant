@@ -23,3 +23,9 @@ export function groupThousands(s: string): string {
 export function ungroup(s: string): string {
   return s.replaceAll(",", "");
 }
+
+/** splitFraction cuts a decimal into its whole part and its fraction (with the point): "62,721.75" -> ["62,721", ".75"]. */
+export function splitFraction(s: string): [string, string] {
+  const dot = s.indexOf(".");
+  return dot === -1 ? [s, ""] : [s.slice(0, dot), s.slice(dot)];
+}
