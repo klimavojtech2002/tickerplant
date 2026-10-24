@@ -33,8 +33,9 @@ const eslintConfig = defineConfig([
       ],
     },
   },
-  // The build and check scripts handle layout measurements and version strings, never prices.
-  { files: ["scripts/**/*.mjs"], rules: { "no-restricted-syntax": "off" } },
+  // The build and check scripts handle layout measurements and version strings, and the contrast test does colour maths: none of
+  // them touch prices.
+  { files: ["scripts/**/*.mjs", "app/tokens.contrast.test.ts"], rules: { "no-restricted-syntax": "off" } },
 ]);
 
 export default eslintConfig;

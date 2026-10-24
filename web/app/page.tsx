@@ -7,14 +7,14 @@
 //
 // The page re-renders whenever the store changes (telemetry once a second, and each
 // view). The book panel is memoised and skips telemetry-only changes; the clocks live in
-// the badge and the health section, so nothing here ticks.
+// the connection pill and the health section, so nothing here ticks.
 
 import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 
 import { BookPanel } from "@/components/BookPanel";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { HealthSection } from "@/components/HealthPanel";
-import { StatusBadge } from "@/components/StatusBadge";
+import { NavBar } from "@/components/NavBar";
 import { initialPollState, pollStatus, type PollState } from "@/lib/status";
 import { initialSnapshot, StreamStore } from "@/lib/store";
 import { connectStream } from "@/lib/stream";
@@ -30,29 +30,33 @@ export default function Page() {
   useEffect(() => pollStatus(edgeURL, setPoll), []);
 
   return (
-    <main>
-      <header>
-        <h1>
-          tickerplant
-          {snap.view ? (
-            <span className="instrument">
-              {snap.view.symbol} @ {snap.view.venue}
-            </span>
-          ) : null}
-        </h1>
-        <StatusBadge conn={snap.conn} />
-      </header>
-      <ErrorBoundary resetKey={snap.view}>
-        {snap.view ? <BookPanel view={snap.view} /> : <p>waiting for the first view…</p>}
-      </ErrorBoundary>
-      <ErrorBoundary resetKey={poll.kind}>
-        <HealthSection state={poll} />
-      </ErrorBoundary>
-      <footer>
-        <p>
-          {`edge: ${edgeURL} — prices and sizes are the venue's decimal strings end to end; this page never parses them into floats.`}
-        </p>
-      </footer>
-    </main>
+    <>
+      <NavBar conn={snap.conn} />
+      <main className="shell">
+        <div className="legacy">
+          <header>
+            <h1>
+              tickerplant
+              {snap.view ? (
+                <span className="instrument">
+                  {snap.view.symbol} @ {snap.view.venue}
+                </span>
+              ) : null}
+            </h1>
+          </header>
+          <ErrorBoundary resetKey={snap.view}>
+            {snap.view ? <BookPanel view={snap.view} /> : <p>waiting for the first view…</p>}
+          </ErrorBoundary>
+          <ErrorBoundary resetKey={poll.kind}>
+            <HealthSection state={poll} />
+          </ErrorBoundary>
+          <footer>
+            <p>
+              {`edge: ${edgeURL} — prices and sizes are the venue's decimal strings end to end; this page never parses them into floats.`}
+            </p>
+          </footer>
+        </div>
+      </main>
+    </>
   );
 }

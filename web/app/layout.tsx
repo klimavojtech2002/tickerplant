@@ -1,8 +1,12 @@
 import type { Metadata } from "next";
-import "./globals.css";
 
-// System fonts only: a Google Fonts fetch would make the build depend on the
-// network, and the console aesthetic wants the platform's monospace anyway.
+import { themeScript } from "@/lib/theme";
+
+import "./tokens.css";
+import "./globals.css";
+import "./legacy.css";
+
+// System fonts only: a font download would make the build depend on the network.
 
 export const metadata: Metadata = {
   title: "tickerplant",
@@ -15,7 +19,11 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
+    // suppressHydrationWarning: the snippet below may set data-theme on this element before React hydrates it.
+    <html lang="en" suppressHydrationWarning>
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: themeScript }} />
+      </head>
       <body>{children}</body>
     </html>
   );

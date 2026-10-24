@@ -131,6 +131,11 @@ jobs:
       - name: build
         run: pnpm build
 
+      # The page's JavaScript, gzipped, must stay under 200 KB (176.6 KB when this check was added). Raise the number
+      # here, deliberately, if the page really needs more.
+      - name: size budget
+        run: node scripts/check-size.mjs out 204800
+
       # Runs the pinned nginx image as the unprivileged user on a read-only file system, with the
       # exported pages and the rendered headers, and checks what is served.
       - name: image check
@@ -139,8 +144,8 @@ jobs:
   # The whole stack from a browser: a real edge (synthetic source, faults injected), the built dashboard behind the real nginx
   # image and its policy, opened in Chrome. SHIFT_LIMIT is the layout shift allowed while the book updates; the target is
   # 0.001 and it is lowered to that as the old parts of the page are replaced. When the page is rebuilt, also set
-  # REQUIRE_TEXT_SCALING=1 and STRICT_INITIAL_SHIFT=1 and drop SHIFT_LIMIT: until then the page sizes text in pixels,
-  # so the 200 % text check cannot run and the load shift is only reported.
+  # REQUIRE_TEXT_SCALING=1 and STRICT_INITIAL_SHIFT=1 and drop SHIFT_LIMIT: until then the old panels size text in pixels,
+  # so an overflow at 200 % text is only reported, and the load shift is only reported.
   browser:
     runs-on: ubuntu-latest
     timeout-minutes: 15

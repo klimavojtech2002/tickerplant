@@ -1,0 +1,136 @@
+/* The panels that predate the redesign (instrument line, order book, health tiles) keep their old rules until they are replaced.
+ * Every rule is scoped under .legacy so none of it can reach the new shell, and the old colour names are mapped onto the new
+ * tokens so the panels read correctly in both themes. This file goes away when the last old panel does. */
+
+.legacy {
+  --surface: var(--bg);
+  --panel: var(--card);
+  --ink: var(--label);
+  --ink-muted: var(--label-2);
+  --line: var(--hairline);
+  --bid: var(--green);
+  --ask: var(--red);
+  --live: var(--green);
+  --warn: var(--orange);
+  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.legacy header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.legacy h1 {
+  font-size: 18px;
+  font-weight: 600;
+  margin: 0;
+}
+
+.legacy .instrument {
+  color: var(--ink-muted);
+  font-weight: 400;
+  margin-left: 12px;
+}
+
+.legacy .panel-failed {
+  border: 1px solid var(--warn);
+  border-radius: 6px;
+  padding: 8px 14px;
+  margin: 12px 0;
+}
+
+.legacy .health-dimmed {
+  opacity: 0.5;
+}
+
+.legacy .tiles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 12px 0;
+}
+
+.legacy .tile {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 8px 14px;
+  min-width: 96px;
+}
+
+.legacy .tile-label {
+  color: var(--ink-muted);
+  font-size: 12px;
+}
+
+.legacy .tile-value {
+  font-size: 18px;
+  font-variant-numeric: tabular-nums;
+}
+
+.legacy .depth {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+@media (max-width: 640px) {
+  .legacy .depth {
+    grid-template-columns: 1fr;
+  }
+}
+
+.legacy table.side {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.legacy table.side th {
+  text-align: left;
+  color: var(--ink-muted);
+  font-weight: 400;
+  font-size: 12px;
+  border-bottom: 1px solid var(--line);
+  padding: 4px 8px;
+}
+
+.legacy table.side td {
+  padding: 3px 8px;
+  font-variant-numeric: tabular-nums;
+}
+
+.legacy td.size {
+  position: relative;
+}
+
+.legacy .bar {
+  position: absolute;
+  left: 0;
+  top: 2px;
+  bottom: 2px;
+  border-radius: 3px;
+  opacity: 0.6;
+}
+
+.legacy .bar-bids {
+  background: var(--bid);
+}
+
+.legacy .bar-asks {
+  background: var(--ask);
+}
+
+.legacy .size-text {
+  position: relative;
+}
+
+.legacy footer {
+  margin-top: 28px;
+  color: var(--ink-muted);
+  font-size: 12px;
+}

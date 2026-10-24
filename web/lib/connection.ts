@@ -90,6 +90,11 @@ const maxCountdownSecs = 30;
 
 const age = (now: number, at: number) => Math.max(0, now - at);
 
+/** countdownSecs is the whole seconds until the next rebuild, never more than the backoff cap. */
+function countdownSecs(s: ConnectionState, now: number): number {
+  return Math.min(maxCountdownSecs, Math.max(0, Math.ceil(((s.retryAt ?? now) - now) / 1000)));
+}
+
 /** connectionLabel is the one place the words on the pill come from. */
 export function connectionLabel(s: ConnectionState, now: number): { kind: LabelKind; text: string } {
   switch (s.link) {
@@ -100,8 +105,7 @@ export function connectionLabel(s: ConnectionState, now: number): { kind: LabelK
     case "transient":
       return { kind: "transient", text: "Reconnecting…" };
     case "closed": {
-      const secs = Math.min(maxCountdownSecs, Math.max(0, Math.ceil(((s.retryAt ?? now) - now) / 1000)));
-      return { kind: "reconnecting", text: `Reconnecting in ${secs} s (attempt ${s.attempt})` };
+      return { kind: "reconnecting", text: `Reconnecting in ${countdownSecs(s, now)} s (attempt ${s.attempt})` };
     }
     case "open": {
       const beat = age(now, s.beatAt);
@@ -115,5 +119,35 @@ export function connectionLabel(s: ConnectionState, now: number): { kind: LabelK
       }
       return { kind: "live", text: s.viewAt > 0 ? `Live · ${formatAgeMs(sinceView)}` : "Live" };
     }
+  }
+}
+
+/**
+ * connectionPill splits the label into the part that is announced and the part that ticks. `word` names the state and changes
+ * only when the state does, so it can sit in a polite live region; `detail` carries the age or the countdown and changes every
+ * second, so it must stay outside one. `kind` is the one from connectionLabel.
+ */
+export function connectionPill(
+  s: ConnectionState,
+  now: number,
+): { kind: LabelKind; word: string; detail: string | null } {
+  const { kind } = connectionLabel(s, now);
+  switch (kind) {
+    case "connecting":
+      return { kind, word: "Connecting…", detail: null };
+    case "transient":
+      return { kind, word: "Reconnecting", detail: null };
+    case "reconnecting": {
+      if (s.link !== "closed") {
+        return { kind, word: "Reconnecting", detail: null };
+      }
+      return { kind, word: "Reconnecting", detail: `in ${countdownSecs(s, now)} s · attempt ${s.attempt}` };
+    }
+    case "no-data":
+      return { kind, word: "No data", detail: `${Math.floor(age(now, s.beatAt) / 1000)} s` };
+    case "quiet":
+      return { kind, word: "Live", detail: "market quiet" };
+    case "live":
+      return { kind, word: "Live", detail: s.viewAt > 0 ? formatAgeMs(age(now, s.viewAt)) : null };
   }
 }
