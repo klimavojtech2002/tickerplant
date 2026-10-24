@@ -97,6 +97,11 @@ describe("DepthChart", () => {
     }
   });
 
+  it("keeps the mid marker inside the plot with a clamp on its position", () => {
+    const { container } = render(<DepthChart view={view} />);
+    expect(container.querySelector<HTMLElement>(".chart-midchip")!.style.left).toContain("clamp(3.25rem");
+  });
+
   it("sizes the label column to its longest label", () => {
     const { container } = render(
       <DepthChart view={{ ...view, bids: [["62721.7", "0.0000001"]], asks: [["62721.9", "0.0000001"]] }} />,

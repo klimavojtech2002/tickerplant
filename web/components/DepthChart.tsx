@@ -14,7 +14,7 @@ import { baseCurrency } from "@/lib/hero";
 import { mid } from "@/lib/mid";
 import type { ViewEvent } from "@/lib/types";
 
-/** The heading, the subtitle and the legend of the depth card; the placeholder uses the same head so the card keeps its height. */
+/** The heading, the subtitle and the legend of the depth card; the placeholder uses the same head, so the legend takes the same room. */
 export function DepthHead({ subtitle, idle }: { subtitle: string; idle: boolean }) {
   return (
     <div className="mk-head">
@@ -103,7 +103,7 @@ export const DepthChart = memo(function DepthChart({ view }: { view: ViewEvent }
                   className="chart-mid"
                   x1={(shape.midLeft / 100) * depthBox.width}
                   x2={(shape.midLeft / 100) * depthBox.width}
-                  y1="6"
+                  y1={depthBox.top}
                   y2={depthBox.base}
                   vectorEffect="non-scaling-stroke"
                 />

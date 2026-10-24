@@ -54,6 +54,36 @@ describe("chartScale", () => {
     ],
     ["a crossed book", view([["101", "1"]], [["100", "1"]])],
     ["a locked book", view([["100", "1"]], [["100", "1"]])],
+    [
+      "bids that do not fall",
+      view(
+        [
+          ["99", "1"],
+          ["100", "1"],
+        ],
+        [],
+      ),
+    ],
+    [
+      "a repeated bid price",
+      view(
+        [
+          ["100", "1"],
+          ["100", "1"],
+        ],
+        [],
+      ),
+    ],
+    [
+      "asks that do not rise",
+      view(
+        [],
+        [
+          ["102", "1"],
+          ["101", "1"],
+        ],
+      ),
+    ],
     ["a zero size", view([["100", "0"]], [["101", "1"]])],
     ["no levels", view([], [])],
   ])("is null for %s", (_name, v) => {

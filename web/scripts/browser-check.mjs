@@ -362,15 +362,16 @@ try {
       // a side that is drawn has at least one step and reaches its own edge of the plot (a one-sided book is a valid book)
       if (market.bids) {
         check(market.bidSteps >= 2, `${tag}: the bid line has no steps`);
+        // a lone level sits in the middle of the axis, so only a side with two or more levels must reach its edge
         check(
-          Math.abs(market.bids.left - market.plot.left) <= slack,
+          market.bidSteps < 4 || Math.abs(market.bids.left - market.plot.left) <= slack,
           `${tag}: the bid steps do not reach the left edge of the plot`,
         );
       }
       if (market.asks) {
         check(market.askSteps >= 2, `${tag}: the ask line has no steps`);
         check(
-          Math.abs(market.asks.right - market.plot.right) <= slack,
+          market.askSteps < 4 || Math.abs(market.asks.right - market.plot.right) <= slack,
           `${tag}: the ask steps do not reach the right edge of the plot`,
         );
       }

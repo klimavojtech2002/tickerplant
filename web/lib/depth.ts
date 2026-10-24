@@ -32,7 +32,8 @@ export function sizeScale(view: ViewEvent): number | null {
 
 /**
  * chartScale is the size scale of a book that can be drawn, or null when it cannot: the sizes are not positive and of one scale, a
- * price is not a plain decimal, the prices are of different scales, or the best bid is not below the best ask. A book that came
+ * price is not a plain decimal, the prices are of different scales, a side is not strictly ordered (bids falling, asks rising), or
+ * the best bid is not below the best ask. A book that came
  * through the page's own checks always passes; this keeps the chart from throwing on one that did not.
  */
 export function chartScale(view: ViewEvent): number | null {
@@ -42,6 +43,11 @@ export function chartScale(view: ViewEvent): number | null {
   }
   const prices = [...view.bids, ...view.asks].map(([price]) => price);
   if (!prices.every(isPlainDecimal) || prices.some((p) => scaleOf(p) !== scaleOf(prices[0]!))) {
+    return null;
+  }
+  const ordered = (side: readonly [string, string][], sign: bigint) =>
+    side.every(([price], i) => i === 0 || (toScaled(price) - toScaled(side[i - 1]![0])) * sign > 0n);
+  if (!ordered(view.bids, -1n) || !ordered(view.asks, 1n)) {
     return null;
   }
   const bid = view.bids[0]?.[0];
