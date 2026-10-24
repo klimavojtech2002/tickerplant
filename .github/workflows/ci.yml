@@ -177,7 +177,7 @@ jobs:
         working-directory: web
         env:
           CHROME_BIN: /usr/bin/google-chrome
-          SHIFT_LIMIT: '0.12'
+          SHIFT_LIMIT: '0.06'
           BROWSER_CHECK_OUT: ${{ runner.temp }}/browser-check
         run: sh scripts/check-stack.sh
 

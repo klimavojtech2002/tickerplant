@@ -17,7 +17,7 @@
 //   REQUIRE_TEXT_SCALING  1 = fail if the page does not follow the browser's text size setting
 //   REQUIRE_BOOK          1 = fail if no book appears (an edge must be running)
 //   REQUIRE_HERO          1 = the hero must show a mid price that equals the one worked out from the order book's best prices
-//   MIN_ROWS              table rows that mean "the book arrived" (default 10)
+//   MIN_ROWS              order book rows (both sides) that mean "the book arrived" (default 10)
 //   BROWSER_CHECK_OUT     directory for screenshots of failed viewports
 //
 // What the contrast check does not see: opacity, background images and gradients, text drawn inside SVG, and hover or focus
@@ -96,18 +96,20 @@ const INSPECT = `(() => {
     if (px < 12) small.push(n.textContent.trim().slice(0, 30) + " " + px + "px");
   }
   return { texts, lowContrast, small, hscroll: document.documentElement.scrollWidth > innerWidth, scrollW: document.documentElement.scrollWidth, innerW: innerWidth,
-    rows: document.querySelectorAll("table tbody tr").length, cls: window.__cls, csp: window.__csp, href: location.href, ready: document.readyState,
+    rows: document.querySelectorAll("table.ladder tbody.asks tr, table.ladder tbody.bids tr").length, cls: window.__cls, csp: window.__csp, href: location.href, ready: document.readyState,
     bodyFont: parseFloat(getComputedStyle(document.body).fontSize) };
 })()`;
 
-// Reads the hero and the first row of each order-book table in one synchronous call, so both come from the same rendered frame.
+// Reads the hero and the best bid and ask rows of the order book in one synchronous call, so both come from the same rendered frame.
 const FEATURE = `(() => {
   const text = (s) => document.querySelector(s)?.textContent ?? null;
-  const price = (n) => document.querySelector('table[aria-label="' + n + '"] tbody tr:first-child td.price')?.textContent ?? null;
+  const price = (side) => document.querySelector('table.ladder tr[data-best="' + side + '"] td.price')?.textContent ?? null;
+  const table = document.querySelector("table.ladder");
+  const tr = table ? table.getBoundingClientRect() : null;
   const mid = document.querySelector('[data-field="mid"]');
   const r = mid ? mid.getBoundingClientRect() : null;
   return { mid: text('[data-field="mid"]'), bid: text('[data-field="bid"]'), ask: text('[data-field="ask"]'), spread: text('[data-field="spread"]'),
-    tableBid: price("bids"), tableAsk: price("asks"), midBottom: r ? r.bottom : null, viewport: innerHeight };
+    tableBid: price("bid"), tableAsk: price("ask"), ladderW: tr ? tr.width : 0, ladderH: tr ? tr.height : 0, midBottom: r ? r.bottom : null, viewport: innerHeight };
 })()`;
 
 /** The mid of two decimal strings, exactly: (bid + ask) * 5 at one more digit than the prices. */
@@ -304,6 +306,12 @@ try {
       const strip = (s) => s.replaceAll(",", "");
       if (requireHero && (feature.tableBid === null || feature.tableAsk === null)) {
         check(false, `${tag}: the order book has no best bid and ask to compare the hero with`);
+      }
+      if (feature.tableBid !== null) {
+        check(
+          feature.ladderW > 0 && feature.ladderH > 0,
+          `${tag}: the order book is on the page but has no size on screen`,
+        );
       }
       if (feature.tableBid !== null && feature.tableAsk !== null) {
         check(

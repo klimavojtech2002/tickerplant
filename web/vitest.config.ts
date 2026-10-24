@@ -17,6 +17,8 @@ export default defineConfig({
       // Listed on purpose: without include, files no test imports are missing from the report.
       include: ["app/**", "components/**", "lib/**"],
       exclude: ["**/*.test.{ts,tsx}", "lib/testing/**", "**/*.d.ts"],
+      // Just under what is measured today, so a drop in coverage fails `pnpm test:coverage`.
+      thresholds: { statements: 98.9, lines: 99.4, functions: 97.8, branches: 97.3 },
     },
   },
 });
