@@ -218,7 +218,7 @@ docker compose run --rm --service-ports edge -http :8080 -live -venue kraken -sy
 ```
 
 Both images are multi-stage: the Go service on `gcr.io/distroless/static-debian12:nonroot` (no shell,
-non-root; 15.9 MB), the dashboard as a static export on `nginx:1.29-alpine` (74.7 MB measured on the earlier 1.27 base; not measured again).
+non-root; 16.9 MB), the dashboard as a static export on `nginx:1.29-alpine`, run as an unprivileged user (93.6 MB).
 
 The edge answers `/healthz` (the process is up) and `/readyz` (the book has a view and is not being
 rebuilt). `tickerplant -healthcheck -http :8080` asks `/healthz` from inside the container, where there is
@@ -250,7 +250,7 @@ The Go build needs Go 1.21 or newer: with the default `GOTOOLCHAIN=auto` the `go
 | HTTP edge: SSE `/stream` (complete top-N views and a 1 Hz telemetry event), `/metrics` (Prometheus text), `/api/status` JSON, `/healthz` and `/readyz` (`-http :8080`; `-cors-origin`, `-healthcheck`) | Done — tested |
 | Benchmark harness (open-loop, coordinated-omission-aware, wire frames through the adapter) | Done — tested; one stated run published |
 | CI (`.github/workflows/ci.yml`: gofmt / vet / staticcheck / govulncheck / build, `go mod tidy -diff`, `-race` with shuffled test order, a coverage minimum per package, pinned actions and matching version pins; a front-end lint/format/type-check/test/build job that also runs the dashboard image) | Done |
-| Docker, docker-compose (`docker compose up`, synthetic by default) | Done (built and run by hand; no CI job builds the images) |
+| Docker, docker-compose (`docker compose up`, synthetic by default) | Done (`docker compose build` and `up` run by hand on 2026-10-24: both images build, the edge answers `/healthz`, the dashboard is served healthy as user `nginx` on a read-only file system and renders the live book; no CI job builds the images) |
 
 ## Limitations
 
