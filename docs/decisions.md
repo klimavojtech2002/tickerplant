@@ -885,6 +885,35 @@ at scale `s+1`).
 - Two places show the same price in two spellings. The hero is for reading, the book is for checking.
 - The check in CI reads the hero and the first book row in one call and compares them, separators removed.
 
+## ADR-0027 — The depth chart: cumulative size from exact decimals, drawn by one module
+
+**Status:** Accepted
+
+**Context.** A depth chart is the one place a price or a size has to become a position on the screen. The page's rule is that
+prices and sizes are never floats, so the chart needs a clear line between the exact numbers and the pixels.
+
+**Decision.**
+- Cumulative size at a level is the sum of the sizes from the best price out to it, in whole size ticks (BigInt). Bids step
+  left from the middle and asks step right; the price axis runs from the lowest bid to the highest ask, and size starts at
+  zero.
+- The top of the size axis is the smallest 1, 2 or 5 times a power of ten at or above the largest cumulative size. Its four
+  ticks are exact quarters of it, written at the size scale plus two digits with the trailing zeros removed, so a quarter of
+  `1` is `0.25` and nothing is rounded.
+- `web/lib/geometry.ts` is the only module that turns an exact price or size into a coordinate. It takes shares in ten-thousandths of the
+  price span and of the axis top from BigInt division, and prints coordinates with one decimal. The no-float lint rule is off for
+  that file alone, and a test checks that it stays on everywhere else.
+- Labels (axis ends, size ticks, the mid marker) are HTML on top of the SVG, not SVG text, because the box is stretched to fit.
+- The chart is an image to a screen reader with a one-line summary; the order book beside it is its text alternative. A book
+  whose sizes are not positive and of one scale, whose prices are of different scales, or that is crossed, is not drawn, and the
+  page says so.
+
+**Consequences.**
+- Positions have a resolution of 0.01 % of the axis. That is far finer than a pixel, but two cumulative sizes that differ by less
+  than that draw at the same height; the order book and the exact labels still tell them apart.
+- A size tick can have more fraction digits than the venue uses (a quarter of one tick). It is exact and is labelled by the axis,
+  not presented as a venue string.
+- There is no keyboard crosshair: a keyboard user reads the order book.
+
 ## Verified against
 
 - Go language specification — `internal` package import rule (ADR-0002).

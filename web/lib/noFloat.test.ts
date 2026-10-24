@@ -48,6 +48,7 @@ describe("no-float rule", () => {
       "lib/history.ts",
       "lib/group.ts",
       "lib/ladder.ts",
+      "lib/depth.ts",
       "lib/ticks.ts",
       "lib/geometry2.ts",
       "components/Hero.tsx",
@@ -66,6 +67,7 @@ describe("no-float rule", () => {
       "lib/group.ts",
       "lib/history.ts",
       "lib/ladder.ts",
+      "lib/depth.ts",
     ]) {
       const [result] = await eslint.lintFiles([file]);
       expect(result?.messages.map((m) => `${file}:${m.line} ${m.message}`)).toEqual([]);

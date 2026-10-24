@@ -17,7 +17,7 @@ describe("Market", () => {
   it("waits for the first book in a card of the same height", () => {
     const { container } = render(<Market view={null} />);
     expect(screen.getByRole("heading", { level: 2, name: "Order book" })).toBeInTheDocument();
-    expect(screen.getByText("Waiting for the first book…")).toBeInTheDocument();
+    expect(screen.getAllByText("Waiting for the first book…")).toHaveLength(2); // the depth card and the order book card
     expect(container.querySelector(".mk-body")).toBeInTheDocument();
     expect(screen.queryByRole("table")).not.toBeInTheDocument();
   });
@@ -40,13 +40,21 @@ describe("Market", () => {
 
   it("says so when neither side has a level", () => {
     render(<Market view={{ ...view, bids: [], asks: [] }} />);
-    expect(screen.getByText("No levels on either side yet.")).toBeInTheDocument();
+    expect(screen.getAllByText("No levels on either side yet.")).toHaveLength(2);
     expect(screen.queryByRole("table")).not.toBeInTheDocument();
   });
 
-  it("is a labelled region", () => {
+  it("has the depth chart and the order book as two labelled regions", () => {
     render(<Market view={view} />);
     expect(screen.getByRole("region", { name: "Order book" })).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Market depth" })).toBeInTheDocument();
+  });
+
+  it("keeps a depth card of the same kind before the first book", () => {
+    const { container } = render(<Market view={null} />);
+    expect(screen.getByRole("region", { name: "Market depth" })).toBeInTheDocument();
+    expect(container.querySelector(".mk-depth .chart")).toBeInTheDocument();
+    expect(container.querySelector("svg")).toBeNull();
   });
 
   it("never puts a style attribute in markup rendered without a book", () => {
