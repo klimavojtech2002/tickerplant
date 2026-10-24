@@ -23,6 +23,15 @@ export const copy = {
     spread: "Spread",
     mid: "Mid",
     empty: "No levels on either side yet.",
+    depthTitle: "Market depth",
+    depthLede: (n: number, currency: string | null) =>
+      `Cumulative size resting at each price, top ${n} levels${currency ? `, in ${currency}` : ""}.`,
+    legendBids: "Bids",
+    legendAsks: "Asks",
+    depthLabel: (bid: string | null, ask: string | null, n: number) =>
+      `Cumulative depth: best bid ${bid ?? "none"}, best ask ${ask ?? "none"}, up to ${n} levels a side. The order book has the exact numbers.`,
+    oneSided: "Only one side of the book has levels.",
+    cannotDraw: "Depth cannot be drawn for this book. The order book has the numbers.",
     waiting: "Waiting for the first book…",
   },
   hero: {
