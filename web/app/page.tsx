@@ -11,10 +11,10 @@
 
 import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
 
-import { BookPanel } from "@/components/BookPanel";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { HealthSection } from "@/components/HealthPanel";
 import { Hero } from "@/components/Hero";
+import { Market } from "@/components/Market";
 import { NavBar } from "@/components/NavBar";
 import type { History } from "@/lib/history";
 import { initialPollState, pollStatus, type PollState } from "@/lib/status";
@@ -65,8 +65,10 @@ export default function Page() {
           lastViewAt={snap.conn.viewAt}
           onTogglePause={togglePause}
         />
+        <ErrorBoundary resetKey={view}>
+          <Market view={view} />
+        </ErrorBoundary>
         <div className="legacy">
-          <ErrorBoundary resetKey={view}>{view ? <BookPanel view={view} /> : null}</ErrorBoundary>
           <ErrorBoundary resetKey={poll.kind}>
             <HealthSection state={poll} />
           </ErrorBoundary>

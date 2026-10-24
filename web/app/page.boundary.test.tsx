@@ -1,4 +1,4 @@
-// The page wraps the book and the health section in separate error boundaries, keyed on the
+// The page wraps the market and the health section in separate error boundaries, keyed on the
 // current view and the poll state's kind. These tests replace the two panels with ones that
 // throw on demand, so they check the wiring of those keys and not the panels themselves.
 
@@ -9,8 +9,11 @@ import { FakeEventSource } from "@/lib/testing/fakeEventSource";
 
 import Page from "./page";
 
-vi.mock("@/components/BookPanel", () => ({
-  BookPanel: ({ view }: { view: { venue: string; seq: number } }) => {
+vi.mock("@/components/Market", () => ({
+  Market: ({ view }: { view: { venue: string; seq: number } | null }) => {
+    if (view === null) {
+      return null;
+    }
     if (view.venue === "bad") {
       throw new Error("book failed");
     }
