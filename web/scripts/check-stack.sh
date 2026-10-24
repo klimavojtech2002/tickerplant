@@ -17,6 +17,14 @@ cleanup() {
   rm -rf "$TMP"
 }
 trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
+# A leftover process on the port would answer for the edge this script is about to start.
+if curl -fsS http://127.0.0.1:8080/readyz >/dev/null 2>&1; then
+  echo "something already answers on 127.0.0.1:8080; stop it first" >&2
+  exit 1
+fi
 
 (cd .. && go build -o "$TMP/edge" ./cmd/tickerplant)
 "$TMP/edge" -http 127.0.0.1:8080 -steps 100000000 -chaos > "$TMP/edge.log" 2>&1 &
@@ -30,7 +38,12 @@ until curl -fsS http://127.0.0.1:8080/readyz >/dev/null 2>&1; do
     cat "$TMP/edge.log" >&2
     exit 1
   fi
+  if ! kill -0 "$EDGE_PID" 2>/dev/null; then
+    echo "the edge exited:" >&2
+    cat "$TMP/edge.log" >&2
+    exit 1
+  fi
   sleep 1
 done
 
-BROWSER_CHECK=1 sh scripts/check-image.sh
+BROWSER_CHECK=1 REQUIRE_BOOK=1 sh scripts/check-image.sh
