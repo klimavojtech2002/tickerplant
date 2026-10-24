@@ -8,6 +8,7 @@ type Doc = Record<string, unknown>;
 const status = (): Doc => ({
   schema: 1,
   mode: "live",
+  chaos: false,
   version: "v1.2.3",
   venue: "kraken",
   symbol: "BTC/USD",
@@ -42,6 +43,8 @@ describe("parseStatus", () => {
     for (const mode of ["synthetic", "live", "unknown"]) {
       expect(okS({ ...status(), mode })).not.toBeNull();
     }
+    expect(okS({ ...status(), mode: "synthetic", chaos: true })?.chaos).toBe(true);
+    expect(okS(status())?.chaos).toBe(false);
     const noLatency = status();
     delete noLatency.latency;
     expect(okS(noLatency)).not.toBeNull();
@@ -55,6 +58,9 @@ describe("parseStatus", () => {
     ["schema missing", (d) => delete d.schema],
     ["schema as a string", (d) => (d.schema = "1")],
     ["a mode the client does not know", (d) => (d.mode = "batch")],
+    ["chaos missing", (d) => delete d.chaos],
+    ["chaos as a string", (d) => (d.chaos = "false")],
+    ["chaos as a number", (d) => (d.chaos = 0)],
     ["version a number", (d) => (d.version = 1)],
     ["negative start", (d) => (d.startedAtUnixMs = -1)],
     ["fractional depth", (d) => (d.depth = 1.5)],

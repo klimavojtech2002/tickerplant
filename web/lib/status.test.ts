@@ -7,6 +7,7 @@ import { at } from "./testing/at";
 const status: Status = {
   schema: 1,
   mode: "synthetic",
+  chaos: false,
   version: "dev",
   venue: "synthetic",
   symbol: "DEMO",

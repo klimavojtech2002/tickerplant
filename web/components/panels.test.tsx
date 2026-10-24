@@ -70,6 +70,7 @@ describe("BookPanel", () => {
 const status: Status = {
   schema: 1,
   mode: "live",
+  chaos: false,
   version: "v1.2.3",
   venue: "kraken",
   symbol: "BTC/USD",

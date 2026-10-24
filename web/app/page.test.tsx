@@ -11,6 +11,7 @@ import { at } from "@/lib/testing/at";
 const statusBody = JSON.stringify({
   schema: 1,
   mode: "synthetic",
+  chaos: false,
   version: "dev",
   venue: "synthetic",
   symbol: "DEMO",

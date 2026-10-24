@@ -22,6 +22,8 @@ export type Mode = "synthetic" | "live" | "unknown";
 export type Status = {
   schema: 1;
   mode: Mode;
+  /** True while the synthetic source injects faults on a schedule. */
+  chaos: boolean;
   version: string;
   venue: string;
   symbol: string;
@@ -123,6 +125,7 @@ export function parseStatus(text: string): Status | null {
   }
   if (
     (o.mode !== "synthetic" && o.mode !== "live" && o.mode !== "unknown") ||
+    typeof o.chaos !== "boolean" ||
     typeof o.version !== "string" ||
     typeof o.venue !== "string" ||
     typeof o.symbol !== "string" ||
