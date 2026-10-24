@@ -47,6 +47,16 @@ the page connects; it is inlined into the page and is the one origin the Content
 `sh scripts/check-image.sh` runs the pinned nginx image the way compose does and checks the headers and the policy (it needs
 Docker and the nginx image).
 
+## Browser check
+
+`sh scripts/check-stack.sh` (after `pnpm build`) starts an edge with faults injected, serves the built page with the real
+nginx image and its policy, and opens it in Chrome through `scripts/browser-check.mjs`. At 320, 390, 820, 1280 and 1920 px it
+checks that nothing scrolls sideways, that every text meets AA contrast against the colours actually painted, that no text is
+under 12 px, that the console and the policy report no error, that the layout does not shift while the book updates
+(`SHIFT_LIMIT`, 0.001 unless the caller sets another) and that 200 % text does not scroll sideways. It uses geometry and
+computed style, not pixel baselines, because fonts render differently on Windows and on the CI runner. Chrome is found through
+`CHROME_BIN`. CI runs it as its own job.
+
 ## What the page trusts
 
 Every body from the edge is checked before it is used: `parseStatus`, `parseTelemetry` and `parseView`
