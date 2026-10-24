@@ -442,7 +442,7 @@ needs a network stream and the system's health counters.
   wire-wait can enter a sample). It first served JSON; that body moved to `/api/status`.
 - `GET /api/status` — one JSON document for clients that should not parse strings; it carries what
   the JSON `/metrics` used to, and more. Fields, in order: `schema` (1; it changes only when a field is removed or changes
-  meaning), `mode` (`synthetic`, `live`, or `unknown` for an edge built without one), `version`,
+  meaning), `mode` (`synthetic`, `live`, or `unknown` for an edge built without one), `chaos` (true while the synthetic source injects faults on a schedule, never with `live`), `version`,
   `venue`, `symbol`, `startedAtUnixMs` (0 when unset), `depth`, `lastEventAgeMs`, `delivery` (consumers,
   delivered, dropped and published), `engine` (the counters and the source's count of frames it could
   not use) and `latency` (`count` and the quantiles as whole nanoseconds, left out when no histogram is

@@ -63,6 +63,7 @@ type Config struct {
 	corsOrigin   string       // cross-origin policy for the HTTP edge; empty = any origin
 	maxStreams   int          // most simultaneous stream consumers on the HTTP edge; 0 = the edge's default
 	mode         string       // "synthetic" or "live", reported by the HTTP edge's status; empty = unknown
+	chaos        bool         // the synthetic source injects faults on a schedule; reported by the HTTP edge's status
 	startedAt    time.Time    // when the pipeline started; zero = Run stamps the time it begins
 	HTTPListener net.Listener // serve the HTTP edge on this listener; nil = edge off
 }
@@ -105,7 +106,7 @@ func Prepare(ctx context.Context, log *slog.Logger, o Options) (source.Source, C
 		depth: o.Depth, every: LiveCadence(o.Every, o.EverySet, o.Live),
 		pace: vs.pace, checksum: vs.checksum, window: vs.window,
 		venue: venueName(o.Live, o.Venue), symbol: symbolName(o.Live, o.Symbol), scales: vs.scales,
-		corsOrigin: o.CORSOrigin, maxStreams: o.MaxStreams, mode: modeName(o.Live),
+		corsOrigin: o.CORSOrigin, maxStreams: o.MaxStreams, mode: modeName(o.Live), chaos: o.Chaos,
 	}
 	log.Info("mode", "live", o.Live, "chaos", o.Chaos, "venue", cfg.venue, "symbol", cfg.symbol)
 	if liveFlagsIgnored(o.Live, o.Venue, o.Symbol) {
@@ -280,7 +281,7 @@ func Run(ctx context.Context, log *slog.Logger, src source.Source, cfg Config) (
 			Venue: market.Venue(cfg.venue), Symbol: market.Symbol(cfg.symbol),
 			PriceScale: cfg.scales[0], SizeScale: cfg.scales[1],
 			Latency: lat, Log: log, CORSOrigin: cfg.corsOrigin, MaxStreams: cfg.maxStreams, Rejected: rejectedOf(src),
-			Mode: cfg.mode, Version: version.String(), StartedAt: started, Depth: cfg.depth,
+			Mode: cfg.mode, Chaos: cfg.chaos, Version: version.String(), StartedAt: started, Depth: cfg.depth,
 		})
 		if err != nil {
 			// The listener is not served, and not closed here: the caller owns it.

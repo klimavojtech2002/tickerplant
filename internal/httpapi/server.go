@@ -64,6 +64,9 @@ type Config struct {
 	Version   string
 	StartedAt time.Time
 	Depth     int
+	// Chaos reports that the synthetic source is injecting faults on a schedule; /api/status says
+	// so, so a page can label injected faults as such. It is refused with Mode "live".
+	Chaos bool
 	// Rejected reports how many frames the source could not use (nil = 0: the source cannot say).
 	Rejected func() uint64
 	// ticker replaces the per-connection telemetry ticker in tests.
@@ -109,6 +112,9 @@ func New(cfg Config) (http.Handler, error) {
 	}
 	if cfg.Mode != "" && cfg.Mode != "synthetic" && cfg.Mode != "live" {
 		return nil, fmt.Errorf("%w: mode %q, want synthetic or live", ErrConfig, cfg.Mode)
+	}
+	if cfg.Chaos && cfg.Mode == "live" {
+		return nil, fmt.Errorf("%w: chaos with mode live: faults are injected into the synthetic source only", ErrConfig)
 	}
 	if cfg.Depth < 0 {
 		return nil, fmt.Errorf("%w: depth %d, want 0 or more", ErrConfig, cfg.Depth)
