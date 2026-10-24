@@ -1,199 +1,195 @@
-/* Dark, terminal-leaning surface — a deliberate single mode for a market-data
- * console. Side identity lives in the bars: bid #16a34a / ask #ef4444 composited at
- * the bar's own opacity (see .bar below) over --surface hold >=3:1 contrast there —
- * the figure is measured on the painted pixel, not the bare swatch, since alpha
- * blending changes it — and stay separable under simulated color-vision deficiency
- * (deutan deltaE ~14). All text wears ink tokens, and the sides are named by their
- * table headers, so nothing is color-alone. */
-
-:root {
-  --surface: #1a1a19;
-  --panel: #232322;
-  --ink: #e7e5e0;
-  --ink-muted: #9b988f;
-  --line: #3a3934;
-  --bid: #16a34a;
-  --ask: #ef4444;
-  --live: #16a34a;
-  --warn: #d97706;
-}
+/* Base styles and the shell: type scale in rem (so the browser's text size setting is followed), the nav bar, the connection
+ * pill and the theme control. Colours come from tokens.css. The panels that predate the redesign live in legacy.css. */
 
 * {
   box-sizing: border-box;
 }
 
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
 body {
   margin: 0;
-  background: var(--surface);
-  color: var(--ink);
-  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
-  font-size: 14px;
-  line-height: 1.5;
-}
-
-main {
-  max-width: 880px;
-  margin: 0 auto;
-  padding: 24px 16px 48px;
-}
-
-header {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 20px;
-}
-
-h1 {
-  font-size: 18px;
-  font-weight: 600;
-  margin: 0;
-}
-
-.instrument {
-  color: var(--ink-muted);
-  font-weight: 400;
-  margin-left: 12px;
-}
-
-.badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  color: var(--ink-muted);
-}
-
-.badge-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--ink-muted);
-}
-
-.badge-group {
-  display: inline-flex;
-  align-items: center;
-  gap: 12px;
-}
-
-.badge-live .badge-dot,
-.badge-quiet .badge-dot {
-  background: var(--live);
-}
-
-.badge-no-data .badge-dot,
-.badge-reconnecting .badge-dot,
-.badge-transient .badge-dot {
-  background: var(--warn);
-}
-
-.badge-dropped {
-  color: var(--warn);
-  border: 1px solid var(--warn);
-  border-radius: 4px;
-  padding: 0 6px;
-}
-
-.panel-failed {
-  border: 1px solid var(--warn);
-  border-radius: 6px;
-  padding: 8px 14px;
-  margin: 12px 0;
-}
-
-.health-dimmed {
-  opacity: 0.5;
-}
-
-.tiles {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin: 12px 0;
-}
-
-.tile {
-  background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  padding: 8px 14px;
-  min-width: 96px;
-}
-
-.tile-label {
-  color: var(--ink-muted);
-  font-size: 12px;
-}
-
-.tile-value {
-  font-size: 18px;
+  background: var(--bg);
+  color: var(--label);
+  font-family:
+    -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Segoe UI Variable Text", "Segoe UI", system-ui,
+    sans-serif;
+  font-size: 0.9375rem;
+  line-height: 1.4667;
   font-variant-numeric: tabular-nums;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
 }
 
-.depth {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 12px;
+:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+  border-radius: 6px;
 }
 
-@media (max-width: 640px) {
-  .depth {
-    grid-template-columns: 1fr;
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+.shell {
+  max-width: 70rem;
+  margin: 0 auto;
+  padding: 0 1.5rem 4.5rem;
+}
+
+.nav {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  min-height: 3.25rem;
+  background: var(--bg);
+  border-bottom: 0.5px solid var(--hairline);
+}
+
+@supports (backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px)) {
+  .nav {
+    background: var(--bar-bg);
+    -webkit-backdrop-filter: saturate(180%) blur(20px);
+    backdrop-filter: saturate(180%) blur(20px);
   }
 }
 
-table.side {
-  width: 100%;
-  border-collapse: collapse;
+.nav-in {
+  max-width: 70rem;
+  min-height: 3.25rem;
+  margin: 0 auto;
+  padding: 0 1.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
 }
 
-table.side th {
-  text-align: left;
-  color: var(--ink-muted);
+.wordmark {
+  font-size: 1.0625rem;
+  font-weight: 600;
+  letter-spacing: -0.022em;
+}
+
+.nav-right {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  min-width: 0;
+}
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.125rem 0.4375rem;
+  min-height: 1.875rem;
+  min-width: 0;
+  padding: 0.125rem 0.8125rem 0.125rem 0.6875rem;
+  border-radius: var(--radius-pill);
+  background: var(--card);
+  box-shadow: 0 0 0 0.5px var(--hairline);
+  font-size: 0.8125rem;
+  font-weight: 500;
+  letter-spacing: -0.008em;
+}
+
+.pill-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4375rem;
+}
+
+.pill-dot {
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+  background: var(--label-3);
+  flex: none;
+}
+
+.pill[data-kind="live"] .pill-dot,
+.pill[data-kind="quiet"] .pill-dot {
+  background: var(--green);
+  box-shadow: 0 0 0 3px var(--green-soft);
+}
+
+.pill[data-kind="no-data"] .pill-dot,
+.pill[data-kind="reconnecting"] .pill-dot,
+.pill[data-kind="transient"] .pill-dot {
+  background: var(--orange);
+  box-shadow: 0 0 0 3px var(--orange-soft);
+}
+
+.pill-age {
+  color: var(--label-2);
   font-weight: 400;
-  font-size: 12px;
-  border-bottom: 1px solid var(--line);
-  padding: 4px 8px;
 }
 
-table.side td {
-  padding: 3px 8px;
-  font-variant-numeric: tabular-nums;
+.pill-refused {
+  color: var(--orange);
+  font-weight: 600;
 }
 
-td.size {
-  position: relative;
+.icon-btn {
+  min-width: 2.75rem;
+  min-height: 2.75rem;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--label-2);
+  font: inherit;
+  cursor: pointer;
 }
 
-/* The bar sits behind the size text: a thin fill whose width is the exact integer
- * share of the side's largest size. A 2px vertical inset keeps adjacent bars from
- * fusing into a block. Opacity 0.78 is tuned so the composited pixel (not the bare
- * --bid/--ask swatch) clears 3:1 against --surface, while the ink stays readable
- * over it. */
-.bar {
-  position: absolute;
-  left: 0;
-  top: 2px;
-  bottom: 2px;
-  border-radius: 3px;
-  opacity: 0.78;
+.icon-btn > .icon-disc {
+  width: 1.875rem;
+  height: 1.875rem;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: var(--card);
+  box-shadow: 0 0 0 0.5px var(--hairline);
 }
 
-.bar-bids {
-  background: var(--bid);
+@media (prefers-reduced-motion: no-preference) {
+  .pill-dot {
+    transition:
+      background-color 200ms var(--ease),
+      box-shadow 200ms var(--ease);
+  }
 }
 
-.bar-asks {
-  background: var(--ask);
+@media (max-width: 639px) {
+  .shell {
+    padding: 0 1rem 3.5rem;
+  }
+  .nav-in {
+    padding: 0 0.5rem 0 1rem;
+  }
 }
 
-.size-text {
-  position: relative;
-}
-
-footer {
-  margin-top: 28px;
-  color: var(--ink-muted);
-  font-size: 12px;
+@media (forced-colors: active) {
+  .pill,
+  .icon-btn > .icon-disc {
+    border: 1px solid CanvasText;
+    box-shadow: none;
+  }
+  .pill-dot {
+    background: CanvasText;
+    box-shadow: none;
+    forced-color-adjust: none;
+  }
 }

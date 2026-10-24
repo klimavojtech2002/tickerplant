@@ -1,0 +1,140 @@
+/* Design tokens. Light is the base; dark applies when the system asks for it and the visitor has not chosen light,
+ * or when the visitor chose dark (data-theme on <html>, set before first paint by the snippet in layout.tsx).
+ * The dark values appear twice because CSS cannot share one block between a media query and an attribute selector;
+ * tokens.contrast.test.ts asserts that the two copies are identical.
+ *
+ * Every text/surface pair that the interface uses is listed in that test with its required ratio. Side identity is never
+ * colour alone: bids and asks are named by position and by their headings. */
+
+:root {
+  --bg: #f5f5f7;
+  --card: #ffffff;
+  --fill: rgba(120, 120, 128, 0.12);
+  --fill-2: rgba(120, 120, 128, 0.08);
+  --hairline: rgba(60, 60, 67, 0.13);
+
+  --label: #1d1d1f;
+  --label-2: #56565b;
+  --label-3: #6e6e73;
+
+  --green: #127a3c;
+  --green-ink: #0c6430;
+  --green-soft: rgba(52, 199, 89, 0.16);
+  --green-fill: rgba(52, 199, 89, 0.36);
+  --red: #cf2a22;
+  --red-fill: rgba(255, 59, 48, 0.28);
+  --orange: #a85d00;
+  --orange-soft: rgba(255, 149, 0, 0.16);
+  --blue: #0066cc;
+  --blue-ink: #0a5cb8;
+  --blue-soft: rgba(0, 122, 255, 0.12);
+
+  --bar-bg: rgba(245, 245, 247, 0.78);
+  --shadow-card: 0 0 0 0.5px var(--hairline), 0 1px 2px rgba(0, 0, 0, 0.03), 0 16px 40px rgba(0, 0, 0, 0.05);
+  --focus: #0071e3;
+
+  --radius-card: 22px;
+  --radius-pill: 999px;
+  --ease: cubic-bezier(0.2, 0, 0, 1);
+
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #000000;
+    --card: #1c1c1e;
+    --fill: rgba(120, 120, 128, 0.32);
+    --fill-2: rgba(120, 120, 128, 0.18);
+    --hairline: rgba(84, 84, 88, 0.55);
+
+    --label: #f5f5f7;
+    --label-2: rgba(235, 235, 245, 0.7);
+    --label-3: rgba(235, 235, 245, 0.55);
+
+    --green: #30d158;
+    --green-ink: #30d158;
+    --green-soft: rgba(48, 209, 88, 0.18);
+    --green-fill: rgba(48, 209, 88, 0.34);
+    --red: #ff6961;
+    --red-fill: rgba(255, 69, 58, 0.34);
+    --orange: #ff9f0a;
+    --orange-soft: rgba(255, 159, 10, 0.2);
+    --blue: #2997ff;
+    --blue-ink: #64b5ff;
+    --blue-soft: rgba(10, 132, 255, 0.22);
+
+    --bar-bg: rgba(0, 0, 0, 0.72);
+    --shadow-card: 0 0 0 0.5px var(--hairline);
+    --focus: #64b5ff;
+
+    color-scheme: dark;
+  }
+}
+
+:root[data-theme="dark"] {
+  --bg: #000000;
+  --card: #1c1c1e;
+  --fill: rgba(120, 120, 128, 0.32);
+  --fill-2: rgba(120, 120, 128, 0.18);
+  --hairline: rgba(84, 84, 88, 0.55);
+
+  --label: #f5f5f7;
+  --label-2: rgba(235, 235, 245, 0.7);
+  --label-3: rgba(235, 235, 245, 0.55);
+
+  --green: #30d158;
+  --green-ink: #30d158;
+  --green-soft: rgba(48, 209, 88, 0.18);
+  --green-fill: rgba(48, 209, 88, 0.34);
+  --red: #ff6961;
+  --red-fill: rgba(255, 69, 58, 0.34);
+  --orange: #ff9f0a;
+  --orange-soft: rgba(255, 159, 10, 0.2);
+  --blue: #2997ff;
+  --blue-ink: #64b5ff;
+  --blue-soft: rgba(10, 132, 255, 0.22);
+
+  --bar-bg: rgba(0, 0, 0, 0.72);
+  --shadow-card: 0 0 0 0.5px var(--hairline);
+  --focus: #64b5ff;
+
+  color-scheme: dark;
+}
+
+/* A visitor who asks for more contrast gets stronger secondary text and lines, in whichever theme is showing. */
+@media (prefers-contrast: more) and (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    --label-2: #1d1d1f;
+    --label-3: #3a3a3c;
+    --hairline: rgba(60, 60, 67, 0.4);
+  }
+}
+@media (prefers-contrast: more) {
+  :root[data-theme="light"] {
+    --label-2: #1d1d1f;
+    --label-3: #3a3a3c;
+    --hairline: rgba(60, 60, 67, 0.4);
+  }
+}
+@media (prefers-contrast: more) and (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --label-2: #ffffff;
+    --label-3: rgba(255, 255, 255, 0.85);
+    --hairline: rgba(255, 255, 255, 0.5);
+  }
+}
+@media (prefers-contrast: more) {
+  :root[data-theme="dark"] {
+    --label-2: #ffffff;
+    --label-3: rgba(255, 255, 255, 0.85);
+    --hairline: rgba(255, 255, 255, 0.5);
+  }
+}
+
+@media (forced-colors: active) {
+  :root {
+    --hairline: CanvasText;
+    --focus: Highlight;
+  }
+}
