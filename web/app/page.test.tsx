@@ -90,7 +90,8 @@ describe("Page under React Strict Mode", () => {
       await vi.advanceTimersByTimeAsync(10);
     });
     expect(screen.getByText("BTC/USD @ kraken")).toBeDefined();
-    expect(screen.getByText(/^Live · \d+ ms$/)).toBeDefined(); // the pill reads Live from the events
+    expect(screen.getByText("Live")).toBeInTheDocument(); // the pill reads Live from the events
+    expect(document.querySelector(".pill-age")?.textContent).toMatch(/^· \d+ ms$/);
     expect(screen.getAllByText("62721.7").length).toBeGreaterThan(0); // the live view, not the stale one
     expect(screen.queryByText("1.0")).toBeNull();
   });
@@ -108,11 +109,13 @@ describe("Page under React Strict Mode", () => {
       es.emit("telemetry", telemetry); // a beat at 2.5 s keeps the pipe alive...
       await vi.advanceTimersByTimeAsync(2500); // ...though no view arrives for 5 s
     });
-    expect(screen.getByText(/^Live · 5\.\d s$/)).toBeDefined();
+    expect(screen.getByText("Live")).toBeInTheDocument();
+    expect(document.querySelector(".pill-age")?.textContent).toMatch(/^· 5\.\d s$/);
     await act(async () => {
       await vi.advanceTimersByTimeAsync(1500); // 4 s since the last beat; the badge's clock last ticked at 3.5 s
     });
-    expect(screen.getByText("No data from edge · 3 s")).toBeDefined();
+    expect(screen.getByText("No data")).toBeInTheDocument();
+    expect(document.querySelector(".pill-age")?.textContent).toBe("· 3 s");
   });
 
   it("renders the same first frame on the server as the first client render", () => {

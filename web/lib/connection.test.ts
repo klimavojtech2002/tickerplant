@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { connection, connectionLabel, initialConnection, type ConnectionState } from "./connection";
+import { connection, connectionLabel, connectionPill, initialConnection, type ConnectionState } from "./connection";
 
 const st = (over: Partial<ConnectionState>): ConnectionState => ({ ...initialConnection, ...over });
 
@@ -192,5 +192,61 @@ describe("connectionLabel", () => {
       text: "Live · 0 ms",
     });
     expect(connectionLabel(open({ openAt: 5000, beatAt: 5000 }), 0)).toEqual({ kind: "live", text: "Live" });
+  });
+});
+
+describe("connectionPill", () => {
+  const now = 100_000;
+  const cases: [string, Partial<ConnectionState>, { word: string; detail: string | null }][] = [
+    ["connecting", {}, { word: "Connecting…", detail: null }],
+    [
+      "connecting again after an open",
+      { link: "connecting", everOpened: true },
+      { word: "Reconnecting…", detail: null },
+    ],
+    ["transient", { link: "transient", everOpened: true }, { word: "Reconnecting…", detail: null }],
+    [
+      "closed with a countdown",
+      { link: "closed", everOpened: true, attempt: 2, retryAt: now + 3500 },
+      { word: "Reconnecting", detail: "in 4 s · attempt 2" },
+    ],
+    [
+      "closed with the retry already due",
+      { link: "closed", everOpened: true, attempt: 1, retryAt: now - 5000 },
+      { word: "Reconnecting", detail: "in 0 s · attempt 1" },
+    ],
+    [
+      "closed with a long wait is capped",
+      { link: "closed", everOpened: true, attempt: 9, retryAt: now + 120_000 },
+      { word: "Reconnecting", detail: "in 30 s · attempt 9" },
+    ],
+    ["open, nothing yet", { link: "open", openAt: now, beatAt: now }, { word: "Live", detail: null }],
+    [
+      "open with a fresh view",
+      { link: "open", openAt: now - 400, beatAt: now - 100, viewAt: now - 300 },
+      { word: "Live", detail: "300 ms" },
+    ],
+    [
+      "open, telemetry silent",
+      { link: "open", openAt: now - 9000, beatAt: now - 4500, viewAt: now - 4500 },
+      { word: "No data", detail: "4 s" },
+    ],
+    [
+      "open, market quiet",
+      { link: "open", openAt: now - 20_000, beatAt: now - 500, viewAt: now - 15_000 },
+      { word: "Live", detail: "market quiet" },
+    ],
+  ];
+  it.each(cases)("%s", (_name, over, want) => {
+    const s = st(over);
+    const got = connectionPill(s, now);
+    expect({ word: got.word, detail: got.detail }).toEqual(want);
+    expect(got.kind).toBe(connectionLabel(s, now).kind); // one source for the state
+  });
+
+  it("keeps the ticking part out of the word: the word is the same across a second of the same state", () => {
+    const s = st({ link: "open", openAt: now, beatAt: now, viewAt: now });
+    expect(connectionPill(s, now + 1000).word).toBe(connectionPill(s, now + 2000).word);
+    expect(connectionPill(s, now + 1000).detail).not.toBe(connectionPill(s, now + 2000).detail);
   });
 });

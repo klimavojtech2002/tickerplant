@@ -117,3 +117,34 @@ export function connectionLabel(s: ConnectionState, now: number): { kind: LabelK
     }
   }
 }
+
+/**
+ * connectionPill splits the label into the part that is announced and the part that ticks. `word` names the state and changes
+ * only when the state does, so it can sit in a polite live region; `detail` carries the age or the countdown and changes every
+ * second, so it must stay outside one. `kind` is the one from connectionLabel.
+ */
+export function connectionPill(
+  s: ConnectionState,
+  now: number,
+): { kind: LabelKind; word: string; detail: string | null } {
+  const { kind } = connectionLabel(s, now);
+  switch (kind) {
+    case "connecting":
+      return { kind, word: "Connecting…", detail: null };
+    case "transient":
+      return { kind, word: "Reconnecting…", detail: null };
+    case "reconnecting": {
+      if (s.link !== "closed") {
+        return { kind, word: "Reconnecting…", detail: null };
+      }
+      const secs = Math.min(maxCountdownSecs, Math.max(0, Math.ceil(((s.retryAt ?? now) - now) / 1000)));
+      return { kind, word: "Reconnecting", detail: `in ${secs} s · attempt ${s.attempt}` };
+    }
+    case "no-data":
+      return { kind, word: "No data", detail: `${Math.floor(age(now, s.beatAt) / 1000)} s` };
+    case "quiet":
+      return { kind, word: "Live", detail: "market quiet" };
+    case "live":
+      return { kind, word: "Live", detail: s.viewAt > 0 ? formatAgeMs(age(now, s.viewAt)) : null };
+  }
+}
