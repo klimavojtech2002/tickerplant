@@ -137,15 +137,15 @@ describe("StreamStore", () => {
       return { store, advance: (ms: number) => (m += ms) };
     }
 
-    it("adds a point per view, on the monotonic clock, and not closer than the minimum gap", () => {
+    it("adds a point per view, on the monotonic clock, and not closer than the minimum gap (a closer view replaces the last mid)", () => {
       const { store, advance } = withMono();
       store.pushView(view(1, "100.0", "100.2"));
       advance(100);
-      store.pushView(view(2, "100.0", "100.4")); // too soon: ignored
+      store.pushView(view(2, "100.0", "100.4")); // too soon for a point: replaces the last mid
       advance(500);
       store.pushView(view(3, "100.0", "100.4"));
       expect(store.getSnapshot().history.points.map((p) => [p.t, p.mid])).toEqual([
-        [1000, "100.10"],
+        [1000, "100.20"],
         [1600, "100.20"],
       ]);
     });

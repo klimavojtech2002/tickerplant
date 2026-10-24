@@ -23,9 +23,10 @@ describe("addPoint", () => {
     expect(h.points).toEqual([{ t: 1000, mid: "1.00" }]);
   });
 
-  it("ignores a point closer than the minimum gap to the last one, and keeps one at the gap", () => {
+  it("lets a point closer than the minimum gap replace the last mid but keep its time, and adds one at the gap", () => {
     const h = build([1000]);
-    expect(addPoint(h, 1000 + minGapMs - 1, "9.99")).toBe(h);
+    expect(addPoint(h, 1000 + minGapMs - 1, "9.99").points).toEqual([{ t: 1000, mid: "9.99" }]);
+    expect(addPoint(h, 1000 + minGapMs - 1, h.points[0]!.mid)).toBe(h); // nothing changed
     expect(addPoint(h, 1000 + minGapMs, "9.99").points).toHaveLength(2);
   });
 

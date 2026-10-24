@@ -203,9 +203,10 @@ body {
   padding: 2.75rem 0 2rem;
 }
 
-.hero-dim .hero-figures,
-.hero-dim .spark {
-  opacity: 0.7;
+.hero-dim .midprice,
+.hero-dim .quote dd:not(.quote-size),
+.hero-dim .spark-svg {
+  opacity: 0.8;
 }
 
 .instrument {
@@ -453,8 +454,9 @@ body {
 }
 
 @media (prefers-reduced-motion: no-preference) {
-  .hero-figures,
-  .spark {
+  .midprice,
+  .quote dd,
+  .spark-svg {
     transition: opacity 200ms var(--ease);
   }
 }

@@ -22,7 +22,7 @@ export const maxPoints = 240;
 export const enoughPoints = 10;
 
 /**
- * addPoint appends a mid taken at time t (ms, monotonic). It ignores a point closer than minGapMs to the last one, starts over
+ * addPoint appends a mid taken at time t (ms, monotonic). A point closer than minGapMs to the last one replaces its mid and keeps its time; it starts over
  * if the scale of the mids changes or time goes backwards, and drops points older than the window and beyond the cap.
  */
 export function addPoint(h: History, t: number, mid: string): History {
@@ -32,7 +32,8 @@ export function addPoint(h: History, t: number, mid: string): History {
       return { points: [{ t, mid }] };
     }
     if (t - last.t < minGapMs) {
-      return h;
+      // Too close for a new point: the newest mid replaces the last one, so the line ends at the mid on screen.
+      return last.mid === mid ? h : { points: [...h.points.slice(0, -1), { t: last.t, mid }] };
     }
   }
   let points = [...h.points, { t, mid }];
