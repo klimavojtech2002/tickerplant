@@ -112,7 +112,7 @@ describe("Page under React Strict Mode", () => {
     expect(screen.getByText("Live")).toBeInTheDocument();
     expect(document.querySelector(".pill-age")?.textContent).toMatch(/^· 5\.\d s$/);
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(1500); // 4 s since the last beat; the badge's clock last ticked at 3.5 s
+      await vi.advanceTimersByTimeAsync(1500); // 4 s since the last beat; the pill's clock last ticked at 3.5 s
     });
     expect(screen.getByText("No data")).toBeInTheDocument();
     expect(document.querySelector(".pill-age")?.textContent).toBe("· 3 s");

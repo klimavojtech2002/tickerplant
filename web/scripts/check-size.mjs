@@ -4,8 +4,9 @@
 //
 // The page has no runtime dependency beyond React and Next, so growth here is the page's own code. The budget is raised by a
 // deliberate edit of the number in the CI workflow, never by accident.
-import { readFileSync, readdirSync, statSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { gzipSync } from "node:zlib";
 
 export function jsFiles(dir) {
@@ -26,13 +27,14 @@ export function gzipBytes(files) {
 }
 
 const [dir, budgetArg] = process.argv.slice(2);
-if (process.argv[1] && import.meta.url.endsWith(process.argv[1].replaceAll("\\", "/").split("/").pop())) {
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const budget = Number(budgetArg);
   if (!dir || !Number.isInteger(budget) || budget <= 0) {
     console.error("usage: check-size.mjs <export dir> <budget in bytes>");
     process.exit(2);
   }
-  const files = jsFiles(join(dir, "_next", "static"));
+  const staticDir = join(dir, "_next", "static");
+  const files = existsSync(staticDir) ? jsFiles(staticDir) : [];
   if (files.length === 0) {
     console.error(`no JavaScript found under ${dir}/_next/static; run the build first`);
     process.exit(1);

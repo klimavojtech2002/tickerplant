@@ -202,9 +202,14 @@ describe("connectionPill", () => {
     [
       "connecting again after an open",
       { link: "connecting", everOpened: true },
-      { word: "Reconnecting…", detail: null },
+      { word: "Reconnecting", detail: null },
     ],
-    ["transient", { link: "transient", everOpened: true }, { word: "Reconnecting…", detail: null }],
+    ["transient", { link: "transient", everOpened: true }, { word: "Reconnecting", detail: null }],
+    [
+      "closed with no retry time recorded",
+      { link: "closed", everOpened: true, attempt: 1, retryAt: null },
+      { word: "Reconnecting", detail: "in 0 s · attempt 1" },
+    ],
     [
       "closed with a countdown",
       { link: "closed", everOpened: true, attempt: 2, retryAt: now + 3500 },

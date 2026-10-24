@@ -131,9 +131,26 @@ describe("the contrast and forced-colour variants", () => {
     expect(css).toContain("@media (prefers-contrast: more)");
     expect(css).toContain("@media (forced-colors: active)");
   });
+  it("the forced-colour rule is strong enough to beat both dark blocks", () => {
+    // :root:not([...]) and :root[data-theme] have specificity (0,2,0); a bare :root would lose to them
+    expect(css).toMatch(/@media \(forced-colors: active\) \{\s*:root:root \{/);
+  });
   it("lift secondary text to 7:1 in each theme when more contrast is asked for", () => {
-    const lightMore = { ...light, ...vars(block('@media (prefers-contrast: more) {\n  :root[data-theme="light"] {')) };
-    const darkMore = { ...dark, ...vars(block('@media (prefers-contrast: more) {\n  :root[data-theme="dark"] {')) };
+    const lightByAttribute = vars(block('@media (prefers-contrast: more) {\n  :root[data-theme="light"] {'));
+    const darkByAttribute = vars(block('@media (prefers-contrast: more) {\n  :root[data-theme="dark"] {'));
+    // the blocks that apply to a visitor who follows the system setting must say exactly what the explicit ones say
+    const lightBySystem = vars(
+      block('@media (prefers-contrast: more) and (prefers-color-scheme: light) {\n  :root:not([data-theme="dark"]) {'),
+    );
+    const darkBySystem = vars(
+      block('@media (prefers-contrast: more) and (prefers-color-scheme: dark) {\n  :root:not([data-theme="light"]) {'),
+    );
+    expect(lightBySystem).toEqual(lightByAttribute);
+    expect(darkBySystem).toEqual(darkByAttribute);
+    expect(Object.keys(lightByAttribute)).toEqual(expect.arrayContaining(["--label-2", "--label-3", "--hairline"]));
+    expect(Object.keys(darkByAttribute)).toEqual(expect.arrayContaining(["--label-2", "--label-3", "--hairline"]));
+    const lightMore = { ...light, ...lightByAttribute };
+    const darkMore = { ...dark, ...darkByAttribute };
     for (const t of [lightMore, darkMore]) {
       for (const fg of ["--label-2", "--label-3"]) {
         for (const s of ["--bg", "--card"]) {

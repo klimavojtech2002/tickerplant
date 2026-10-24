@@ -47,7 +47,10 @@ test("passes under the budget and fails over it", () => {
 });
 
 test("refuses a missing build and a bad budget", () => {
-  assert.equal(run(join(tmpdir(), "no-such-export"), 1000).code, 1);
+  const missing = run(join(tmpdir(), "no-such-export"), 1000);
+  assert.equal(missing.code, 1);
+  assert.match(missing.out, /run the build first/); // the friendly message, not a stack trace
+  assert.doesNotMatch(missing.out, /ENOENT/);
   const dir = exportOf({ "a.js": "x" });
   assert.equal(run(dir, "abc").code, 2);
   assert.equal(run(dir, 0).code, 2);

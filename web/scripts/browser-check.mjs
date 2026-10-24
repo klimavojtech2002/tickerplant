@@ -305,6 +305,8 @@ try {
     }
     if (follows && requireTextScaling) {
       check(!big.hscroll, `${tag} at 200% text: horizontal scroll (${big.scrollW} > ${big.innerW})`);
+    } else if (follows && big.hscroll) {
+      notes.push(`${tag} at 200% text: horizontal scroll (${big.scrollW} > ${big.innerW}) (not gated yet)`);
     }
     await evaluate(`document.documentElement.style.fontSize = ""; 0`);
     // read last, so errors raised while the scheme and the text size were switched count too

@@ -133,7 +133,7 @@
 }
 
 @media (forced-colors: active) {
-  :root {
+  :root:root {
     --hairline: CanvasText;
     --focus: Highlight;
   }

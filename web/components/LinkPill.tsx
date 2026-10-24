@@ -20,8 +20,9 @@ export function LinkPill({ conn }: { conn: ConnectionState }) {
       </span>
       {detail ? <span className="pill-age">· {detail}</span> : null}
       {conn.dropped > 0 ? (
-        <span className="pill-refused" title={copy.pill.refusedHelp}>
+        <span className="pill-refused">
           {copy.pill.refused(conn.dropped)}
+          <span className="visually-hidden">. {copy.pill.refusedHelp}</span>
         </span>
       ) : null}
     </span>

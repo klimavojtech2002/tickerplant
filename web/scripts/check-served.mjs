@@ -6,7 +6,7 @@
 // (second argument: the edge URL the page was built for). Run by scripts/check-image.sh.
 import assert from "node:assert/strict";
 
-import { edgeOrigin, parseInline, sha256Source } from "./csp-hash.mjs";
+import { edgeOrigin, hasInlineStyleOrHandler, parseInline, sha256Source } from "./csp-hash.mjs";
 
 const [base, edge] = process.argv.slice(2);
 if (!base || !edge) {
@@ -35,7 +35,7 @@ function assertSecurityHeaders(res, where) {
 
 const page = await get("/", { "accept-encoding": "gzip" });
 // A style attribute in the prerendered page would be blocked by the policy (a hash cannot cover it), so there must be none.
-assert.ok(!/<[a-z][^>]*\sstyle\s*=/i.test(page.body), "the served page contains a style attribute");
+assert.ok(!hasInlineStyleOrHandler(page.body), "the served page contains a style attribute or an inline event handler");
 assert.equal(page.res.status, 200, "/ status");
 const csp = assertSecurityHeaders(page.res, "/");
 assert.match(page.res.headers.get("cache-control") ?? "", /no-cache/, "/: cache-control");
