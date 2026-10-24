@@ -162,6 +162,11 @@ describe("depthShape", () => {
     expect(asksOnly.asks!.line.startsWith("M 0.0 392.0")).toBe(true);
   });
 
+  it("does not divide by zero for a locked book, where both best prices are the same", () => {
+    const d = depthShape(book([["100.0", "1.0"]], [["100.0", "1.0"]]))!;
+    expect(d.midLeft).toBe(50);
+  });
+
   it("puts a lone level in the middle of the axis instead of dividing by zero", () => {
     const d = depthShape(book([["100.0", "1.0"]], []))!;
     expect(d.bids!.line).toBe("M 500.0 392.0 L 500.0 392.0 L 500.0 20.0"); // the whole axis, 10 of 10

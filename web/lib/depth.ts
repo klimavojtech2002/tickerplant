@@ -59,8 +59,10 @@ export function niceTop(max: bigint): bigint {
  */
 export function tickLabels(top: bigint, scale: number): string[] {
   return [1n, 2n, 3n, 4n].map((quarter) => {
-    const label = fromScaled(top * 25n * quarter, scale + 2);
-    return label.includes(".") ? label.replace(/0+$/, "").replace(/\.$/, "") : label;
+    // two or more fraction digits, so there is always a point to trim after
+    return fromScaled(top * 25n * quarter, scale + 2)
+      .replace(/0+$/, "")
+      .replace(/\.$/, "");
   });
 }
 
