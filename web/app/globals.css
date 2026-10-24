@@ -479,6 +479,7 @@ body {
 }
 
 .mk-lede {
+  min-height: 2.6rem; /* two lines, so the line that appears with the first book does not move what is below */
   margin: 0.125rem 0 0;
   color: var(--label-2);
   font-size: 0.875rem;
@@ -487,6 +488,7 @@ body {
 .mk-body {
   min-height: calc(20 * 1.8125rem + 2.875rem + 1.625rem);
   margin-top: 0.75rem;
+  overflow-x: auto;
 }
 
 .ladder {
@@ -510,6 +512,10 @@ body {
   text-align: left;
 }
 
+.ladder th:first-child {
+  padding-left: 0.875rem;
+}
+
 .ladder td {
   height: 1.8125rem;
   padding: 0;
@@ -518,7 +524,22 @@ body {
 }
 
 .ladder td.price {
+  position: relative;
+  padding-left: 0.875rem;
   font-weight: 600;
+}
+
+/* The best price also has a small mark, so it is not told apart by colour alone. */
+.ladder [data-best] td.price::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 50%;
+  width: 0.4375rem;
+  height: 0.4375rem;
+  margin-top: -0.21875rem;
+  border-radius: 50%;
+  background: currentColor;
 }
 
 .ladder td.size {

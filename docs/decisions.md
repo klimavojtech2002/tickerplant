@@ -590,7 +590,7 @@ survive disconnects — in a language whose only built-in number is a float64.
 - The client cannot disagree with the backend about numbers — it never re-derives them.
 - Exactness is testable in plain functions: the suite pins digit-preservation past 2^53, the
   float-classic 0.4 − 0.1 = 0.3 spread, integer bar shares, and the crossed-frame refusal.
-- No charting library: the book is two tables with proportional bars and the health panel is stat
+- No charting library: the book is one table with proportional bars and the health panel is stat
   tiles, which HTML does natively.
 - The page shows one instrument, because the process serves one. Multi-instrument is not built;
   the natural seam would be keying the store by the event's venue/symbol identity, which every view
