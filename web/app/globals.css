@@ -203,14 +203,9 @@ body {
   padding: 2.75rem 0 2rem;
 }
 
-.hero-dim .hero-main,
+.hero-dim .hero-figures,
 .hero-dim .spark {
   opacity: 0.55;
-}
-
-.hero-dim .instrument,
-.hero-dim .banner {
-  opacity: 1;
 }
 
 .instrument {
@@ -329,6 +324,8 @@ body {
 
 .quote {
   display: flex;
+  flex-wrap: wrap;
+  row-gap: 0.75rem;
   margin: 1.125rem 0 0;
 }
 
@@ -465,7 +462,7 @@ body {
 }
 
 @media (prefers-reduced-motion: no-preference) {
-  .hero-main,
+  .hero-figures,
   .spark {
     transition: opacity 200ms var(--ease);
   }

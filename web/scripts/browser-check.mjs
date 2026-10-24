@@ -302,6 +302,9 @@ try {
     const feature = await evaluate(FEATURE);
     if (feature && feature.mid !== null) {
       const strip = (s) => s.replaceAll(",", "");
+      if (requireHero && (feature.tableBid === null || feature.tableAsk === null)) {
+        check(false, `${tag}: the order book has no best bid and ask to compare the hero with`);
+      }
       if (feature.tableBid !== null && feature.tableAsk !== null) {
         check(
           strip(feature.bid) === feature.tableBid,

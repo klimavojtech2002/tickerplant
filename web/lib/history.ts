@@ -16,7 +16,7 @@ export const emptyHistory: History = { points: [] };
 /** How long a point is kept, and how close together two points may be. */
 export const windowMs = 120_000;
 export const minGapMs = 500;
-/** A window of 120 s with a point every 500 ms is exactly 240; the oldest point goes first. */
+/** A window of 120 s with a point every 500 ms holds 240 points (241 with both ends); the oldest point goes first. */
 export const maxPoints = 240;
 /** Under this many points the line is still "collecting". */
 export const enoughPoints = 10;

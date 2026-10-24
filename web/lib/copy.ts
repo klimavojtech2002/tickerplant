@@ -31,10 +31,9 @@ export const copy = {
     waiting: "Waiting for the first book…",
     collecting: "Collecting…",
     oneSided: "One side of the book is empty, so there is no mid price.",
-    sparkAria: (change: string, span: string) => `Mid price over the last ${span}, ${change}`,
-    sparkAriaFlat: (span: string) => `Mid price over the last ${span}`,
-    sparkStart: (span: string) => `${span} ago`,
-    sparkNow: "now",
+    noMid: "The best bid and ask are not written to the same number of decimals, so there is no mid price.",
+    sparkAria: (change: string, span: string) => `Mid price, ${span} of history, ${change}`,
+    sparkAriaFlat: (span: string) => `Mid price, ${span} of history`,
     sparkChange: (change: string, span: string) => `${change} in ${span}`,
   },
 } as const;

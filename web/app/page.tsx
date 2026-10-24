@@ -7,7 +7,7 @@
 //
 // The page re-renders whenever the store changes (telemetry once a second, and each
 // view). The book panel is memoised and skips telemetry-only changes; the clocks live in
-// the connection pill and the health section, so nothing here ticks.
+// the connection pill, the hero and the health section, so nothing here ticks.
 
 import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
 
@@ -44,7 +44,8 @@ export default function Page() {
         return null;
       }
       const now = store.getSnapshot();
-      return now.view ? { view: now.view, history: now.history, at: now.conn.viewAt } : null;
+      // viewAt is 0 between a new connection opening and its first book; there is nothing honest to freeze then.
+      return now.view && now.conn.viewAt > 0 ? { view: now.view, history: now.history, at: now.conn.viewAt } : null;
     });
   }, [store]);
 

@@ -213,12 +213,12 @@ describe("Page under React Strict Mode", () => {
           await vi.advanceTimersByTimeAsync(600);
         }
       });
-      expect(screen.getByRole("img", { name: /^Mid price over the last/ })).toBeInTheDocument();
+      expect(screen.getByRole("img", { name: /^Mid price, .* of history/ })).toBeInTheDocument();
       await act(async () => {
         es.fail(); // the connection is lost
         await vi.advanceTimersByTimeAsync(10);
       });
-      expect(screen.queryByRole("img", { name: /^Mid price over the last/ })).not.toBeInTheDocument();
+      expect(screen.queryByRole("img", { name: /^Mid price, .* of history/ })).not.toBeInTheDocument();
     });
   });
 });

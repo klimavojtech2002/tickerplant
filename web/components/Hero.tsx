@@ -81,13 +81,7 @@ export const Hero = memo(function Hero({ view, history, conn, poll, frozenAt, la
                 ? copy.hero.chipDemoChaos
                 : copy.hero.chipUnknown}
           </span>
-          <button
-            type="button"
-            className="pause-btn"
-            aria-pressed={frozen}
-            disabled={view === null}
-            onClick={onTogglePause}
-          >
+          <button type="button" className="pause-btn" disabled={view === null} onClick={onTogglePause}>
             <svg width="11" height="11" viewBox="0 0 12 12" aria-hidden="true">
               {frozen ? (
                 <path d="M3 1.5v9l7.5-4.5z" fill="currentColor" />
@@ -99,35 +93,40 @@ export const Hero = memo(function Hero({ view, history, conn, poll, frozenAt, la
           </button>
         </div>
 
-        {frozen ? (
-          <div className="banner" role="status">
-            <div>
-              <b>{copy.hero.pausedTitle(formatClock(frozenAt))}</b>
-              <span>{copy.hero.pausedBody}</span>
+        {/* The region stays in the page so that a screen reader announces a change inside it. */}
+        <div role="status">
+          {frozen ? (
+            <div className="banner">
+              <div>
+                <b>{copy.hero.pausedTitle(formatClock(frozenAt))}</b>
+                <span>{copy.hero.pausedBody}</span>
+              </div>
             </div>
-          </div>
-        ) : stale && lastViewAt > 0 ? (
-          <div className="banner" role="status">
-            <div>
-              <b>{copy.hero.staleTitle}</b>
-              <span>{copy.hero.staleBody(formatClock(lastViewAt))}</span>
+          ) : stale && lastViewAt > 0 ? (
+            <div className="banner">
+              <div>
+                <b>{copy.hero.staleTitle}</b>
+                <span>{copy.hero.staleBody(formatClock(lastViewAt))}</span>
+              </div>
             </div>
-          </div>
-        ) : null}
+          ) : null}
+        </div>
 
         {view === null ? (
-          <div className="hero-skeleton" aria-busy="true">
+          <div className="hero-skeleton">
             <p className="eyebrow">{copy.hero.midLabel}</p>
             <div className="skel skel-mid" />
             <p className="hero-note">{copy.hero.waiting}</p>
           </div>
         ) : (
-          <>
+          <div className="hero-figures">
             <p className="eyebrow">{copy.hero.midLabel}</p>
             <div className="midprice">
               {midPrice !== null ? <Figure value={midPrice} field="mid" /> : <span data-field="mid">—</span>}
             </div>
-            {midPrice === null ? <p className="hero-note">{copy.hero.oneSided}</p> : null}
+            {midPrice === null ? (
+              <p className="hero-note">{bestBid && bestAsk ? copy.hero.noMid : copy.hero.oneSided}</p>
+            ) : null}
             <dl className="quote">
               <div>
                 <dt>
@@ -151,7 +150,7 @@ export const Hero = memo(function Hero({ view, history, conn, poll, frozenAt, la
                 <dd className="quote-size">{ticks !== null ? copy.hero.ticks(ticks) : ""}</dd>
               </div>
             </dl>
-          </>
+          </div>
         )}
       </div>
 
@@ -177,11 +176,9 @@ export const Hero = memo(function Hero({ view, history, conn, poll, frozenAt, la
           <div className="spark-empty">{view ? copy.hero.collecting : ""}</div>
         )}
         <div className="spark-cap">
-          <span>{spark && !collecting(history) ? copy.hero.sparkStart(covered) : ""}</span>
           <span className="spark-change">
             {delta !== null && !collecting(history) ? copy.hero.sparkChange(delta, covered) : ""}
           </span>
-          <span>{spark && !collecting(history) ? copy.hero.sparkNow : ""}</span>
         </div>
       </div>
     </section>

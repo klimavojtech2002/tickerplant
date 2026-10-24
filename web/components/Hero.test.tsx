@@ -83,7 +83,7 @@ describe("Hero", () => {
     expect(screen.getByRole("heading", { level: 1, name: "tickerplant" })).toBeInTheDocument();
     expect(screen.getByText("Waiting for the first book…")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /pause/i })).toBeDisabled();
-    expect(document.querySelector(".hero-skeleton")).toHaveAttribute("aria-busy", "true");
+    expect(document.querySelector(".hero-skeleton")).toBeInTheDocument();
   });
 
   it("shows the instrument, the exact mid, and the best bid and ask with their sizes and the spread in ticks", () => {
@@ -111,6 +111,13 @@ describe("Hero", () => {
     render(<Hero {...props({ view: view({ symbol: "DEMO" }) })} />);
     expect(screen.getByText("1.35823999")).toBeInTheDocument();
     expect(screen.queryByText(/BTC/)).not.toBeInTheDocument();
+  });
+
+  it("says the decimals differ, not that a side is empty, when both prices are present", () => {
+    render(<Hero {...props({ view: view({ asks: [["62721.80", "1"]] }) })} />);
+    expect(document.querySelector('[data-field="mid"]')).toHaveTextContent("—");
+    expect(screen.getByText(/not written to the same number of decimals/)).toBeInTheDocument();
+    expect(screen.queryByText(/One side of the book is empty/)).not.toBeInTheDocument();
   });
 
   it("shows a dash and says why when one side of the book is empty", () => {
@@ -170,7 +177,7 @@ describe("Hero", () => {
       await user.click(screen.getByRole("button", { name: "Pause" }));
       expect(onTogglePause).toHaveBeenCalledTimes(1);
       rerender(<Hero {...props({ onTogglePause, frozenAt: 100_000 })} />);
-      expect(screen.getByRole("button", { name: "Resume" })).toHaveAttribute("aria-pressed", "true");
+      expect(screen.getByRole("button", { name: "Resume" })).not.toHaveAttribute("aria-pressed");
     });
 
     it("shows when the frozen book was received, and that the connection keeps updating", () => {
@@ -203,10 +210,8 @@ describe("Hero", () => {
     it("draws the line, states its real span and the exact change, once there are enough points", () => {
       render(<Hero {...props({ history: history(21) })} />);
       expect(screen.queryByText("Collecting…")).not.toBeInTheDocument();
-      expect(screen.getByRole("img", { name: "Mid price over the last 20 s, +5.00" })).toBeInTheDocument();
-      expect(screen.getByText("20 s ago")).toBeInTheDocument();
+      expect(screen.getByRole("img", { name: "Mid price, 20 s of history, +5.00" })).toBeInTheDocument();
       expect(screen.getByText("+5.00 in 20 s")).toBeInTheDocument();
-      expect(screen.getByText("now")).toBeInTheDocument();
     });
 
     it("has no line and no caption before the first book", () => {
