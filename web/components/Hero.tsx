@@ -51,7 +51,7 @@ const SPARK_H = 120;
 export const Hero = memo(function Hero({ view, history, conn, poll, frozenAt, lastViewAt, onTogglePause }: HeroProps) {
   const now = useNow(1000);
   const kind = connectionPill(conn, now).kind;
-  const stale = frozenAt === null && (kind === "no-data" || kind === "reconnecting" || kind === "transient");
+  const stale = kind === "no-data" || kind === "reconnecting" || kind === "transient";
   const frozen = frozenAt !== null;
 
   const bestBid = view?.bids[0];
