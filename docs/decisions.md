@@ -633,8 +633,9 @@ lines on stderr) and the Next.js dashboard.
   built-in 404 pages carry four `style` attributes that a hash cannot cover; the policy blocks them and the error page loses
   that cosmetic styling. Headers are sent with `always`, so error responses carry them. Checked by `scripts/csp-hash.test.mjs` and
   by `scripts/check-image.sh`, which starts the pinned image the way compose does and tests the headers on a page, a hashed asset,
-  the favicon and a 404, and that every inline script of the served page is allowed. Not checked: a full `docker build ./web` (the
-  `node:22-alpine` builder is a tag, not pinned by digest) and the page loading in a browser without a CSP violation.
+  the favicon and a 404, and that every inline script of the served page is allowed. A full `docker compose build` and `up` was run by hand on 2026-10-24: both images build, the
+  dashboard runs healthy as user `nginx` on a read-only file system, and the page, loaded in headless Chrome through the container, connects
+  to the edge and renders the live book with no console error or CSP violation. Not pinned: the `node:22-alpine` builder is a tag, not a digest.
 - **`NEXT_PUBLIC_EDGE_URL` stays at its code default for the compose demo.** A static export inlines
   environment variables at build time, not request time, so the edge URL cannot be picked up from
   the container's runtime environment the way a server-rendered app could. The dashboard's existing
@@ -654,8 +655,8 @@ lines on stderr) and the Next.js dashboard.
   platform-specific artifacts.
 - A multi-instrument or server-rendered dashboard would force revisiting the static-export choice;
   out of scope while the page serves one instrument (ADR-0018).
-- Image sizes, measured: the Go service is **15.9 MB** (distroless static + a stripped, trimmed
-  binary); the dashboard is **74.7 MB** (measured on `nginx:1.27-alpine`, not measured again on 1.29), dominated by the nginx base rather than the
+- Image sizes, measured on 2026-10-24: the Go service is **16.9 MB** (distroless static + a stripped, trimmed
+  binary); the dashboard is **93.6 MB** (on `nginx:1.29-alpine`), dominated by the nginx base rather than the
   handful of static files it serves.
 
 ## ADR-0020 — The process stops on SIGINT and SIGTERM and refuses bad flags
