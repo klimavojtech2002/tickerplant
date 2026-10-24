@@ -32,6 +32,7 @@ describe("LinkPill", () => {
     const region = container.querySelector('[role="status"]');
     expect(region).toHaveTextContent("Live");
     expect(region?.textContent).toBe("Live"); // no age in it
+    expect(region).toHaveAttribute("aria-live", "polite"); // announced when the state changes, politely
     expect(container.querySelector(".pill-age")).toHaveTextContent("· 1.0 s");
     expect(container.querySelector(".pill-age")?.closest('[role="status"]')).toBeNull();
   });
