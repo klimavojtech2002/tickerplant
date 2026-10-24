@@ -131,6 +131,11 @@ jobs:
       - name: build
         run: pnpm build
 
+      # The page's JavaScript, gzipped, must stay under 200 KB (176.6 KB when this check was added). Raise the number
+      # here, deliberately, if the page really needs more.
+      - name: size budget
+        run: node scripts/check-size.mjs out 204800
+
       # Runs the pinned nginx image as the unprivileged user on a read-only file system, with the
       # exported pages and the rendered headers, and checks what is served.
       - name: image check

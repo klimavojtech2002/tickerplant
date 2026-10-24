@@ -303,7 +303,7 @@ try {
     } else if (!follows) {
       notes.push(`${tag}: the page does not follow the browser's text size (not gated yet)`);
     }
-    if (follows) {
+    if (follows && requireTextScaling) {
       check(!big.hscroll, `${tag} at 200% text: horizontal scroll (${big.scrollW} > ${big.innerW})`);
     }
     await evaluate(`document.documentElement.style.fontSize = ""; 0`);

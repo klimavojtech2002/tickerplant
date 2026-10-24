@@ -34,6 +34,8 @@ function assertSecurityHeaders(res, where) {
 }
 
 const page = await get("/", { "accept-encoding": "gzip" });
+// A style attribute in the prerendered page would be blocked by the policy (a hash cannot cover it), so there must be none.
+assert.ok(!/<[a-z][^>]*\sstyle\s*=/i.test(page.body), "the served page contains a style attribute");
 assert.equal(page.res.status, 200, "/ status");
 const csp = assertSecurityHeaders(page.res, "/");
 assert.match(page.res.headers.get("cache-control") ?? "", /no-cache/, "/: cache-control");
