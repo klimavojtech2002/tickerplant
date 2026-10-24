@@ -19,7 +19,7 @@ function setup() {
 describe("StreamStore", () => {
   it("starts as the shared initial snapshot", () => {
     expect(new StreamStore().getSnapshot()).toBe(initialSnapshot);
-    expect(initialSnapshot).toEqual({ conn: initialConnection, view: null, telemetry: null });
+    expect(initialSnapshot).toEqual({ conn: initialConnection, view: null, telemetry: null, history: { points: [] } });
   });
 
   it("keeps only the latest view (client-side latest-wins) and stamps its receipt time", () => {
@@ -128,5 +128,66 @@ describe("StreamStore", () => {
     const { store: s2, logs: l2 } = setup();
     s2.reject("malformed view", "y".repeat(200));
     expect(l2[0]).toBe(`malformed view dropped: ${"y".repeat(200)}`); // exactly 200 is not cut
+  });
+
+  describe("the mid history", () => {
+    function withMono() {
+      let m = 1000;
+      const store = new StreamStore({ now: () => 10_000, mono: () => m, log: () => {} });
+      return { store, advance: (ms: number) => (m += ms) };
+    }
+
+    it("adds a point per view, on the monotonic clock, and not closer than the minimum gap", () => {
+      const { store, advance } = withMono();
+      store.pushView(view(1, "100.0", "100.2"));
+      advance(100);
+      store.pushView(view(2, "100.0", "100.4")); // too soon: ignored
+      advance(500);
+      store.pushView(view(3, "100.0", "100.4"));
+      expect(store.getSnapshot().history.points.map((p) => [p.t, p.mid])).toEqual([
+        [1000, "100.10"],
+        [1600, "100.20"],
+      ]);
+    });
+
+    it("adds nothing for a book with a missing side", () => {
+      const { store, advance } = withMono();
+      store.pushView({ venue: "v", symbol: "s", seq: 1, bids: [], asks: [["100.2", "1"]] });
+      advance(1000);
+      store.pushView({ venue: "v", symbol: "s", seq: 2, bids: [["100.1", "1"]], asks: [] });
+      expect(store.getSnapshot().history.points).toEqual([]);
+    });
+
+    it("starts over when the connection leaves the open state, and so never joins two connections", () => {
+      const { store, advance } = withMono();
+      store.dispatch({ type: "open", now: 10_000 });
+      store.pushView(view(1));
+      advance(1000);
+      store.pushView(view(2));
+      expect(store.getSnapshot().history.points).toHaveLength(2);
+      store.dispatch({ type: "closed", attempt: 1, retryAt: 20_000 });
+      expect(store.getSnapshot().history.points).toEqual([]);
+      store.dispatch({ type: "open", now: 20_000 });
+      advance(5000);
+      store.pushView(view(3));
+      expect(store.getSnapshot().history.points).toHaveLength(1);
+    });
+
+    it("keeps the history through a change that does not leave the open state", () => {
+      const { store, advance } = withMono();
+      store.dispatch({ type: "open", now: 10_000 });
+      store.pushView(view(1));
+      advance(1000);
+      store.dispatch({ type: "telemetry", now: 11_000 });
+      expect(store.getSnapshot().history.points).toHaveLength(1);
+    });
+
+    it("keeps the history when a crossed view is refused", () => {
+      const { store, advance } = withMono();
+      store.pushView(view(1));
+      advance(1000);
+      store.pushView(view(2, "100.5", "100.2")); // crossed
+      expect(store.getSnapshot().history.points).toHaveLength(1);
+    });
   });
 });
