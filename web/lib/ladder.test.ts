@@ -89,6 +89,12 @@ describe("barShares", () => {
     expect(b.asks).toEqual([100]);
   });
 
+  it("finds the largest by value when the sizes of the two sides have different scales", () => {
+    const b = barShares(view([["10.0", "50"]], [["10.1", "6.00"]]));
+    expect(b.bids).toEqual([100]);
+    expect(b.asks).toEqual([12]);
+  });
+
   it("gives every bar 0 when every size is zero, and nothing for an empty side", () => {
     expect(barShares(view([["10.0", "0"]], [])).bids).toEqual([0]);
     expect(barShares(view([], [])).asks).toEqual([]);

@@ -2,69 +2,10 @@ import { render, screen, within } from "@testing-library/react";
 import { act } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { spread } from "@/lib/ticks";
 import type { PollState } from "@/lib/status";
-import type { Status, ViewEvent } from "@/lib/types";
+import type { Status } from "@/lib/types";
 
-import { BookPanel } from "./BookPanel";
 import { HealthPanel, HealthSection, tileID } from "./HealthPanel";
-
-// BookPanel calls spread once per render, so counting its calls counts renders.
-vi.mock("@/lib/ticks", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@/lib/ticks")>();
-  return { ...actual, spread: vi.fn(actual.spread) };
-});
-
-const view: ViewEvent = {
-  venue: "kraken",
-  symbol: "BTC/USD",
-  seq: 42,
-  bids: [
-    ["62721.7", "1.35823999"],
-    ["62721.6", "0.50000000"],
-  ],
-  asks: [
-    ["62721.8", "0.00114202"],
-    ["62721.9", "2.00000000"],
-  ],
-};
-
-describe("BookPanel", () => {
-  it("prints the venue's decimal strings verbatim — no float round-trip artifacts", () => {
-    render(<BookPanel view={view} />);
-    // "0.50000000" is the float detector: a parseFloat->String path renders it
-    // "0.5", dropping the venue's trailing zeros. The others pin verbatim output.
-    expect(screen.getByText("0.50000000")).toBeInTheDocument();
-    expect(screen.getByText("2.00000000")).toBeInTheDocument();
-    expect(screen.getByText("1.35823999")).toBeInTheDocument();
-    expect(screen.getAllByText("62721.7").length).toBeGreaterThan(0); // best bid tile + row
-  });
-
-  it("derives the spread exactly and sizes bars as integer shares", () => {
-    const { container } = render(<BookPanel view={view} />);
-    expect(screen.getByText("0.1")).toBeInTheDocument(); // 62721.8 - 62721.7
-    const bidBars = container.querySelectorAll(".bar-bids");
-    expect((bidBars[0] as HTMLElement).style.width).toBe("100%"); // 1.35823999 is the side's max
-    expect((bidBars[1] as HTMLElement).style.width).toBe("36%"); // floor(0.5*100/1.35823999)
-  });
-
-  it("does not render again for the same view, only for a new one", () => {
-    const renders = () => vi.mocked(spread).mock.calls.length;
-    const start = renders();
-    const { rerender } = render(<BookPanel view={view} />);
-    expect(renders()).toBe(start + 1);
-    rerender(<BookPanel view={view} />); // a telemetry-only change: the page re-renders, the view is the same object
-    expect(renders()).toBe(start + 1);
-    rerender(<BookPanel view={{ ...view, seq: 43 }} />);
-    expect(renders()).toBe(start + 2);
-  });
-
-  it("renders an empty side as dashes, not a crash", () => {
-    render(<BookPanel view={{ ...view, bids: [] }} />);
-    // best bid and spread both dash out when a side is empty
-    expect(screen.getAllByText("—")).toHaveLength(2);
-  });
-});
 
 // Every counter is a different number, so a tile wired to the wrong field shows up.
 const status: Status = {

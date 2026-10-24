@@ -193,8 +193,8 @@ describe("Page under React Strict Mode", () => {
         await vi.advanceTimersByTimeAsync(1000);
       });
       expect(mid()).toBe("100.10"); // the hero did not move
-      expect(within(screen.getByRole("table", { name: "bids" })).getByText("100.0")).toBeInTheDocument(); // nor did the order book
-      expect(within(screen.getByRole("table", { name: "bids" })).queryByText("200.0")).not.toBeInTheDocument();
+      expect(within(screen.getByRole("table", { name: "Order book" })).getByText("100.0")).toBeInTheDocument(); // nor did the order book
+      expect(within(screen.getByRole("table", { name: "Order book" })).queryByText("200.0")).not.toBeInTheDocument();
       expect(screen.getByText(/^Paused\./)).toBeInTheDocument();
       expect(screen.getByText("Live")).toBeInTheDocument(); // the connection state is still live
 

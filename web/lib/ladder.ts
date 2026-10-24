@@ -76,9 +76,9 @@ export function gap(view: ViewEvent): Gap | null {
   if (bid === undefined || ask === undefined || !isPlainDecimal(bid) || !isPlainDecimal(ask)) {
     return null;
   }
-  if (scaleOf(bid) !== scaleOf(ask) || crossed(bid, ask)) {
+  if (crossed(bid, ask)) {
     return null;
   }
-  const m = mid(bid, ask);
+  const m = mid(bid, ask); // null when the two prices have different scales
   return m === null ? null : { spread: spread(bid, ask), mid: m };
 }
