@@ -192,3 +192,281 @@ body {
     forced-color-adjust: none;
   }
 }
+
+/* Hero ------------------------------------------------------------------------------------------------------------------ */
+
+.hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr);
+  gap: 3rem;
+  align-items: end;
+  padding: 2.75rem 0 2rem;
+}
+
+.hero-dim .hero-main,
+.hero-dim .spark {
+  opacity: 0.55;
+}
+
+.hero-dim .instrument,
+.hero-dim .banner {
+  opacity: 1;
+}
+
+.instrument {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.25rem 0.625rem;
+  min-height: 2.75rem;
+}
+
+.instrument-name {
+  margin: 0;
+  font-size: 1.0625rem;
+  font-weight: 600;
+  letter-spacing: -0.014em;
+}
+
+.instrument-venue {
+  color: var(--label-2);
+  font-size: 1.0625rem;
+  letter-spacing: -0.014em;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  min-height: 1.625rem;
+  padding: 0 0.6875rem;
+  border-radius: var(--radius-pill);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  letter-spacing: -0.008em;
+  background: var(--blue-soft);
+  color: var(--blue-ink);
+}
+
+.chip[hidden] {
+  display: none;
+}
+
+.chip-unknown {
+  background: var(--fill);
+  color: var(--label-2);
+}
+
+.pause-btn {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  min-height: 2.75rem;
+  padding: 0 1rem;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: var(--fill);
+  color: var(--label);
+  font: inherit;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.pause-btn:disabled {
+  color: var(--label-3);
+  cursor: default;
+}
+
+.banner {
+  display: flex;
+  gap: 0.75rem;
+  padding: 0.75rem 1rem;
+  margin-top: 0.5rem;
+  border-radius: 0.875rem;
+  background: var(--orange-soft);
+  font-size: 0.875rem;
+}
+
+.banner b {
+  display: block;
+  font-size: 0.9375rem;
+  letter-spacing: -0.012em;
+}
+
+.banner span {
+  color: var(--label-2);
+}
+
+.eyebrow {
+  margin: 1.125rem 0 0;
+  color: var(--label-2);
+  font-size: 0.9375rem;
+  font-weight: 500;
+  letter-spacing: -0.012em;
+}
+
+.midprice {
+  margin-top: 0.125rem;
+  max-width: 100%;
+  font-size: clamp(2.25rem, 4vw + 1.5rem, 5.5rem);
+  line-height: 1.05;
+  font-weight: 600;
+  letter-spacing: -0.05em;
+  overflow-wrap: anywhere;
+}
+
+.frac {
+  color: var(--label-3);
+  font-weight: 500;
+}
+
+.hero-note {
+  margin: 0.5rem 0 0;
+  color: var(--label-2);
+  font-size: 0.9375rem;
+}
+
+.quote {
+  display: flex;
+  margin: 1.125rem 0 0;
+}
+
+.quote > div {
+  padding-right: 1.75rem;
+  margin-right: 1.75rem;
+  border-right: 0.5px solid var(--hairline);
+}
+
+.quote > div:last-child {
+  border: 0;
+  margin: 0;
+  padding: 0;
+}
+
+.quote dt {
+  display: flex;
+  align-items: center;
+  gap: 0.4375rem;
+  color: var(--label-2);
+  font-size: 0.8125rem;
+}
+
+.quote dd {
+  margin: 0.125rem 0 0;
+  font-size: 1.375rem;
+  line-height: 1.25;
+  font-weight: 600;
+  letter-spacing: -0.025em;
+}
+
+.quote dd.quote-size {
+  margin-top: 0.0625rem;
+  color: var(--label-3);
+  font-size: 0.75rem;
+  font-weight: 400;
+  letter-spacing: 0;
+}
+
+.dot {
+  width: 0.4375rem;
+  height: 0.4375rem;
+  border-radius: 50%;
+  display: block;
+}
+
+.dot-bid {
+  background: var(--green);
+}
+
+.dot-ask {
+  background: var(--red);
+}
+
+.hero-skeleton {
+  min-height: 9.5rem;
+}
+
+.skel {
+  background: var(--fill);
+  border-radius: 0.625rem;
+}
+
+.skel-mid {
+  height: 4rem;
+  width: 72%;
+  margin-top: 0.5rem;
+}
+
+.spark {
+  min-width: 0;
+}
+
+.spark-svg {
+  display: block;
+  width: 100%;
+  height: 7.5rem;
+  overflow: visible;
+}
+
+.spark-empty {
+  display: grid;
+  place-items: center;
+  height: 7.5rem;
+  color: var(--label-3);
+  font-size: 0.8125rem;
+}
+
+.spark-line {
+  fill: none;
+  stroke: var(--green);
+  stroke-width: 2.25;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+
+.spark-stop {
+  stop-color: var(--green);
+}
+
+.spark-cap {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.5rem;
+  min-height: 1.125rem;
+  margin-top: 0.5rem;
+  color: var(--label-3);
+  font-size: 0.75rem;
+}
+
+.spark-change {
+  color: var(--label-2);
+}
+
+@media (max-width: 1023px) {
+  .hero {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 1.75rem;
+  }
+}
+
+@media (max-width: 639px) {
+  .hero {
+    padding: 1.5rem 0 1.25rem;
+    gap: 1.125rem;
+  }
+  .quote > div {
+    padding-right: 1rem;
+    margin-right: 1rem;
+  }
+  .quote dd {
+    font-size: 1.125rem;
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .hero-main,
+  .spark {
+    transition: opacity 200ms var(--ease);
+  }
+}
