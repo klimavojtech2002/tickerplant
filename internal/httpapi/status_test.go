@@ -165,13 +165,27 @@ func TestStatusStartedAtIsZeroWhenUnset(t *testing.T) {
 func TestStatusModeAndVersion(t *testing.T) {
 	for mode, want := range map[string]string{"": "unknown", "synthetic": "synthetic", "live": "live"} {
 		_, body := statusBody(t, statusEdge(t, Config{Mode: mode, Version: "dev"}))
-		if !strings.Contains(body, `"mode":"`+want+`","version":"dev"`) {
+		if !strings.Contains(body, `"mode":"`+want+`","chaos":false,"version":"dev"`) {
 			t.Errorf("mode %q: body = %s, want mode %q", mode, body, want)
 		}
 	}
 	_, body := statusBody(t, statusEdge(t, Config{}))
 	if !strings.Contains(body, `"version":""`) {
 		t.Errorf("an empty version is reported empty: %s", body)
+	}
+}
+
+// The chaos flag is reported as set, and is false (not absent) when it is not.
+func TestStatusReportsChaos(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		chaos bool
+		want  string
+	}{{"on", true, `"chaos":true`}, {"off", false, `"chaos":false`}} {
+		_, body := statusBody(t, statusEdge(t, Config{Mode: "synthetic", Chaos: tc.chaos}))
+		if !strings.Contains(body, tc.want) {
+			t.Errorf("chaos %s: body = %s, want %s", tc.name, body, tc.want)
+		}
 	}
 }
 

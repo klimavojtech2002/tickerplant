@@ -55,6 +55,7 @@ type statusLatency struct {
 type statusJSON struct {
 	Schema          int            `json:"schema"`
 	Mode            string         `json:"mode"`
+	Chaos           bool           `json:"chaos"`
 	Version         string         `json:"version"`
 	Venue           string         `json:"venue"`
 	Symbol          string         `json:"symbol"`
@@ -106,7 +107,7 @@ func (s *server) status(w http.ResponseWriter, _ *http.Request) {
 		rejected = s.cfg.Rejected()
 	}
 	doc := statusJSON{
-		Schema: statusSchema, Mode: modeName(s.cfg.Mode), Version: s.cfg.Version,
+		Schema: statusSchema, Mode: modeName(s.cfg.Mode), Chaos: s.cfg.Chaos, Version: s.cfg.Version,
 		Venue: string(s.cfg.Venue), Symbol: string(s.cfg.Symbol),
 		StartedAtUnixMs: startedAtMs(s.cfg.StartedAt), Depth: s.cfg.Depth,
 		LastEventAgeMs: lastEventAgeMs(s.now(), s.cfg.Engine.LastEventAt()),

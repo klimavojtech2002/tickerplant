@@ -437,7 +437,7 @@ func TestRunServesHTTPEdge(t *testing.T) {
 	done := make(chan error, 1)
 	go func() {
 		_, err := Run(context.Background(), quietLog(), gs, Config{
-			depth: 5, venue: "synthetic", symbol: "DEMO", HTTPListener: ln,
+			depth: 5, venue: "synthetic", symbol: "DEMO", HTTPListener: ln, mode: "synthetic", chaos: true,
 		})
 		done <- err
 	}()
@@ -446,6 +446,7 @@ func TestRunServesHTTPEdge(t *testing.T) {
 	var doc struct {
 		Venue   string `json:"venue"`
 		Symbol  string `json:"symbol"`
+		Chaos   bool   `json:"chaos"`
 		Latency *struct {
 			Count uint64 `json:"count"`
 		} `json:"latency"`
@@ -469,6 +470,9 @@ func TestRunServesHTTPEdge(t *testing.T) {
 	}
 	if doc.Venue != "synthetic" || doc.Symbol != "DEMO" {
 		t.Fatalf("status identity = %s/%s", doc.Venue, doc.Symbol)
+	}
+	if !doc.Chaos {
+		t.Fatal("status chaos = false, want the configured true")
 	}
 
 	stream, err := http.Get(base + "/stream")
@@ -503,6 +507,20 @@ func TestPrepareSynthetic(t *testing.T) {
 	if cfg.depth != 7 || cfg.every != 500 || cfg.pace != 5*time.Millisecond ||
 		cfg.venue != "synthetic" || cfg.symbol != "DEMO" || cfg.checksum != nil || cfg.window != 0 {
 		t.Fatalf("Prepare config = %+v, want depth 7, every 500, pace 5ms, synthetic/DEMO, no checksum or window", cfg)
+	}
+}
+
+// The chaos option reaches the config the edge reports from, and is off unless asked for.
+func TestPrepareCarriesChaos(t *testing.T) {
+	for _, chaos := range []bool{false, true} {
+		src, cfg, err := Prepare(context.Background(), quietLog(), Options{Seed: 1, Steps: 10, Depth: 5, Chaos: chaos})
+		if err != nil {
+			t.Fatal(err)
+		}
+		src.Close()
+		if cfg.chaos != chaos || cfg.mode != "synthetic" {
+			t.Errorf("Chaos %v: config chaos = %v, mode = %q", chaos, cfg.chaos, cfg.mode)
+		}
 	}
 }
 

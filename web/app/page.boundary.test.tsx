@@ -30,6 +30,7 @@ vi.mock("@/components/HealthPanel", () => ({
 const statusBody = JSON.stringify({
   schema: 1,
   mode: "synthetic",
+  chaos: false,
   version: "dev",
   venue: "synthetic",
   symbol: "DEMO",
