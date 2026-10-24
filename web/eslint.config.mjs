@@ -36,6 +36,8 @@ const eslintConfig = defineConfig([
   // The build and check scripts handle layout measurements and version strings, and the contrast test does colour maths: none of
   // them touch prices.
   { files: ["scripts/**/*.mjs", "app/tokens.contrast.test.ts"], rules: { "no-restricted-syntax": "off" } },
+  // The one module where a mid price becomes a pixel position. Nothing else may use Number() or toFixed() near a price.
+  { files: ["lib/geometry.ts"], rules: { "no-restricted-syntax": "off" } },
 ]);
 
 export default eslintConfig;

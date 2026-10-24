@@ -1,4 +1,4 @@
-import { act, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { StrictMode } from "react";
 import { renderToString } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -89,7 +89,8 @@ describe("Page under React Strict Mode", () => {
       discarded.emit("view", view.replace('"seq":7', '"seq":1').replace("62721.7", "1.0"));
       await vi.advanceTimersByTimeAsync(10);
     });
-    expect(screen.getByText("BTC/USD @ kraken")).toBeDefined();
+    expect(screen.getByRole("heading", { level: 1, name: "BTC/USD" })).toBeInTheDocument();
+    expect(screen.getByText("kraken")).toBeInTheDocument();
     expect(screen.getByText("Live")).toBeInTheDocument(); // the pill reads Live from the events
     expect(document.querySelector(".pill-age")?.textContent).toMatch(/^· \d+ ms$/);
     expect(screen.getAllByText("62721.7").length).toBeGreaterThan(0); // the live view, not the stale one
@@ -121,7 +122,7 @@ describe("Page under React Strict Mode", () => {
   it("renders the same first frame on the server as the first client render", () => {
     const html = renderToString(<Page />);
     expect(html).toContain("Connecting…");
-    expect(html).toContain("waiting for the first view…");
+    expect(html).toContain("Waiting for the first book…");
     expect(html).toContain("loading status…");
     expect(html).not.toContain("Live");
   });
@@ -165,5 +166,59 @@ describe("Page under React Strict Mode", () => {
       await vi.advanceTimersByTimeAsync(31_000);
     });
     expect(FakeEventSource.instances.length).toBe(before + 1);
+  });
+
+  describe("Pause", () => {
+    const viewAt = (bid: string, ask: string, seq: number) =>
+      JSON.stringify({ venue: "kraken", symbol: "BTC/USD", seq, bids: [[bid, "1"]], asks: [[ask, "1"]] });
+    const mid = () => document.querySelector('[data-field="mid"]')?.textContent;
+
+    it("freezes the hero and the order book at the book on screen, keeps taking views, and Resume shows the newest", async () => {
+      render(<Page />);
+      const es = FakeEventSource.last();
+      await act(async () => {
+        es.open();
+        es.emit("telemetry", telemetry);
+        es.emit("view", viewAt("100.0", "100.2", 1));
+        await vi.advanceTimersByTimeAsync(10);
+      });
+      expect(mid()).toBe("100.10");
+
+      fireEvent.click(screen.getByRole("button", { name: "Pause" }));
+      expect(screen.getByRole("button", { name: "Resume" })).toBeInTheDocument();
+
+      await act(async () => {
+        es.emit("view", viewAt("200.0", "200.4", 2)); // a new book arrives while paused
+        es.emit("telemetry", telemetry);
+        await vi.advanceTimersByTimeAsync(1000);
+      });
+      expect(mid()).toBe("100.10"); // the hero did not move
+      expect(within(screen.getByRole("table", { name: "bids" })).getByText("100.0")).toBeInTheDocument(); // nor did the order book
+      expect(within(screen.getByRole("table", { name: "bids" })).queryByText("200.0")).not.toBeInTheDocument();
+      expect(screen.getByText(/^Paused\./)).toBeInTheDocument();
+      expect(screen.getByText("Live")).toBeInTheDocument(); // the connection state is still live
+
+      fireEvent.click(screen.getByRole("button", { name: "Resume" }));
+      expect(mid()).toBe("200.20"); // the page shows the present at once
+      expect(screen.queryByText(/^Paused\./)).not.toBeInTheDocument();
+    });
+
+    it("builds the mid line from the views, and starts it over when the connection is rebuilt", async () => {
+      render(<Page />);
+      const es = FakeEventSource.last();
+      await act(async () => {
+        es.open();
+        for (let i = 0; i < 12; i++) {
+          es.emit("view", viewAt("100.0", "100.2", i));
+          await vi.advanceTimersByTimeAsync(600);
+        }
+      });
+      expect(screen.getByRole("img", { name: /^Mid price, .* of history/ })).toBeInTheDocument();
+      await act(async () => {
+        es.fail(); // the connection is lost
+        await vi.advanceTimersByTimeAsync(10);
+      });
+      expect(screen.queryByRole("img", { name: /^Mid price, .* of history/ })).not.toBeInTheDocument();
+    });
   });
 });

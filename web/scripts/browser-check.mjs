@@ -16,6 +16,7 @@
 //   STRICT_INITIAL_SHIFT  1 = also gate the shift while the first book arrives
 //   REQUIRE_TEXT_SCALING  1 = fail if the page does not follow the browser's text size setting
 //   REQUIRE_BOOK          1 = fail if no book appears (an edge must be running)
+//   REQUIRE_HERO          1 = the hero must show a mid price that equals the one worked out from the order book's best prices
 //   MIN_ROWS              table rows that mean "the book arrived" (default 10)
 //   BROWSER_CHECK_OUT     directory for screenshots of failed viewports
 //
@@ -35,6 +36,7 @@ const outDir = process.env.BROWSER_CHECK_OUT ?? "";
 const strictInitialShift = process.env.STRICT_INITIAL_SHIFT === "1";
 const requireTextScaling = process.env.REQUIRE_TEXT_SCALING === "1";
 const requireBook = process.env.REQUIRE_BOOK === "1";
+const requireHero = process.env.REQUIRE_HERO === "1";
 const shiftLimit = Number(process.env.SHIFT_LIMIT ?? "0.001");
 const minRows = Number(process.env.MIN_ROWS ?? "10");
 const base = pageURL.replace(/\/$/, "");
@@ -97,6 +99,24 @@ const INSPECT = `(() => {
     rows: document.querySelectorAll("table tbody tr").length, cls: window.__cls, csp: window.__csp, href: location.href, ready: document.readyState,
     bodyFont: parseFloat(getComputedStyle(document.body).fontSize) };
 })()`;
+
+// Reads the hero and the first row of each order-book table in one synchronous call, so both come from the same rendered frame.
+const FEATURE = `(() => {
+  const text = (s) => document.querySelector(s)?.textContent ?? null;
+  const price = (n) => document.querySelector('table[aria-label="' + n + '"] tbody tr:first-child td.price')?.textContent ?? null;
+  const mid = document.querySelector('[data-field="mid"]');
+  const r = mid ? mid.getBoundingClientRect() : null;
+  return { mid: text('[data-field="mid"]'), bid: text('[data-field="bid"]'), ask: text('[data-field="ask"]'), spread: text('[data-field="spread"]'),
+    tableBid: price("bids"), tableAsk: price("asks"), midBottom: r ? r.bottom : null, viewport: innerHeight };
+})()`;
+
+/** The mid of two decimal strings, exactly: (bid + ask) * 5 at one more digit than the prices. */
+function expectedMid(bid, ask) {
+  const scale = bid.includes(".") ? bid.length - bid.indexOf(".") - 1 : 0;
+  const sum = (BigInt(bid.replace(".", "")) + BigInt(ask.replace(".", ""))) * 5n;
+  const digits = sum.toString().padStart(scale + 2, "0");
+  return `${digits.slice(0, -(scale + 1))}.${digits.slice(-(scale + 1))}`;
+}
 
 const chrome = findChrome();
 const profile = mkdtempSync(join(tmpdir(), "browser-check-"));
@@ -276,6 +296,37 @@ try {
       );
     } else {
       notes.push(`${tag}: layout shift while loading ${clsAtReady.toFixed(4)} (not gated)`);
+    }
+
+    // the hero: its mid price must be exactly the mid of the best prices in the order book, and it must be above the fold
+    const feature = await evaluate(FEATURE);
+    if (feature && feature.mid !== null) {
+      const strip = (s) => s.replaceAll(",", "");
+      if (requireHero && (feature.tableBid === null || feature.tableAsk === null)) {
+        check(false, `${tag}: the order book has no best bid and ask to compare the hero with`);
+      }
+      if (feature.tableBid !== null && feature.tableAsk !== null) {
+        check(
+          strip(feature.bid) === feature.tableBid,
+          `${tag}: hero best bid ${feature.bid} is not the order book's ${feature.tableBid}`,
+        );
+        check(
+          strip(feature.ask) === feature.tableAsk,
+          `${tag}: hero best ask ${feature.ask} is not the order book's ${feature.tableAsk}`,
+        );
+        check(
+          strip(feature.mid) === expectedMid(feature.tableBid, feature.tableAsk),
+          `${tag}: hero mid ${feature.mid} is not (${feature.tableBid} + ${feature.tableAsk}) / 2 = ${expectedMid(feature.tableBid, feature.tableAsk)}`,
+        );
+      }
+      check(
+        feature.midBottom <= feature.viewport,
+        `${tag}: the mid price is below the fold (bottom ${Math.round(feature.midBottom)} > ${feature.viewport})`,
+      );
+    } else if (requireHero) {
+      check(false, `${tag}: no hero mid price on the page`);
+    } else {
+      notes.push(`${tag}: no hero on the page (not required)`);
     }
 
     // dark scheme: the same text and overflow rules

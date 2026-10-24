@@ -113,6 +113,26 @@ describe.each([
   });
 });
 
+// The paused and stale hero paints the mid price (large text, so 3:1) and the line (graphics, 3:1) at this opacity.
+const dimmedOpacity = 0.85;
+describe.each([
+  ["light", light],
+  ["dark", dark],
+] as const)("%s theme, dimmed hero", (_name, tokens) => {
+  it.each([
+    ["--label", "the whole part of the mid price"],
+    ["--label-3", "the fraction of the mid price"],
+    ["--green", "the line"],
+  ])("%s keeps 3:1 at reduced opacity (%s)", (fg) => {
+    for (const s of ["--bg", "--card"]) {
+      const bg = surface(s, tokens);
+      const [r, g, b] = parse(tokens[fg]!);
+      const colour = over([r, g, b, dimmedOpacity], bg);
+      expect(ratio(colour, bg), `${fg} on ${s}`).toBeGreaterThanOrEqual(3);
+    }
+  });
+});
+
 describe("the dark theme", () => {
   it("is declared twice, for the system setting and for an explicit choice, and the two copies are identical", () => {
     const system = vars(block(':root:not([data-theme="light"]) {'));
