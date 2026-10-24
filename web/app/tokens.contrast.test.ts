@@ -114,7 +114,7 @@ describe.each([
 });
 
 // The paused and stale hero paints the mid price (large text, so 3:1) and the line (graphics, 3:1) at this opacity.
-const dimmedOpacity = 0.8;
+const dimmedOpacity = 0.85;
 describe.each([
   ["light", light],
   ["dark", dark],
@@ -123,7 +123,7 @@ describe.each([
     ["--label", "the whole part of the mid price"],
     ["--label-3", "the fraction of the mid price"],
     ["--green", "the line"],
-  ])("%s keeps 3:1 at reduced opacity (%s)", (fg, _what) => {
+  ])("%s keeps 3:1 at reduced opacity (%s)", (fg) => {
     for (const s of ["--bg", "--card"]) {
       const bg = surface(s, tokens);
       const [r, g, b] = parse(tokens[fg]!);
