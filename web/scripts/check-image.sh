@@ -46,3 +46,8 @@ if docker logs "$NAME" 2>&1 | grep -E '\[(emerg|alert|crit)\]'; then
 fi
 
 node scripts/check-served.mjs "http://127.0.0.1:$PORT" "$EDGE"
+
+# With BROWSER_CHECK=1 the page is also opened in a real Chrome (see check-stack.sh, which starts an edge first).
+if [ "${BROWSER_CHECK:-0}" = "1" ]; then
+  node scripts/browser-check.mjs "http://127.0.0.1:$PORT"
+fi
