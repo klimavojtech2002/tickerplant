@@ -18,7 +18,7 @@ export default defineConfig({
       include: ["app/**", "components/**", "lib/**"],
       exclude: ["**/*.test.{ts,tsx}", "lib/testing/**", "**/*.d.ts"],
       // Just under what is measured today, so a drop in coverage fails `pnpm test:coverage`.
-      thresholds: { statements: 98.9, lines: 99.4, functions: 97.8, branches: 97.3 },
+      thresholds: { statements: 99.0, lines: 99.4, functions: 98.1, branches: 97.8 },
     },
   },
 });

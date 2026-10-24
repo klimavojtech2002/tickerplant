@@ -16,6 +16,7 @@
 //   STRICT_INITIAL_SHIFT  1 = also gate the shift while the first book arrives
 //   REQUIRE_TEXT_SCALING  1 = fail if the page does not follow the browser's text size setting
 //   REQUIRE_BOOK          1 = fail if no book appears (an edge must be running)
+//   REQUIRE_MARKET        1 = the depth chart must be drawn across its plot, with its mid marker inside it, and start inside the first screen
 //   REQUIRE_HERO          1 = the hero must show a mid price that equals the one worked out from the order book's best prices
 //   MIN_ROWS              order book rows (both sides) that mean "the book arrived" (default 10)
 //   BROWSER_CHECK_OUT     directory for screenshots of failed viewports
@@ -37,6 +38,7 @@ const strictInitialShift = process.env.STRICT_INITIAL_SHIFT === "1";
 const requireTextScaling = process.env.REQUIRE_TEXT_SCALING === "1";
 const requireBook = process.env.REQUIRE_BOOK === "1";
 const requireHero = process.env.REQUIRE_HERO === "1";
+const requireMarket = process.env.REQUIRE_MARKET === "1";
 const shiftLimit = Number(process.env.SHIFT_LIMIT ?? "0.001");
 const minRows = Number(process.env.MIN_ROWS ?? "10");
 const base = pageURL.replace(/\/$/, "");
@@ -110,6 +112,21 @@ const FEATURE = `(() => {
   const r = mid ? mid.getBoundingClientRect() : null;
   return { mid: text('[data-field="mid"]'), bid: text('[data-field="bid"]'), ask: text('[data-field="ask"]'), spread: text('[data-field="spread"]'),
     tableBid: price("bid"), tableAsk: price("ask"), ladderW: tr ? tr.width : 0, ladderH: tr ? tr.height : 0, midBottom: r ? r.bottom : null, viewport: innerHeight };
+})()`;
+
+// The depth chart in one synchronous call: where its two lines end against the plot, where the mid marker is, and where the card starts.
+const MARKET = `(() => {
+  const plot = document.querySelector(".chart-plot");
+  const card = document.querySelector(".mk-depth");
+  if (!plot || !card) return null;
+  const p = plot.getBoundingClientRect();
+  const box = (sel) => { const e = document.querySelector(sel); if (!e) return null; const r = e.getBoundingClientRect(); return { left: r.left, right: r.right, top: r.top, bottom: r.bottom }; };
+  const d = (sel) => document.querySelector(sel)?.getAttribute("d") ?? "";
+  const chip = document.querySelector(".chart-midchip");
+  const c = chip ? chip.getBoundingClientRect() : null;
+  return { plot: { left: p.left, right: p.right, top: p.top, bottom: p.bottom }, bids: box("path.chart-line-bid"), asks: box("path.chart-line-ask"),
+    bidSteps: (d("path.chart-line-bid").match(/ L /g) || []).length, askSteps: (d("path.chart-line-ask").match(/ L /g) || []).length,
+    chip: c ? { left: c.left, right: c.right } : null, cardTop: card.getBoundingClientRect().top, viewport: innerHeight };
 })()`;
 
 /** The mid of two decimal strings, exactly: (bid + ask) * 5 at one more digit than the prices. */
@@ -335,6 +352,43 @@ try {
       check(false, `${tag}: no hero mid price on the page`);
     } else {
       notes.push(`${tag}: no hero on the page (not required)`);
+    }
+
+    // the depth chart: both sides are drawn out to the edges of the plot, the mid marker sits inside it, and the card starts on the first screen
+    const market = await evaluate(MARKET);
+    if (market) {
+      const slack = 3; // pixels
+      check(market.bids !== null && market.asks !== null, `${tag}: the depth chart is missing a side`);
+      if (market.bids && market.asks) {
+        check(market.bidSteps >= 2 && market.askSteps >= 2, `${tag}: the depth steps have fewer than two levels each`);
+        check(
+          Math.abs(market.bids.left - market.plot.left) <= slack,
+          `${tag}: the bid steps do not reach the left edge of the plot`,
+        );
+        check(
+          Math.abs(market.asks.right - market.plot.right) <= slack,
+          `${tag}: the ask steps do not reach the right edge of the plot`,
+        );
+        check(market.bids.right <= market.asks.left + slack, `${tag}: the bid and ask steps overlap`);
+        check(
+          market.bids.top >= market.plot.top - slack && market.asks.top >= market.plot.top - slack,
+          `${tag}: a step line rises above the plot`,
+        );
+      }
+      if (market.chip) {
+        check(
+          market.chip.left >= market.plot.left - slack * 2 && market.chip.right <= market.plot.right + slack * 2,
+          `${tag}: the mid marker is outside the plot`,
+        );
+      }
+      check(
+        market.cardTop < market.viewport,
+        `${tag}: the depth card starts below the first screen (${Math.round(market.cardTop)} > ${market.viewport})`,
+      );
+    } else if (requireMarket) {
+      check(false, `${tag}: no depth chart on the page`);
+    } else {
+      notes.push(`${tag}: no depth chart on the page (not required)`);
     }
 
     // dark scheme: the same text and overflow rules
