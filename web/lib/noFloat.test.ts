@@ -40,8 +40,31 @@ describe("no-float rule", () => {
     expect(await messages(code)).toEqual([]);
   });
 
+  it("lifts the rule for the geometry module alone", async () => {
+    const code = 'const x = Number("1.5").toFixed(1);';
+    expect(await messages(code, "lib/geometry.ts")).toEqual([]);
+    for (const other of [
+      "lib/mid.ts",
+      "lib/history.ts",
+      "lib/group.ts",
+      "lib/ticks.ts",
+      "lib/geometry2.ts",
+      "components/Hero.tsx",
+    ]) {
+      expect((await messages(code, other)).length, other).toBeGreaterThan(0);
+    }
+  });
+
   it("holds the real price and size modules to the rule", async () => {
-    for (const file of ["lib/format.ts", "lib/types.ts", "lib/ticks.ts", "lib/store.ts"]) {
+    for (const file of [
+      "lib/format.ts",
+      "lib/types.ts",
+      "lib/ticks.ts",
+      "lib/store.ts",
+      "lib/mid.ts",
+      "lib/group.ts",
+      "lib/history.ts",
+    ]) {
       const [result] = await eslint.lintFiles([file]);
       expect(result?.messages.map((m) => `${file}:${m.line} ${m.message}`)).toEqual([]);
     }
