@@ -204,7 +204,6 @@ body {
 }
 
 .hero-dim .midprice,
-.hero-dim .quote dd:not(.quote-size),
 .hero-dim .spark-svg {
   opacity: 0.8;
 }
@@ -455,7 +454,6 @@ body {
 
 @media (prefers-reduced-motion: no-preference) {
   .midprice,
-  .quote dd,
   .spark-svg {
     transition: opacity 200ms var(--ease);
   }
