@@ -864,6 +864,27 @@ left nothing behind that could be checked.
   differ in the last digit; CI and the author use amd64.
 - The committed latency figure predates the stored capture, so its raw samples are not available until a new capture is made.
 
+## ADR-0026 — Thousands separators on the hero price, never in the order book
+
+**Status:** Accepted
+
+**Context.** A price such as `62721.75` is hard to read at hero size. The order book prints the exchange's strings
+untouched so they can be copied and compared with the venue. The mid price is not a string the venue sent: it is worked
+out by the page, in whole numbers, one decimal digit finer than the quotes (the sum of two prices at scale `s`, times five,
+at scale `s+1`).
+
+**Decision.**
+- The mid price and the best bid and ask in the hero may show separators between groups of three whole digits. This is a
+  change of the string only: the fraction is not touched and removing the separators gives back the exact input
+  (checked on random strings).
+- The order book, and anything meant to be copied, stays as the venue wrote it.
+- The mid price is `null` when a side is missing or the two prices have different scales; the page then shows a dash and
+  says why, and never guesses.
+
+**Consequences.**
+- Two places show the same price in two spellings. The hero is for reading, the book is for checking.
+- The check in CI reads the hero and the first book row in one call and compares them, separators removed.
+
 ## Verified against
 
 - Go language specification — `internal` package import rule (ADR-0002).
