@@ -8,17 +8,14 @@ import { memo } from "react";
 import { copy } from "@/lib/copy";
 import type { ViewEvent } from "@/lib/types";
 
-import { DepthChart } from "./DepthChart";
+import { DepthChart, DepthHead } from "./DepthChart";
 import { Ladder } from "./Ladder";
 
 /** The depth card as it is before the first book, and for a book with no levels. */
 function DepthPlaceholder({ text }: { text: string }) {
   return (
     <section className="mk-card mk-depth" aria-labelledby="depth-title">
-      <h2 id="depth-title" className="mk-title">
-        {copy.market.depthTitle}
-      </h2>
-      <p className="mk-lede">{text}</p>
+      <DepthHead subtitle={text} idle />
       <div className="chart" />
     </section>
   );

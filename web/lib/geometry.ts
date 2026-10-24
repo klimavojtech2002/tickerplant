@@ -3,7 +3,7 @@
 // ever shown as a price: the values drawn are mids, kept as exact decimal strings everywhere else; here they are only compared
 // (in BigInt) and scaled to a position.
 
-import { cumulate, niceTop, sizeScale, type Level } from "./depth";
+import { chartScale, cumulate, niceTop, type Level } from "./depth";
 import type { History } from "./history";
 import { toScaled } from "./ticks";
 import type { ViewEvent } from "./types";
@@ -77,12 +77,11 @@ export type DepthShape = {
 const percent = (v: number) => Math.round(v * 1000) / 1000;
 
 /**
- * depthShape draws the cumulative size of both sides as steps. It returns null when the book cannot be drawn: no levels, or sizes
- * that are not positive and of one scale. A side with no levels is null in the result; with one price on the whole axis the
- * steps sit in the middle.
+ * depthShape draws the cumulative size of both sides as steps. It returns null when the book cannot be drawn (see chartScale). A
+ * side with no levels is null in the result; with one price on the whole axis the steps sit in the middle.
  */
 export function depthShape(view: ViewEvent): DepthShape | null {
-  const scale = sizeScale(view);
+  const scale = chartScale(view);
   if (scale === null) {
     return null;
   }
@@ -127,7 +126,8 @@ export function depthShape(view: ViewEvent): DepthShape | null {
   if (bestBid !== undefined && bestAsk !== undefined) {
     // the mid is (bid + ask) / 2; in the same ticks as the prices it is (bid + ask) * 5 over ten
     const midTen = (toScaled(bestBid.price) + toScaled(bestAsk.price)) * 5n;
-    const share = spanTicks === 0n ? 5000 : Number(((midTen - lowest * 10n) * 10000n) / (spanTicks * 10n));
+    // with both sides present the best bid is below the best ask, so the span is not zero
+    const share = Number(((midTen - lowest * 10n) * 10000n) / (spanTicks * 10n));
     midLeft = percent(share / 100);
   }
   const tickTops = [1, 2, 3, 4].map((q) => percent(((base - (q / 4) * (base - ceiling)) / height) * 100));

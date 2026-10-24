@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { cumulate, niceTop, priceEnds, sizeScale, tickLabels } from "./depth";
+import { chartScale, cumulate, niceTop, priceEnds, sizeScale, tickLabels } from "./depth";
 import type { ViewEvent } from "./types";
 
 const view = (bids: [string, string][], asks: [string, string][]): ViewEvent => ({
@@ -31,6 +31,33 @@ describe("sizeScale", () => {
     ["an exponent", view([["10", "1e3"]], [])],
   ])("is null for %s", (_name, v) => {
     expect(sizeScale(v)).toBeNull();
+  });
+});
+
+describe("chartScale", () => {
+  it("is the size scale of a book that can be drawn", () => {
+    expect(chartScale(view([["100.0", "1.50"]], [["100.1", "0.25"]]))).toBe(2);
+    expect(chartScale(view([["100.0", "1"]], []))).toBe(0);
+  });
+  it.each([
+    ["a price that is not a plain decimal", view([["1e2", "1"]], [["101", "1"]])],
+    ["prices of different scales", view([["100.0", "1"]], [["101.00", "1"]])],
+    [
+      "prices of different scales on one side",
+      view(
+        [
+          ["100.0", "1"],
+          ["99.95", "1"],
+        ],
+        [],
+      ),
+    ],
+    ["a crossed book", view([["101", "1"]], [["100", "1"]])],
+    ["a locked book", view([["100", "1"]], [["100", "1"]])],
+    ["a zero size", view([["100", "0"]], [["101", "1"]])],
+    ["no levels", view([], [])],
+  ])("is null for %s", (_name, v) => {
+    expect(chartScale(v)).toBeNull();
   });
 });
 

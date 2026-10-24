@@ -4,7 +4,7 @@
 // The picture is drawn from exact sums by lib/geometry.ts; the labels around it are ordinary text on top of the SVG (SVG text
 // would be stretched by the box). It is an image to a screen reader, and the order book next to it is its text alternative.
 
-import { memo, useMemo } from "react";
+import { memo, type CSSProperties } from "react";
 
 import { copy } from "@/lib/copy";
 import { priceEnds, tickLabels } from "@/lib/depth";
@@ -14,10 +14,36 @@ import { baseCurrency } from "@/lib/hero";
 import { mid } from "@/lib/mid";
 import type { ViewEvent } from "@/lib/types";
 
+/** The heading, the subtitle and the legend of the depth card; the placeholder uses the same head so the card keeps its height. */
+export function DepthHead({ subtitle, idle }: { subtitle: string; idle: boolean }) {
+  return (
+    <div className="mk-head">
+      <div>
+        <h2 id="depth-title" className="mk-title">
+          {copy.market.depthTitle}
+        </h2>
+        <p className="mk-lede">{subtitle}</p>
+      </div>
+      <p className={`legend${idle ? " legend-idle" : ""}`} aria-hidden="true">
+        <span>
+          <i className="dot dot-bid" />
+          {copy.market.legendBids}
+        </span>
+        <span>
+          <i className="dot dot-ask" />
+          {copy.market.legendAsks}
+        </span>
+      </p>
+    </div>
+  );
+}
+
 export const DepthChart = memo(function DepthChart({ view }: { view: ViewEvent }) {
-  const shape = useMemo(() => depthShape(view), [view]);
+  const shape = depthShape(view); // the component is memoised on the view, so this runs once per new book
   const ends = priceEnds(view);
   const levels = Math.max(view.bids.length, view.asks.length);
+  const ticks = shape ? tickLabels(shape.top, shape.scale) : [];
+  const longest = Math.max(4, ...ticks.map((t) => t.length)); // the label column is as wide as its longest label, in characters
   const currency = baseCurrency(view.symbol);
   const bestBid = view.bids[0]?.[0] ?? null;
   const bestAsk = view.asks[0]?.[0] ?? null;
@@ -26,28 +52,11 @@ export const DepthChart = memo(function DepthChart({ view }: { view: ViewEvent }
 
   return (
     <section className="mk-card mk-depth" aria-labelledby="depth-title">
-      <div className="mk-head">
-        <div>
-          <h2 id="depth-title" className="mk-title">
-            {copy.market.depthTitle}
-          </h2>
-          <p className="mk-lede">{copy.market.depthLede(levels, currency)}</p>
-        </div>
-        <p className="legend" aria-hidden="true">
-          <span>
-            <i className="dot dot-bid" />
-            {copy.market.legendBids}
-          </span>
-          <span>
-            <i className="dot dot-ask" />
-            {copy.market.legendAsks}
-          </span>
-        </p>
-      </div>
+      <DepthHead subtitle={copy.market.depthLede(levels, currency)} idle={false} />
       {shape === null || ends === null ? (
         <p className="chart-note">{copy.market.cannotDraw}</p>
       ) : (
-        <div className="chart">
+        <div className="chart" style={{ "--ylab": `${longest}ch` } as CSSProperties}>
           <div className="chart-plot">
             <svg
               className="chart-svg"
@@ -101,17 +110,21 @@ export const DepthChart = memo(function DepthChart({ view }: { view: ViewEvent }
               ) : null}
             </svg>
             {shape.midLeft !== null && midPrice !== null ? (
-              <span className="chart-midchip" style={{ left: `${shape.midLeft}%` }}>
+              <span
+                className="chart-midchip"
+                aria-hidden="true"
+                style={{ left: `clamp(3.25rem, ${shape.midLeft}%, calc(100% - 3.25rem))` }}
+              >
                 {groupThousands(midPrice)}
               </span>
             ) : null}
-            {tickLabels(shape.top, shape.scale).map((text, i) => (
-              <span key={text} className="chart-ylab" style={{ top: `${shape.tickTops[i]}%` }}>
+            {ticks.map((text, i) => (
+              <span key={text} className="chart-ylab" aria-hidden="true" style={{ top: `${shape.tickTops[i]}%` }}>
                 {text}
               </span>
             ))}
           </div>
-          <div className="chart-axis">
+          <div className="chart-axis" aria-hidden="true">
             <span>{groupThousands(ends.low)}</span>
             <span>{groupThousands(ends.high)}</span>
           </div>

@@ -162,11 +162,6 @@ describe("depthShape", () => {
     expect(asksOnly.asks!.line.startsWith("M 0.0 392.0")).toBe(true);
   });
 
-  it("does not divide by zero for a locked book, where both best prices are the same", () => {
-    const d = depthShape(book([["100.0", "1.0"]], [["100.0", "1.0"]]))!;
-    expect(d.midLeft).toBe(50);
-  });
-
   it("puts a lone level in the middle of the axis instead of dividing by zero", () => {
     const d = depthShape(book([["100.0", "1.0"]], []))!;
     expect(d.bids!.line).toBe("M 500.0 392.0 L 500.0 392.0 L 500.0 20.0"); // the whole axis, 10 of 10
@@ -202,6 +197,10 @@ describe("depthShape", () => {
     ["an empty book", book([], [])],
     ["a zero size", book([["100.0", "0.0"]], [["101.0", "1.0"]])],
     ["sizes of two scales", book([["100.0", "1.0"]], [["101.0", "1.00"]])],
+    ["prices of two scales", book([["100.0", "1.0"]], [["101.00", "1.0"]])],
+    ["a price that is not a plain decimal", book([["1e2", "1.0"]], [["101.0", "1.0"]])],
+    ["a crossed book", book([["102.0", "1.0"]], [["101.0", "1.0"]])],
+    ["a locked book", book([["101.0", "1.0"]], [["101.0", "1.0"]])],
   ])("cannot draw %s", (_name, v) => {
     expect(depthShape(v)).toBeNull();
   });

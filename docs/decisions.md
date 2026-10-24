@@ -899,12 +899,13 @@ prices and sizes are never floats, so the chart needs a clear line between the e
 - The top of the size axis is the smallest 1, 2 or 5 times a power of ten at or above the largest cumulative size. Its four
   ticks are exact quarters of it, written at the size scale plus two digits with the trailing zeros removed, so a quarter of
   `1` is `0.25` and nothing is rounded.
-- `web/lib/geometry.ts` is the only module that turns an exact value into a number. It takes shares in ten-thousandths of the
+- `web/lib/geometry.ts` is the only module that turns an exact price or size into a coordinate. It takes shares in ten-thousandths of the
   price span and of the axis top from BigInt division, and prints coordinates with one decimal. The no-float lint rule is off for
   that file alone, and a test checks that it stays on everywhere else.
 - Labels (axis ends, size ticks, the mid marker) are HTML on top of the SVG, not SVG text, because the box is stretched to fit.
 - The chart is an image to a screen reader with a one-line summary; the order book beside it is its text alternative. A book
-  whose sizes are not positive and of one scale is not drawn, and the page says so.
+  whose sizes are not positive and of one scale, whose prices are of different scales, or that is crossed, is not drawn, and the
+  page says so.
 
 **Consequences.**
 - Positions have a resolution of 0.01 % of the axis. That is far finer than a pixel, but two cumulative sizes that differ by less

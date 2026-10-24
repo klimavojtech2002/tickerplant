@@ -621,9 +621,18 @@ body {
 
 .mk-head {
   display: flex;
+  flex-wrap: wrap;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 1rem;
+  gap: 0.25rem 1rem;
+}
+
+.mk-head > div {
+  flex: 1 1 14rem;
+}
+
+.legend-idle {
+  visibility: hidden;
 }
 
 .legend {
@@ -648,7 +657,8 @@ body {
   flex-direction: column;
   min-height: 23.75rem;
   margin-top: 1.25rem;
-  padding-right: 2.875rem;
+  font-size: 0.75rem; /* the width of the size labels is counted in characters of this size */
+  padding-right: calc(var(--ylab, 4ch) + 0.5rem);
 }
 
 .chart-plot {
@@ -712,8 +722,9 @@ body {
 
 .chart-ylab {
   position: absolute;
-  right: -2.875rem;
-  width: 2.5rem;
+  right: calc(-1 * (var(--ylab, 4ch) + 0.5rem));
+  width: var(--ylab, 4ch);
+  white-space: nowrap;
   transform: translateY(-50%);
   color: var(--label-3);
   font-size: 0.75rem;
@@ -745,11 +756,6 @@ body {
 @media (max-width: 639px) {
   .chart {
     min-height: 16.25rem;
-    padding-right: 2.5rem;
-  }
-  .chart-ylab {
-    right: -2.5rem;
-    width: 2.25rem;
   }
   .mk-card {
     padding: 1.25rem 1.125rem 0.75rem;

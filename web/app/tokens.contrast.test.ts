@@ -78,6 +78,7 @@ const pairs: [string, string[], number, string][] = [
   ["--label", ["--bg", "--card"], 4.5, "primary text"],
   ["--label-2", ["--bg", "--card"], 4.5, "secondary text"],
   ["--label-3", ["--bg", "--card"], 4.5, "tertiary text"],
+  ["--bg", ["--label"], 4.5, "the mid marker on the chart"],
   ["--green", ["--card", "--bg"], 4.5, "best bid price"],
   ["--red", ["--card", "--bg"], 4.5, "best ask price"],
   ["--orange", ["--card", "--bg"], 4.5, "recovered fault and refused-update text"],

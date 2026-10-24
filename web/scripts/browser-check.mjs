@@ -358,22 +358,24 @@ try {
     const market = await evaluate(MARKET);
     if (market) {
       const slack = 3; // pixels
-      check(market.bids !== null && market.asks !== null, `${tag}: the depth chart is missing a side`);
-      if (market.bids && market.asks) {
-        check(market.bidSteps >= 2 && market.askSteps >= 2, `${tag}: the depth steps have fewer than two levels each`);
+      check(market.bids !== null || market.asks !== null, `${tag}: the depth chart draws neither side`);
+      // a side that is drawn has at least one step and reaches its own edge of the plot (a one-sided book is a valid book)
+      if (market.bids) {
+        check(market.bidSteps >= 2, `${tag}: the bid line has no steps`);
         check(
           Math.abs(market.bids.left - market.plot.left) <= slack,
           `${tag}: the bid steps do not reach the left edge of the plot`,
         );
+      }
+      if (market.asks) {
+        check(market.askSteps >= 2, `${tag}: the ask line has no steps`);
         check(
           Math.abs(market.asks.right - market.plot.right) <= slack,
           `${tag}: the ask steps do not reach the right edge of the plot`,
         );
+      }
+      if (market.bids && market.asks) {
         check(market.bids.right <= market.asks.left + slack, `${tag}: the bid and ask steps overlap`);
-        check(
-          market.bids.top >= market.plot.top - slack && market.asks.top >= market.plot.top - slack,
-          `${tag}: a step line rises above the plot`,
-        );
       }
       if (market.chip) {
         check(

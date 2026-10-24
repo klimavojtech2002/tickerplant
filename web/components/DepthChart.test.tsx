@@ -76,10 +76,33 @@ describe("DepthChart", () => {
     expect(container.querySelector("line.chart-mid")).toBeInTheDocument();
   });
 
-  it("draws no mid price when the two best prices cannot be averaged exactly, but still draws the sides", () => {
+  it("does not draw a book whose prices are of two scales, rather than draw wrong positions", () => {
     const { container } = render(<DepthChart view={{ ...view, asks: [["62721.90", "1.0"]] }} />);
-    expect(container.querySelector(".chart-midchip")).toBeNull();
-    expect(container.querySelector("path.chart-line-ask")).toBeInTheDocument();
+    expect(screen.getByText(/Depth cannot be drawn/)).toBeInTheDocument();
+    expect(container.querySelector("svg")).toBeNull();
+  });
+
+  it("says level in the singular for a book with one level a side", () => {
+    render(<DepthChart view={{ ...view, bids: [["62721.7", "1.0"]], asks: [["62721.9", "1.0"]] }} />);
+    expect(screen.getByText("Cumulative size resting at each price, top 1 level, in BTC.")).toBeInTheDocument();
+  });
+
+  it("keeps the numbers around the picture out of the accessibility tree, since the order book has them", () => {
+    const { container } = render(<DepthChart view={view} />);
+    for (const sel of [".chart-midchip", ".chart-axis"]) {
+      expect(container.querySelector(sel)).toHaveAttribute("aria-hidden", "true");
+    }
+    for (const label of container.querySelectorAll(".chart-ylab")) {
+      expect(label).toHaveAttribute("aria-hidden", "true");
+    }
+  });
+
+  it("sizes the label column to its longest label", () => {
+    const { container } = render(
+      <DepthChart view={{ ...view, bids: [["62721.7", "0.0000001"]], asks: [["62721.9", "0.0000001"]] }} />,
+    );
+    // the axis tops at 1e-7, so a quarter is 0.000000025: 11 characters
+    expect(container.querySelector<HTMLElement>(".chart")!.style.getPropertyValue("--ylab")).toBe("11ch");
   });
 
   it("names a book with no bids by its asks alone", () => {

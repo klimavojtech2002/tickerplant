@@ -30,6 +30,28 @@ export function sizeScale(view: ViewEvent): number | null {
   return scale;
 }
 
+/**
+ * chartScale is the size scale of a book that can be drawn, or null when it cannot: the sizes are not positive and of one scale, a
+ * price is not a plain decimal, the prices are of different scales, or the best bid is not below the best ask. A book that came
+ * through the page's own checks always passes; this keeps the chart from throwing on one that did not.
+ */
+export function chartScale(view: ViewEvent): number | null {
+  const scale = sizeScale(view);
+  if (scale === null) {
+    return null;
+  }
+  const prices = [...view.bids, ...view.asks].map(([price]) => price);
+  if (!prices.every(isPlainDecimal) || prices.some((p) => scaleOf(p) !== scaleOf(prices[0]!))) {
+    return null;
+  }
+  const bid = view.bids[0]?.[0];
+  const ask = view.asks[0]?.[0];
+  if (bid !== undefined && ask !== undefined && toScaled(bid) >= toScaled(ask)) {
+    return null;
+  }
+  return scale;
+}
+
 /** cumulate lists a side's levels, best first, with the running total of size. */
 export function cumulate(levels: readonly [string, string][]): Level[] {
   let total = 0n;
