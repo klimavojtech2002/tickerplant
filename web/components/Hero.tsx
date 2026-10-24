@@ -81,7 +81,12 @@ export const Hero = memo(function Hero({ view, history, conn, poll, frozenAt, la
                 ? copy.hero.chipDemoChaos
                 : copy.hero.chipUnknown}
           </span>
-          <button type="button" className="pause-btn" disabled={view === null} onClick={onTogglePause}>
+          <button
+            type="button"
+            className="pause-btn"
+            disabled={!frozen && (view === null || lastViewAt === 0)}
+            onClick={onTogglePause}
+          >
             <svg width="11" height="11" viewBox="0 0 12 12" aria-hidden="true">
               {frozen ? (
                 <path d="M3 1.5v9l7.5-4.5z" fill="currentColor" />
@@ -134,7 +139,7 @@ export const Hero = memo(function Hero({ view, history, conn, poll, frozenAt, la
                   {copy.hero.bid}
                 </dt>
                 <dd>{bestBid ? <Figure value={bestBid[0]} field="bid" /> : <span data-field="bid">—</span>}</dd>
-                <dd className="quote-size">{bestBid ? `${bestBid[1]}${base ? ` ${base}` : ""}` : ""}</dd>
+                {bestBid ? <dd className="quote-size">{`${bestBid[1]}${base ? ` ${base}` : ""}`}</dd> : null}
               </div>
               <div>
                 <dt>
@@ -142,12 +147,14 @@ export const Hero = memo(function Hero({ view, history, conn, poll, frozenAt, la
                   {copy.hero.ask}
                 </dt>
                 <dd>{bestAsk ? <Figure value={bestAsk[0]} field="ask" /> : <span data-field="ask">—</span>}</dd>
-                <dd className="quote-size">{bestAsk ? `${bestAsk[1]}${base ? ` ${base}` : ""}` : ""}</dd>
+                {bestAsk ? <dd className="quote-size">{`${bestAsk[1]}${base ? ` ${base}` : ""}`}</dd> : null}
               </div>
               <div>
                 <dt>{copy.hero.spread}</dt>
-                <dd data-field="spread">{bestBid && bestAsk ? spread(bestBid[0], bestAsk[0]) : "—"}</dd>
-                <dd className="quote-size">{ticks !== null ? copy.hero.ticks(ticks) : ""}</dd>
+                <dd data-field="spread">
+                  {bestBid && bestAsk && ticks !== null ? spread(bestBid[0], bestAsk[0]) : "—"}
+                </dd>
+                {ticks !== null ? <dd className="quote-size">{copy.hero.ticks(ticks)}</dd> : null}
               </div>
             </dl>
           </div>

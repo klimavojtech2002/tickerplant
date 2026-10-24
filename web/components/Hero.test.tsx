@@ -118,6 +118,14 @@ describe("Hero", () => {
     expect(document.querySelector('[data-field="mid"]')).toHaveTextContent("—");
     expect(screen.getByText(/not written to the same number of decimals/)).toBeInTheDocument();
     expect(screen.queryByText(/One side of the book is empty/)).not.toBeInTheDocument();
+    expect(document.querySelector('[data-field="spread"]')).toHaveTextContent("—");
+  });
+
+  it("keeps Pause off until a book has been received on this connection, but never traps a paused page", () => {
+    const { rerender } = render(<Hero {...props({ lastViewAt: 0 })} />);
+    expect(screen.getByRole("button", { name: "Pause" })).toBeDisabled();
+    rerender(<Hero {...props({ lastViewAt: 0, frozenAt: 5 })} />);
+    expect(screen.getByRole("button", { name: "Resume" })).toBeEnabled();
   });
 
   it("shows a dash and says why when one side of the book is empty", () => {

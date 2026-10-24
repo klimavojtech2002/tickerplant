@@ -78,6 +78,8 @@ describe("spreadTicks", () => {
     [undefined, "1.0", null],
     ["1.0", undefined, null],
     ["x", "1.0", null],
+    ["1.5", "20", null],
+    ["100.5", "101", null],
   ])("%s %s -> %s", (bid, ask, want) => {
     expect(spreadTicks(bid, ask)).toBe(want);
   });

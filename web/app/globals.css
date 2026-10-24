@@ -205,7 +205,7 @@ body {
 
 .hero-dim .hero-figures,
 .hero-dim .spark {
-  opacity: 0.55;
+  opacity: 0.7;
 }
 
 .instrument {
@@ -329,16 +329,8 @@ body {
   margin: 1.125rem 0 0;
 }
 
-.quote > div {
-  padding-right: 1.75rem;
-  margin-right: 1.75rem;
-  border-right: 0.5px solid var(--hairline);
-}
-
-.quote > div:last-child {
-  border: 0;
-  margin: 0;
-  padding: 0;
+.quote {
+  column-gap: 2.5rem;
 }
 
 .quote dt {
@@ -452,9 +444,8 @@ body {
     padding: 1.5rem 0 1.25rem;
     gap: 1.125rem;
   }
-  .quote > div {
-    padding-right: 1rem;
-    margin-right: 1rem;
+  .quote {
+    column-gap: 1.5rem;
   }
   .quote dd {
     font-size: 1.125rem;

@@ -2,7 +2,7 @@
 // and the clock time a book was received.
 
 import type { PollState } from "./status";
-import { toScaled, isPlainDecimal } from "./ticks";
+import { isPlainDecimal, scaleOf, toScaled } from "./ticks";
 
 export type Chip = "none" | "demo" | "demo-chaos" | "unknown";
 
@@ -32,9 +32,15 @@ export function baseCurrency(symbol: string): string | null {
   return slash > 0 ? symbol.slice(0, slash) : null;
 }
 
-/** spreadTicks is the spread in whole price ticks (the smallest step of the price), as a string; null if either price is unusable. */
+/** spreadTicks is the spread in whole price ticks (the smallest step of the price), as a string; null if either price is unusable or the two have different scales. */
 export function spreadTicks(bid: string | undefined, ask: string | undefined): string | null {
-  if (bid === undefined || ask === undefined || !isPlainDecimal(bid) || !isPlainDecimal(ask)) {
+  if (
+    bid === undefined ||
+    ask === undefined ||
+    !isPlainDecimal(bid) ||
+    !isPlainDecimal(ask) ||
+    scaleOf(bid) !== scaleOf(ask)
+  ) {
     return null;
   }
   return (toScaled(ask) - toScaled(bid)).toString();
