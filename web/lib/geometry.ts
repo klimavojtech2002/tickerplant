@@ -3,8 +3,10 @@
 // ever shown as a price: the values drawn are mids, kept as exact decimal strings everywhere else; here they are only compared
 // (in BigInt) and scaled to a position.
 
+import { cumulate, niceTop, sizeScale, type Level } from "./depth";
 import type { History } from "./history";
 import { toScaled } from "./ticks";
+import type { ViewEvent } from "./types";
 
 export type Spark = {
   /** SVG path of the line. */
@@ -45,4 +47,90 @@ export function sparkPath(h: History, width: number, height: number, margin = 4)
   });
   const line = `M ${coords.join(" L ")}`;
   return { line, area: `${line} L ${width} ${height} L 0 ${height} Z` };
+}
+
+// The depth chart is drawn in a 1000 by 400 box. Prices run left to right from the lowest bid to the highest ask, and size runs up
+// from the baseline to the top of the axis. Positions are worked out as shares in ten-thousandths from BigInt values, so the only
+// float is the final coordinate with one decimal.
+export const depthBox = { width: 1000, height: 400, top: 20, base: 392 } as const;
+
+export type Steps = {
+  /** The path of the step line, from the best price outward. */
+  line: string;
+  /** The same path closed down to the baseline. */
+  area: string;
+};
+
+export type DepthShape = {
+  bids: Steps | null;
+  asks: Steps | null;
+  /** The size at the top of the axis, in size ticks. */
+  top: bigint;
+  /** The size scale of the book. */
+  scale: number;
+  /** Where the mid sits, in percent of the plot width, or null when a side is missing. */
+  midLeft: number | null;
+  /** Where the four ticks (a quarter, a half, three quarters, all) sit, in percent of the plot height. */
+  tickTops: number[];
+};
+
+const percent = (v: number) => Math.round(v * 1000) / 1000;
+
+/**
+ * depthShape draws the cumulative size of both sides as steps. It returns null when the book cannot be drawn: no levels, or sizes
+ * that are not positive and of one scale. A side with no levels is null in the result; with one price on the whole axis the
+ * steps sit in the middle.
+ */
+export function depthShape(view: ViewEvent): DepthShape | null {
+  const scale = sizeScale(view);
+  if (scale === null) {
+    return null;
+  }
+  const bids = cumulate(view.bids);
+  const asks = cumulate(view.asks);
+  const biggest = (levels: Level[]) => levels[levels.length - 1]?.cum ?? 0n;
+  const most = biggest(bids) > biggest(asks) ? biggest(bids) : biggest(asks);
+  const top = niceTop(most);
+
+  const lowest = toScaled((bids[bids.length - 1] ?? asks[0])!.price);
+  const highest = toScaled((asks[asks.length - 1] ?? bids[0])!.price);
+  const spanTicks = highest - lowest;
+  const { width, height, top: ceiling, base } = depthBox;
+
+  // a share in ten-thousandths of the price span, then a coordinate with one decimal
+  const x = (price: bigint): number => {
+    const share = spanTicks === 0n ? 5000 : Number(((price - lowest) * 10000n) / spanTicks);
+    return (share / 10000) * width;
+  };
+  const y = (cum: bigint): number => base - (Number((cum * 10000n) / top) / 10000) * (base - ceiling);
+  const pt = (px: number, py: number) => `${px.toFixed(1)} ${py.toFixed(1)}`;
+
+  const steps = (levels: Level[]): Steps | null => {
+    const first = levels[0];
+    const last = levels[levels.length - 1];
+    if (first === undefined || last === undefined) {
+      return null;
+    }
+    let line = `M ${pt(x(toScaled(first.price)), base)}`;
+    let previous: number = base;
+    for (const level of levels) {
+      const lx = x(toScaled(level.price));
+      line += ` L ${pt(lx, previous)} L ${pt(lx, y(level.cum))}`;
+      previous = y(level.cum);
+    }
+    return { line, area: `${line} L ${pt(x(toScaled(last.price)), base)} Z` };
+  };
+
+  let midLeft: number | null = null;
+  const bestBid = bids[0];
+  const bestAsk = asks[0];
+  if (bestBid !== undefined && bestAsk !== undefined) {
+    // the mid is (bid + ask) / 2; in the same ticks as the prices it is (bid + ask) * 5 over ten
+    const midTen = (toScaled(bestBid.price) + toScaled(bestAsk.price)) * 5n;
+    const share = spanTicks === 0n ? 5000 : Number(((midTen - lowest * 10n) * 10000n) / (spanTicks * 10n));
+    midLeft = percent(share / 100);
+  }
+  const tickTops = [1, 2, 3, 4].map((q) => percent(((base - (q / 4) * (base - ceiling)) / height) * 100));
+
+  return { bids: steps(bids), asks: steps(asks), top, scale, midLeft, tickTops };
 }

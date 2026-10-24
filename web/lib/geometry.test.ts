@@ -1,11 +1,14 @@
 import { describe, expect, it } from "vitest";
 
-import { sparkPath } from "./geometry";
+import { depthBox, depthShape, sparkPath } from "./geometry";
 import { addPoint, emptyHistory, type History } from "./history";
+import type { ViewEvent } from "./types";
 
 const build = (series: [number, string][]): History => series.reduce((h, [t, m]) => addPoint(h, t, m), emptyHistory);
 
 // the numbers of a path, in order
+// a coordinate with one decimal, as whole tenths
+const tenths = (s: string) => BigInt(s.replace(".", ""));
 const nums = (path: string) => [...path.matchAll(/-?\d+(?:\.\d+)?/g)].map((m) => m[0]);
 
 describe("sparkPath", () => {
@@ -86,5 +89,115 @@ describe("sparkPath", () => {
     const [, y0, , y1] = nums(p.line);
     expect(y0).toBe("36.0");
     expect(y1).toBe("4.0");
+  });
+});
+
+const book = (bids: [string, string][], asks: [string, string][]): ViewEvent => ({
+  venue: "v",
+  symbol: "s",
+  seq: 1,
+  bids,
+  asks,
+});
+
+describe("depthShape", () => {
+  const two = book(
+    [
+      ["100.0", "1.0"],
+      ["99.0", "1.0"],
+    ],
+    [
+      ["101.0", "2.0"],
+      ["103.0", "1.0"],
+    ],
+  );
+
+  it("steps each side outward from its best price, with price along x and cumulative size up y", () => {
+    const d = depthShape(two)!;
+    // x: prices 99.0 .. 103.0 over 0..1000; y: sizes 10, 20, 30 ticks of an axis topped at 50
+    expect(d.bids!.line).toBe("M 250.0 392.0 L 250.0 392.0 L 250.0 317.6 L 0.0 317.6 L 0.0 243.2");
+    expect(d.asks!.line).toBe("M 500.0 392.0 L 500.0 392.0 L 500.0 243.2 L 1000.0 243.2 L 1000.0 168.8");
+  });
+
+  it("closes each area down to the baseline at the far end of its side", () => {
+    const d = depthShape(two)!;
+    expect(d.bids!.area).toBe(`${d.bids!.line} L 0.0 392.0 Z`);
+    expect(d.asks!.area).toBe(`${d.asks!.line} L 1000.0 392.0 Z`);
+  });
+
+  it("tops the axis at a round number and places the four ticks evenly", () => {
+    const d = depthShape(two)!;
+    expect(d.top).toBe(50n);
+    expect(d.scale).toBe(1);
+    expect(d.tickTops).toEqual([74.75, 51.5, 28.25, 5]);
+  });
+
+  it("puts the mid exactly halfway between the best prices on the price axis", () => {
+    expect(depthShape(two)!.midLeft).toBe(37.5); // 100.5 on 99.0 .. 103.0
+  });
+
+  it("draws only the side that is there, and has no mid", () => {
+    const d = depthShape(
+      book(
+        [
+          ["100.0", "1.0"],
+          ["99.0", "3.0"],
+        ],
+        [],
+      ),
+    )!;
+    expect(d.asks).toBeNull();
+    expect(d.midLeft).toBeNull();
+    expect(d.bids!.line).toBe("M 1000.0 392.0 L 1000.0 392.0 L 1000.0 317.6 L 0.0 317.6 L 0.0 94.4"); // sizes 10 and 40 of a 50 axis
+    const asksOnly = depthShape(
+      book(
+        [],
+        [
+          ["101.0", "1.0"],
+          ["102.0", "1.0"],
+        ],
+      ),
+    )!;
+    expect(asksOnly.bids).toBeNull();
+    expect(asksOnly.asks!.line.startsWith("M 0.0 392.0")).toBe(true);
+  });
+
+  it("puts a lone level in the middle of the axis instead of dividing by zero", () => {
+    const d = depthShape(book([["100.0", "1.0"]], []))!;
+    expect(d.bids!.line).toBe("M 500.0 392.0 L 500.0 392.0 L 500.0 20.0"); // the whole axis, 10 of 10
+  });
+
+  it("never draws above the top of the box or below the baseline", () => {
+    const d = depthShape(two)!;
+    const ys = [...(d.bids!.line + d.asks!.line).matchAll(/ (\d+\.\d) (?=L|$)/g)].map((m) => tenths(m[1]!));
+    for (const y of ys) {
+      expect(y).toBeGreaterThanOrEqual(BigInt(depthBox.top) * 10n);
+      expect(y).toBeLessThanOrEqual(BigInt(depthBox.base) * 10n);
+    }
+  });
+
+  it("keeps the steps ordered for cumulative sizes beyond 2^53", () => {
+    const d = depthShape(
+      book(
+        [
+          ["10", "90071992547409.93"],
+          ["9", "40000000000000.00"],
+        ],
+        [["11", "50000000000000.01"]],
+      ),
+    )!;
+    const ys = [...d.bids!.line.matchAll(/ (\d+\.\d) (?=L|$)/g)].map((m) => tenths(m[1]!));
+    for (let i = 1; i < ys.length; i++) {
+      expect(ys[i]! <= ys[i - 1]!).toBe(true);
+    }
+    expect(d.top).toBe(20000000000000000n);
+  });
+
+  it.each([
+    ["an empty book", book([], [])],
+    ["a zero size", book([["100.0", "0.0"]], [["101.0", "1.0"]])],
+    ["sizes of two scales", book([["100.0", "1.0"]], [["101.0", "1.00"]])],
+  ])("cannot draw %s", (_name, v) => {
+    expect(depthShape(v)).toBeNull();
   });
 });

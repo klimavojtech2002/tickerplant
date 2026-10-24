@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { cumulate, niceTop, sizeScale, tickLabels } from "./depth";
+import { cumulate, niceTop, priceEnds, sizeScale, tickLabels } from "./depth";
 import type { ViewEvent } from "./types";
 
 const view = (bids: [string, string][], asks: [string, string][]): ViewEvent => ({
@@ -141,5 +141,48 @@ describe("tickLabels", () => {
         expect(digits(labels[2]!)).toBe(digits(labels[0]!) * 3n);
       }
     }
+  });
+});
+
+describe("priceEnds", () => {
+  it("runs from the lowest bid to the highest ask", () => {
+    const v = view(
+      [
+        ["100", "1"],
+        ["98", "1"],
+      ],
+      [
+        ["101", "1"],
+        ["105", "1"],
+      ],
+    );
+    expect(priceEnds(v)).toEqual({ low: "98", high: "105" });
+  });
+  it("runs from the best ask outward when there are no bids, and from the best bid back when there are no asks", () => {
+    expect(
+      priceEnds(
+        view(
+          [],
+          [
+            ["101", "1"],
+            ["105", "1"],
+          ],
+        ),
+      ),
+    ).toEqual({ low: "101", high: "105" });
+    expect(
+      priceEnds(
+        view(
+          [
+            ["100", "1"],
+            ["98", "1"],
+          ],
+          [],
+        ),
+      ),
+    ).toEqual({ low: "98", high: "100" });
+  });
+  it("is null for an empty book", () => {
+    expect(priceEnds(view([], []))).toBeNull();
   });
 });

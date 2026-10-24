@@ -63,3 +63,12 @@ export function tickLabels(top: bigint, scale: number): string[] {
     return label.includes(".") ? label.replace(/0+$/, "").replace(/\.$/, "") : label;
   });
 }
+
+/** priceEnds are the prices at the two ends of the chart's price axis: the lowest bid (or the best ask) and the highest ask (or the best bid). */
+export function priceEnds(view: ViewEvent): { low: string; high: string } | null {
+  const lowBid = view.bids[view.bids.length - 1];
+  const highAsk = view.asks[view.asks.length - 1];
+  const low = lowBid ?? view.asks[0];
+  const high = highAsk ?? view.bids[0];
+  return low && high ? { low: low[0], high: high[0] } : null;
+}
