@@ -136,6 +136,54 @@ jobs:
       - name: image check
         run: sh scripts/check-image.sh
 
+  # The whole stack from a browser: a real edge (synthetic source, faults injected), the built dashboard behind the real nginx
+  # image and its policy, opened in Chrome. SHIFT_LIMIT is the layout shift allowed while the book updates; the target is
+  # 0.001 and it is lowered to that as the old parts of the page are replaced. When the page is rebuilt, also set
+  # REQUIRE_TEXT_SCALING=1 and STRICT_INITIAL_SHIFT=1 and drop SHIFT_LIMIT: until then the page sizes text in pixels,
+  # so the 200 % text check cannot run and the load shift is only reported.
+  browser:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+        with:
+          package_json_file: web/package.json
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '22'
+          cache: 'pnpm'
+          cache-dependency-path: web/pnpm-lock.yaml
+
+      - name: build the dashboard
+        working-directory: web
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm build
+
+      - name: open it in Chrome
+        working-directory: web
+        env:
+          CHROME_BIN: /usr/bin/google-chrome
+          SHIFT_LIMIT: '0.12'
+          BROWSER_CHECK_OUT: ${{ runner.temp }}/browser-check
+        run: sh scripts/check-stack.sh
+
+      - name: keep the screenshots of a failed run
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: browser-check
+          path: ${{ runner.temp }}/browser-check
+          if-no-files-found: ignore
+
   # Live-venue tests hit real exchange endpoints, so they run only on demand — a venue
   # outage or rate limit must never block a merge. Not in the required-checks set.
   integration:

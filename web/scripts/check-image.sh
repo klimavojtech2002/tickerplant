@@ -19,6 +19,8 @@ IMAGE="$(sed -n 's/^FROM \(nginx:[^ ]*\) AS final/\1/p' Dockerfile)"
 TMP="$(mktemp -d)"
 cleanup() { docker rm -f "$NAME" >/dev/null 2>&1 || true; rm -rf "$TMP"; }
 trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 NEXT_PUBLIC_EDGE_URL="$EDGE" node scripts/csp-hash.mjs out security-headers.conf.template > "$TMP/security-headers.conf"
 
@@ -46,3 +48,8 @@ if docker logs "$NAME" 2>&1 | grep -E '\[(emerg|alert|crit)\]'; then
 fi
 
 node scripts/check-served.mjs "http://127.0.0.1:$PORT" "$EDGE"
+
+# With BROWSER_CHECK=1 the page is also opened in a real Chrome (see check-stack.sh, which starts an edge first).
+if [ "${BROWSER_CHECK:-0}" = "1" ]; then
+  node scripts/browser-check.mjs "http://127.0.0.1:$PORT"
+fi

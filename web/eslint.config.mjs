@@ -33,6 +33,8 @@ const eslintConfig = defineConfig([
       ],
     },
   },
+  // The build and check scripts handle layout measurements and version strings, never prices.
+  { files: ["scripts/**/*.mjs"], rules: { "no-restricted-syntax": "off" } },
 ]);
 
 export default eslintConfig;
