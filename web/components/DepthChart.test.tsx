@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import { mid } from "@/lib/mid";
@@ -150,5 +150,104 @@ describe("DepthChart", () => {
   it("puts no style attribute inside the svg", () => {
     const { container } = render(<DepthChart view={view} />);
     expect(container.querySelectorAll("svg [style]")).toHaveLength(0);
+  });
+
+  describe("the tooltip", () => {
+    // jsdom has no layout: give the plot a box of 100 by 100 pixels at the origin
+    function plot(container: HTMLElement) {
+      const el = container.querySelector<HTMLElement>(".chart-plot")!;
+      el.getBoundingClientRect = () => ({
+        left: 0,
+        top: 0,
+        width: 100,
+        height: 100,
+        right: 100,
+        bottom: 100,
+        x: 0,
+        y: 0,
+        toJSON: () => ({}),
+      });
+      return el;
+    }
+    const move = (el: HTMLElement, clientX: number, pointerType = "mouse") =>
+      fireEvent.pointerMove(el, { clientX, clientY: 10, pointerType, pointerId: 1 });
+
+    it("shows nothing until the pointer is over the plot", () => {
+      const { container } = render(<DepthChart view={view} />);
+      expect(container.querySelector(".chart-tip")).toBeNull();
+      expect(container.querySelector("line.chart-hover")).toBeNull();
+    });
+
+    it("names the level under the mouse and the exact size resting up to it", () => {
+      const { container } = render(<DepthChart view={view} />);
+      move(plot(container), 100); // the far right: the highest ask
+      const tip = container.querySelector(".chart-tip")!;
+      expect(tip.querySelector("b")).toHaveTextContent(/^62725\.5$/);
+      expect(tip).toHaveTextContent("3.0 BTC in asks up to here"); // 2.0 + 1.0
+      expect(container.querySelector("line.chart-hover")).toBeInTheDocument();
+      move(plot(container), 0); // the far left: the lowest bid
+      expect(container.querySelector(".chart-tip b")).toHaveTextContent(/^62718\.5$/);
+      expect(container.querySelector(".chart-tip")).toHaveTextContent("2.0 BTC in bids down to here");
+    });
+
+    it("leaves the currency out when the symbol has none", () => {
+      const { container } = render(<DepthChart view={{ ...view, symbol: "DEMO" }} />);
+      move(plot(container), 100);
+      expect(container.querySelector(".chart-tip")).toHaveTextContent(/^62725\.5\s*3\.0 in asks up to here$/);
+      move(plot(container), 0);
+      expect(container.querySelector(".chart-tip")).toHaveTextContent(/2\.0 in bids down to here$/);
+    });
+
+    it("works with a pen and ignores a finger", () => {
+      const { container } = render(<DepthChart view={view} />);
+      move(plot(container), 100, "touch");
+      expect(container.querySelector(".chart-tip")).toBeNull();
+      move(plot(container), 100, "pen");
+      expect(container.querySelector(".chart-tip")).toBeInTheDocument();
+    });
+
+    it("goes away when the pointer leaves or the gesture is cancelled", () => {
+      const { container } = render(<DepthChart view={view} />);
+      const el = plot(container);
+      move(el, 100);
+      fireEvent.pointerLeave(el);
+      expect(container.querySelector(".chart-tip")).toBeNull();
+      move(el, 100);
+      fireEvent.pointerCancel(el);
+      expect(container.querySelector(".chart-tip")).toBeNull();
+    });
+
+    it("keeps pointing at a level that is still there when a new book arrives, and never at one that is gone", () => {
+      const { container, rerender } = render(<DepthChart view={view} />);
+      move(plot(container), 100);
+      expect(container.querySelector(".chart-tip b")).toHaveTextContent("62725.5");
+      rerender(<DepthChart view={{ ...view, asks: [["62721.9", "2.0"]] }} />); // the far ask is gone
+      expect(container.querySelector(".chart-tip b")).toHaveTextContent("62721.9");
+    });
+
+    it("does nothing for a plot with no width", () => {
+      const { container } = render(<DepthChart view={view} />);
+      const el = container.querySelector<HTMLElement>(".chart-plot")!;
+      el.getBoundingClientRect = () => ({
+        left: 0,
+        top: 0,
+        width: 0,
+        height: 0,
+        right: 0,
+        bottom: 0,
+        x: 0,
+        y: 0,
+        toJSON: () => ({}),
+      });
+      move(el, 10);
+      expect(container.querySelector(".chart-tip")).toBeNull();
+    });
+
+    it("leaves the tooltip's words out of the picture, which keeps its one-line summary", () => {
+      const { container } = render(<DepthChart view={view} />);
+      move(plot(container), 100);
+      expect(container.querySelector("svg")!.getAttribute("aria-label")).toMatch(/^Cumulative depth/);
+      expect(container.querySelector("svg .chart-tip")).toBeNull();
+    });
   });
 });
