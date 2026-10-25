@@ -61,6 +61,19 @@ export type Steps = {
   area: string;
 };
 
+/** One level of the book as a place on the chart, with the exact numbers a reader may ask about. */
+export type DepthPoint = {
+  side: "bid" | "ask";
+  /** Position in its side, 0 for the best price. */
+  index: number;
+  price: string;
+  /** The total size from the best price out to this level, in size ticks. */
+  cum: bigint;
+  /** Where the level's step sits, in percent of the plot width and height. */
+  left: number;
+  top: number;
+};
+
 export type DepthShape = {
   bids: Steps | null;
   asks: Steps | null;
@@ -72,6 +85,8 @@ export type DepthShape = {
   midLeft: number | null;
   /** Where the four ticks (a quarter, a half, three quarters, all) sit, in percent of the plot height. */
   tickTops: number[];
+  /** Every level, bids then asks, for finding the one under the pointer. */
+  points: DepthPoint[];
 };
 
 const percent = (v: number) => Math.round(v * 1000) / 1000;
@@ -132,5 +147,34 @@ export function depthShape(view: ViewEvent): DepthShape | null {
   }
   const tickTops = [1, 2, 3, 4].map((q) => percent(((base - (q / 4) * (base - ceiling)) / height) * 100));
 
-  return { bids: steps(bids), asks: steps(asks), top, scale, midLeft, tickTops };
+  const place =
+    (side: "bid" | "ask") =>
+    (level: Level, index: number): DepthPoint => ({
+      side,
+      index,
+      price: level.price,
+      cum: level.cum,
+      left: percent((x(toScaled(level.price)) / width) * 100),
+      top: percent((y(level.cum) / height) * 100),
+    });
+  const points = [...bids.map(place("bid")), ...asks.map(place("ask"))];
+
+  return { bids: steps(bids), asks: steps(asks), top, scale, midLeft, tickTops, points };
+}
+
+/**
+ * nearestPoint is the level whose step is closest across the plot to a position given as a fraction of its width (0 at the left
+ * edge, 1 at the right). A tie goes to the level nearer the best price, then to the bid. It is null for no levels.
+ */
+export function nearestPoint(points: readonly DepthPoint[], fraction: number): DepthPoint | null {
+  let best: DepthPoint | null = null;
+  let bestDistance = Infinity;
+  for (const p of points) {
+    const distance = Math.abs(p.left / 100 - fraction);
+    if (distance < bestDistance || (distance === bestDistance && best !== null && p.index < best.index)) {
+      best = p;
+      bestDistance = distance;
+    }
+  }
+  return best;
 }
