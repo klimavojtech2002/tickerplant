@@ -324,12 +324,6 @@ try {
       if (requireHero && (feature.tableBid === null || feature.tableAsk === null)) {
         check(false, `${tag}: the order book has no best bid and ask to compare the hero with`);
       }
-      if (feature.tableBid !== null) {
-        check(
-          feature.ladderW > 0 && feature.ladderH > 0,
-          `${tag}: the order book is on the page but has no size on screen`,
-        );
-      }
       if (feature.tableBid !== null && feature.tableAsk !== null) {
         check(
           strip(feature.bid) === feature.tableBid,
@@ -392,6 +386,77 @@ try {
       check(false, `${tag}: no depth chart on the page`);
     } else {
       notes.push(`${tag}: no depth chart on the page (not required)`);
+    }
+
+    // the switch between the two cards: on a phone exactly one card shows and the buttons flip it; elsewhere there is no switch and both show
+    const visible = `(() => { const on = (s) => { const e = document.querySelector(s); if (!e) return false; const b = e.getBoundingClientRect(); return b.width > 0 && b.height > 0; };
+      return { switch: on(".mk-switch"), depth: on(".mk-depth"), ladder: on(".mk-ladder"), table: on("table.ladder"),
+        pressed: [...document.querySelectorAll(".mk-switch button")].map((b) => b.getAttribute("aria-pressed")) }; })()`;
+    const cards = await evaluate(visible);
+    if (!cards || !(cards.depth || cards.ladder)) {
+      check(false, `${tag}: neither the depth chart nor the order book has a size on screen`);
+    } else {
+      if (cards.switch) {
+        check(
+          cards.depth && !cards.ladder && cards.pressed.join() === "true,false",
+          `${tag}: the phone starts on the depth chart alone`,
+        );
+        await evaluate(`document.querySelectorAll(".mk-switch button")[1].click()`);
+        await sleep(200);
+        const onLadder = await evaluate(visible);
+        check(
+          !onLadder.depth && onLadder.ladder && onLadder.table && onLadder.pressed.join() === "false,true",
+          `${tag}: the Ladder button does not show the order book alone`,
+        );
+        await evaluate(`document.querySelectorAll(".mk-switch button")[0].click()`);
+        await sleep(200);
+        const backToDepth = await evaluate(visible);
+        check(backToDepth.depth && !backToDepth.ladder, `${tag}: the Depth button does not bring the chart back`);
+      } else {
+        check(
+          cards.depth && cards.ladder && cards.table,
+          `${tag}: both the depth chart and the order book show when there is no switch`,
+        );
+      }
+    }
+
+    // the tooltip: hovering the far ends of the plot with a mouse shows a tip that stays inside the window and does not scroll the page
+    await evaluate(`document.querySelector(".chart-plot")?.scrollIntoView({ block: "center" })`); // a short window may have it below the fold
+    await sleep(150);
+    const plotBox = await evaluate(
+      `(() => { const e = document.querySelector(".chart-plot"); if (!e) return null; const r = e.getBoundingClientRect(); return r.width > 0 ? { left: r.left, right: r.right, top: r.top, bottom: r.bottom } : null; })()`,
+    );
+    if (!plotBox) {
+      check(!requireMarket, `${tag}: no depth chart plot to hover`);
+    } else {
+      for (const [side, x] of [
+        ["left", plotBox.left + 1],
+        ["right", plotBox.right - 1],
+      ]) {
+        await send("Input.dispatchMouseEvent", { type: "mouseMoved", x, y: (plotBox.top + plotBox.bottom) / 2 });
+        await sleep(150);
+        const tip = await evaluate(
+          `(() => { const t = document.querySelector(".chart-tip"); if (!t) return null; const r = t.getBoundingClientRect(); return { left: r.left, right: r.right, top: r.top, hscroll: document.documentElement.scrollWidth > innerWidth, text: t.textContent }; })()`,
+        );
+        check(tip !== null, `${tag}: no tooltip when hovering the ${side} end of the depth chart`);
+        if (tip) {
+          check(
+            tip.left >= -1 && tip.right <= w + 1,
+            `${tag}: the tooltip at the ${side} end leaves the window (${Math.round(tip.left)}..${Math.round(tip.right)} of ${w})`,
+          );
+          check(!tip.hscroll, `${tag}: the page scrolls sideways with the tooltip at the ${side} end`);
+          check(
+            /\d/.test(tip.text) && /up to here|down to here/.test(tip.text),
+            `${tag}: the tooltip says nothing useful: ${tip.text}`,
+          );
+        }
+      }
+      await send("Input.dispatchMouseEvent", { type: "mouseMoved", x: 1, y: 1 });
+      await sleep(150);
+      check(
+        (await evaluate(`document.querySelector(".chart-tip") === null`)) === true,
+        `${tag}: the tooltip stays after the pointer leaves`,
+      );
     }
 
     // dark scheme: the same text and overflow rules

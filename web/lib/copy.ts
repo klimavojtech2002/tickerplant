@@ -32,6 +32,11 @@ export const copy = {
     legendAsks: "Asks",
     depthLabel: (bid: string | null, ask: string | null, n: number) =>
       `Cumulative depth: best bid ${bid ?? "none"}, best ask ${ask ?? "none"}, up to ${levels(n)} a side. The order book has the exact numbers.`,
+    tipBid: (size: string, currency: string | null) => `${size}${currency ? ` ${currency}` : ""} in bids down to here`,
+    tipAsk: (size: string, currency: string | null) => `${size}${currency ? ` ${currency}` : ""} in asks up to here`,
+    switchLabel: "Book view",
+    switchDepth: "Depth",
+    switchLadder: "Ladder",
     oneSided: "Only one side of the book has levels.",
     cannotDraw: "Depth cannot be drawn for this book. The order book has the numbers.",
     waiting: "Waiting for the first book…",

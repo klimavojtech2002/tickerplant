@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { depthBox, depthShape, sparkPath } from "./geometry";
+import { depthBox, depthShape, nearestPoint, sparkPath } from "./geometry";
 import { addPoint, emptyHistory, type History } from "./history";
 import type { ViewEvent } from "./types";
 
@@ -203,5 +203,81 @@ describe("depthShape", () => {
     ["a locked book", book([["101.0", "1.0"]], [["101.0", "1.0"]])],
   ])("cannot draw %s", (_name, v) => {
     expect(depthShape(v)).toBeNull();
+  });
+});
+
+describe("depthShape points and nearestPoint", () => {
+  const two = book(
+    [
+      ["100.0", "1.0"],
+      ["99.0", "1.0"],
+    ],
+    [
+      ["101.0", "2.0"],
+      ["103.0", "1.0"],
+    ],
+  );
+
+  it("lists every level with its exact running size and its place on the chart", () => {
+    const { points } = depthShape(two)!;
+    expect(points.map((p) => [p.side, p.index, p.price, p.cum, p.left])).toEqual([
+      ["bid", 0, "100.0", 10n, 25],
+      ["bid", 1, "99.0", 20n, 0],
+      ["ask", 0, "101.0", 20n, 50],
+      ["ask", 1, "103.0", 30n, 100],
+    ]);
+    expect(points[0]!.top).toBe(79.4); // 317.6 of 400
+  });
+
+  it("finds the level nearest across the plot", () => {
+    const { points } = depthShape(two)!;
+    expect(nearestPoint(points, 0.01)!.price).toBe("99.0");
+    expect(nearestPoint(points, 0.3)!.price).toBe("100.0");
+    expect(nearestPoint(points, 0.45)!.price).toBe("101.0");
+    expect(nearestPoint(points, 0.99)!.price).toBe("103.0");
+  });
+
+  it("clamps a position outside the plot to the nearest edge level", () => {
+    const { points } = depthShape(two)!;
+    expect(nearestPoint(points, -3)!.price).toBe("99.0");
+    expect(nearestPoint(points, 7)!.price).toBe("103.0");
+  });
+
+  it("breaks a tie toward the level nearer the best price", () => {
+    const { points } = depthShape(
+      book(
+        [
+          ["100.0", "1.0"],
+          ["98.0", "1.0"],
+        ],
+        [
+          ["104.0", "1.0"],
+          ["106.0", "1.0"],
+        ],
+      ),
+    )!;
+    // x shares: 98 -> 0, 100 -> .25, 104 -> .75, 106 -> 1; 0.5 is equally far from 100 and 104, both index 0, so the bid wins
+    expect(nearestPoint(points, 0.5)!.price).toBe("100.0");
+  });
+
+  it("breaks a tie between levels of different rank toward the one nearer the best price", () => {
+    const { points } = depthShape(
+      book(
+        [
+          ["100.0", "1.0"],
+          ["98.0", "1.0"],
+        ],
+        [
+          ["102.0", "1.0"],
+          ["106.0", "1.0"],
+        ],
+      ),
+    )!;
+    // 98 is at 0, 100 at .25: .125 is equally far from the second bid and the best bid
+    expect(nearestPoint(points, 0.125)!.price).toBe("100.0");
+  });
+
+  it("is null for no levels", () => {
+    expect(nearestPoint([], 0.5)).toBeNull();
   });
 });

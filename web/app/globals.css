@@ -181,6 +181,17 @@ body {
 }
 
 @media (forced-colors: active) {
+  .mk-switch button {
+    border: 1px solid ButtonText;
+  }
+  .mk-switch button[aria-pressed="true"] {
+    background: Highlight;
+    color: HighlightText;
+    forced-color-adjust: none;
+  }
+  .chart-tip {
+    border: 1px solid CanvasText;
+  }
   .chart-line-bid {
     stroke: CanvasText;
   }
@@ -744,6 +755,70 @@ body {
   font-size: 0.8125rem;
 }
 
+/* The switch between the two cards exists on a phone only; elsewhere it is not displayed, so it is not in the accessibility tree. */
+.mk-switch {
+  display: none;
+}
+
+.chart-hover {
+  stroke: var(--label-3);
+  stroke-width: 1;
+}
+
+.chart-dot {
+  position: absolute;
+  width: 0.5625rem;
+  height: 0.5625rem;
+  margin: -0.28125rem 0 0 -0.28125rem;
+  border-radius: 50%;
+  background: var(--card);
+  pointer-events: none;
+}
+
+.chart-dot-bid {
+  box-shadow: 0 0 0 2px var(--green);
+}
+
+.chart-dot-ask {
+  box-shadow: 0 0 0 2px var(--red);
+}
+
+/* The tip sits in the top corner on the side away from the pointer, so it is always inside the plot and never under the pointer. */
+.chart-tip {
+  position: absolute;
+  top: 0.5rem;
+  z-index: 2;
+  padding: 0.5625rem 0.75rem;
+  border-radius: 0.75rem;
+  background: var(--card);
+  box-shadow:
+    0 0 0 0.5px var(--hairline),
+    0 8px 28px rgba(0, 0, 0, 0.2);
+  font-size: 0.8125rem;
+  line-height: 1.0625rem;
+  max-width: min(18rem, 100%);
+  pointer-events: none;
+}
+
+.chart-tip-left {
+  left: 0.5rem;
+}
+
+.chart-tip-right {
+  right: 0.5rem;
+}
+
+.chart-tip b {
+  display: block;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  letter-spacing: -0.012em;
+}
+
+.chart-tip span {
+  color: var(--label-2);
+}
+
 @media (max-width: 1023px) {
   .mk-grid {
     grid-template-columns: minmax(0, 1fr);
@@ -754,11 +829,49 @@ body {
 }
 
 @media (max-width: 639px) {
+  .mk-switch {
+    display: flex;
+    gap: 0.125rem;
+    padding: 0.125rem;
+    margin-bottom: 0.75rem;
+    border-radius: 0.625rem;
+    background: var(--fill);
+  }
+  .mk-switch button {
+    flex: 1;
+    min-height: 2.75rem;
+    border: 0;
+    border-radius: 0.5rem;
+    background: transparent;
+    color: var(--label-2);
+    font: inherit;
+    font-size: 0.9375rem;
+    font-weight: 500;
+    cursor: pointer;
+  }
+  .mk-switch button[aria-pressed="true"] {
+    background: var(--card);
+    color: var(--label);
+    box-shadow: 0 0 0 0.5px var(--hairline);
+  }
+  .mk-grid[data-shown="depth"] .mk-ladder,
+  .mk-grid[data-shown="ladder"] .mk-depth {
+    display: none;
+  }
   .chart {
     min-height: 16.25rem;
   }
   .mk-card {
     padding: 1.25rem 1.125rem 0.75rem;
     border-radius: 1.25rem;
+  }
+}
+
+@media print {
+  .mk-switch {
+    display: none !important;
+  }
+  .mk-grid[data-shown] .mk-card {
+    display: flex !important;
   }
 }

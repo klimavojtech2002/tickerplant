@@ -4,12 +4,13 @@
 // The picture is drawn from exact sums by lib/geometry.ts; the labels around it are ordinary text on top of the SVG (SVG text
 // would be stretched by the box). It is an image to a screen reader, and the order book next to it is its text alternative.
 
-import { memo, type CSSProperties } from "react";
+import { memo, useMemo, useState, type CSSProperties, type PointerEvent } from "react";
 
 import { copy } from "@/lib/copy";
 import { priceEnds, tickLabels } from "@/lib/depth";
-import { depthBox, depthShape } from "@/lib/geometry";
+import { depthBox, depthShape, nearestPoint } from "@/lib/geometry";
 import { groupThousands } from "@/lib/group";
+import { fromScaled } from "@/lib/ticks";
 import { baseCurrency } from "@/lib/hero";
 import { mid } from "@/lib/mid";
 import type { ViewEvent } from "@/lib/types";
@@ -39,7 +40,25 @@ export function DepthHead({ subtitle, idle }: { subtitle: string; idle: boolean 
 }
 
 export const DepthChart = memo(function DepthChart({ view }: { view: ViewEvent }) {
-  const shape = depthShape(view); // the component is memoised on the view, so this runs once per new book
+  const shape = useMemo(() => depthShape(view), [view]); // moving the pointer re-renders, a book does not need to be redrawn for it
+  // Where the pointer is across the plot, as a fraction of its width, or null when it is away. The level under it is found again
+  // from the current book on every render, so a new book can never leave the tooltip on a level that is gone.
+  const [pointer, setPointer] = useState<number | null>(null);
+  const active = shape && pointer !== null ? nearestPoint(shape.points, pointer) : null;
+  const onMove = (e: PointerEvent<HTMLDivElement>) => {
+    if (e.pointerType === "touch") {
+      return; // a finger would leave the tooltip stuck; the order book is the way to read exact numbers
+    }
+    const box = e.currentTarget.getBoundingClientRect();
+    if (shape && box.width > 0) {
+      const fraction = (e.clientX - box.left) / box.width; // outside the plot is fine: the nearest level is still the edge one
+      const next = nearestPoint(shape.points, fraction);
+      // moving within one level changes nothing on screen, so it does not render again
+      if (next?.side !== active?.side || next?.index !== active?.index) {
+        setPointer(fraction);
+      }
+    }
+  };
   const ends = priceEnds(view);
   const levels = Math.max(view.bids.length, view.asks.length);
   const ticks = shape ? tickLabels(shape.top, shape.scale) : [];
@@ -57,7 +76,12 @@ export const DepthChart = memo(function DepthChart({ view }: { view: ViewEvent }
         <p className="chart-note">{copy.market.cannotDraw}</p>
       ) : (
         <div className="chart" style={{ "--ylab": `${longest}ch` } as CSSProperties}>
-          <div className="chart-plot">
+          <div
+            className="chart-plot"
+            onPointerMove={onMove}
+            onPointerLeave={() => setPointer(null)}
+            onPointerCancel={() => setPointer(null)}
+          >
             <svg
               className="chart-svg"
               viewBox={`0 0 ${depthBox.width} ${depthBox.height}`}
@@ -98,6 +122,16 @@ export const DepthChart = memo(function DepthChart({ view }: { view: ViewEvent }
                   <path d={shape.asks.line} className="chart-line chart-line-ask" vectorEffect="non-scaling-stroke" />
                 </>
               ) : null}
+              {active ? (
+                <line
+                  className="chart-hover"
+                  x1={(active.left / 100) * depthBox.width}
+                  x2={(active.left / 100) * depthBox.width}
+                  y1={depthBox.top}
+                  y2={depthBox.base}
+                  vectorEffect="non-scaling-stroke"
+                />
+              ) : null}
               {shape.midLeft !== null ? (
                 <line
                   className="chart-mid"
@@ -117,6 +151,23 @@ export const DepthChart = memo(function DepthChart({ view }: { view: ViewEvent }
               >
                 {groupThousands(midPrice)}
               </span>
+            ) : null}
+            {active ? (
+              <>
+                <span
+                  className={`chart-dot chart-dot-${active.side}`}
+                  style={{ left: `${active.left}%`, top: `${active.top}%` }}
+                />
+                <div className={`chart-tip chart-tip-${active.left < 50 ? "right" : "left"}`}>
+                  <b>{active.price}</b>
+                  <span>
+                    {(active.side === "bid" ? copy.market.tipBid : copy.market.tipAsk)(
+                      fromScaled(active.cum, shape!.scale),
+                      currency,
+                    )}
+                  </span>
+                </div>
+              </>
             ) : null}
             {ticks.map((text, i) => (
               <span key={text} className="chart-ylab" aria-hidden="true" style={{ top: `${shape.tickTops[i]}%` }}>

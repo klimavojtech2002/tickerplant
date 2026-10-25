@@ -1,4 +1,5 @@
 import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 
 import type { ViewEvent } from "@/lib/types";
@@ -60,5 +61,46 @@ describe("Market", () => {
   it("never puts a style attribute in markup rendered without a book", () => {
     const { container } = render(<Market view={null} />);
     expect(container.querySelectorAll("[style]")).toHaveLength(0);
+  });
+
+  describe("the switch between the depth chart and the order book", () => {
+    it("is a labelled group of two buttons, with Depth pressed to begin with", () => {
+      const { container } = render(<Market view={view} />);
+      const group = screen.getByRole("group", { name: "Book view" });
+      expect(group).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Depth" })).toHaveAttribute("aria-pressed", "true");
+      expect(screen.getByRole("button", { name: "Ladder" })).toHaveAttribute("aria-pressed", "false");
+      expect(container.querySelector(".mk-grid")).toHaveAttribute("data-shown", "depth");
+    });
+
+    it("chooses the card to show, and the other card stays in the page", async () => {
+      const user = userEvent.setup();
+      const { container } = render(<Market view={view} />);
+      await user.click(screen.getByRole("button", { name: "Ladder" }));
+      expect(screen.getByRole("button", { name: "Ladder" })).toHaveAttribute("aria-pressed", "true");
+      expect(screen.getByRole("button", { name: "Depth" })).toHaveAttribute("aria-pressed", "false");
+      expect(container.querySelector(".mk-grid")).toHaveAttribute("data-shown", "ladder");
+      expect(container.querySelector(".mk-depth")).toBeInTheDocument();
+      await user.click(screen.getByRole("button", { name: "Depth" }));
+      expect(container.querySelector(".mk-grid")).toHaveAttribute("data-shown", "depth");
+    });
+
+    it("can be reached and pressed with the keyboard", async () => {
+      const user = userEvent.setup();
+      render(<Market view={view} />);
+      await user.tab();
+      expect(screen.getByRole("button", { name: "Depth" })).toHaveFocus();
+      await user.tab();
+      await user.keyboard("{Enter}");
+      expect(screen.getByRole("button", { name: "Ladder" })).toHaveAttribute("aria-pressed", "true");
+    });
+
+    it("keeps the choice when a new book arrives", async () => {
+      const user = userEvent.setup();
+      const { container, rerender } = render(<Market view={view} />);
+      await user.click(screen.getByRole("button", { name: "Ladder" }));
+      rerender(<Market view={{ ...view, seq: 2 }} />);
+      expect(container.querySelector(".mk-grid")).toHaveAttribute("data-shown", "ladder");
+    });
   });
 });
