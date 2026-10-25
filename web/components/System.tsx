@@ -11,7 +11,7 @@ import { formatAgeMs, formatLatency } from "@/lib/format";
 import { groupThousands } from "@/lib/group";
 import { formatClock } from "@/lib/hero";
 import type { PollState } from "@/lib/status";
-import { describeStart, latencyBars, slowest, systemState } from "@/lib/system";
+import { describeStart, latencyBars, resolution, slowest, systemState } from "@/lib/system";
 import type { Status } from "@/lib/types";
 
 const count = (n: number): string => groupThousands(String(n));
@@ -90,7 +90,7 @@ function Processing({ latency }: { latency: NonNullable<Status["latency"]> }) {
           </span>
         </div>
       </div>
-      <p className="sys-note">{c.scale(formatLatency(slowest(latency)))}</p>
+      {slowest(latency) >= resolution ? <p className="sys-note">{c.scale(formatLatency(slowest(latency)))}</p> : null}
       <p className="sys-note">{c.caption}</p>
     </div>
   );
@@ -107,9 +107,7 @@ export const System = memo(function System({ poll, edgeURL }: { poll: PollState;
         {state.kind === "gone" ? c.goneTitle : c.title}
       </h2>
       {status ? (
-        <p className="mk-lede">
-          {`${c.modes[status.mode] ?? c.modes.unknown} · ${status.venue} · ${status.symbol} · ${copy.footer.version(status.version)}`}
-        </p>
+        <p className="mk-lede">{`${c.modes[status.mode] ?? c.modes.unknown} · ${status.venue} · ${status.symbol}`}</p>
       ) : state.kind === "gone" ? (
         <p className="mk-lede">{c.goneBody(edgeURL)}</p>
       ) : (

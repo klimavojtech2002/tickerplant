@@ -1194,8 +1194,8 @@ body {
   min-height: 24rem;
 }
 
-.sys-status {
-  min-height: 3.75rem; /* two lines of the unavailable notice, so it appears without moving the numbers */
+.sys-status:empty {
+  display: none;
 }
 
 .sys-status .stale-line {

@@ -58,12 +58,12 @@ describe("latencyBars", () => {
   });
 
   it("sizes each bar as a whole percent of the largest value, so the largest is 100", () => {
-    expect(latencyBars(l(500, 5_000, 10_000, 20_000))).toEqual({ p50: 2, p99: 25, p999: 50, max: 100 });
+    expect(latencyBars(l(2_000, 5_000, 10_000, 20_000))).toEqual({ p50: 10, p99: 25, p999: 50, max: 100 });
   });
 
   it("does not let an estimate above the exact maximum push a bar past 100, and the largest is still 100", () => {
     // p99 and p99.9 are bucket midpoints and can read above the true max (the golden has p99 50118 and max 50000)
-    const b = latencyBars(l(120, 50_118, 50_118, 50_000));
+    const b = latencyBars(l(1_200, 50_118, 50_118, 50_000));
     expect(b.p99).toBe(100);
     expect(b.p999).toBe(100);
     expect(b.max).toBe(99);
@@ -72,12 +72,18 @@ describe("latencyBars", () => {
     }
   });
 
+  it("gives no bar to a value under a microsecond, which the card cannot tell from nothing", () => {
+    expect(latencyBars(l(1, 999, 0, 5_000))).toEqual({ p50: 0, p99: 0, p999: 0, max: 100 });
+    expect(latencyBars(l(1, 1, 1, 0))).toEqual({ p50: 0, p99: 0, p999: 0, max: 0 });
+    expect(latencyBars(l(1_000, 1_000, 1_000, 1_000))).toEqual({ p50: 100, p99: 100, p999: 100, max: 100 });
+  });
+
   it("gives every bar 0 when nothing was measured, without dividing by zero", () => {
     expect(latencyBars(l(0, 0, 0, 0))).toEqual({ p50: 0, p99: 0, p999: 0, max: 0 });
   });
 
   it("gives equal values equal bars", () => {
-    expect(latencyBars(l(7, 7, 7, 7))).toEqual({ p50: 100, p99: 100, p999: 100, max: 100 });
+    expect(latencyBars(l(7_000, 7_000, 7_000, 7_000))).toEqual({ p50: 100, p99: 100, p999: 100, max: 100 });
   });
 
   it("stays exact for values beyond what a float can tell apart", () => {

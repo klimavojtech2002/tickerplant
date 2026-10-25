@@ -16,6 +16,7 @@
 //   STRICT_INITIAL_SHIFT  1 = also gate the shift while the first book arrives
 //   REQUIRE_TEXT_SCALING  1 = fail if the page does not follow the browser's text size setting
 //   REQUIRE_BOOK          1 = fail if no book appears (an edge must be running)
+//   REQUIRE_SYSTEM        1 = the system card must show the server's delivery counters and processing times, About must open, and the page must print as intended
 //   REQUIRE_INTEGRITY     1 = on a run with faults injected, the integrity card and the log must show at least one repaired fault, consistent with each other
 //   REQUIRE_MARKET        1 = the depth chart must be drawn across its plot, with its mid marker inside it, and start inside the first screen
 //   REQUIRE_HERO          1 = the hero must show a mid price that equals the one worked out from the order book's best prices
@@ -41,6 +42,7 @@ const requireBook = process.env.REQUIRE_BOOK === "1";
 const requireHero = process.env.REQUIRE_HERO === "1";
 const requireMarket = process.env.REQUIRE_MARKET === "1";
 const requireIntegrity = process.env.REQUIRE_INTEGRITY === "1";
+const requireSystem = process.env.REQUIRE_SYSTEM === "1";
 const shiftLimit = Number(process.env.SHIFT_LIMIT ?? "0.001");
 const minRows = Number(process.env.MIN_ROWS ?? "10");
 const base = pageURL.replace(/\/$/, "");
@@ -139,6 +141,25 @@ const INTEGRITY = `(() => {
   return { repaired: head ? head.getAttribute("data-repaired") : null, headline: head ? head.textContent : null,
     resyncs: row ? row.textContent : null, check: check ? check.textContent : null,
     entries: document.querySelectorAll(".tl li").length, times: [...document.querySelectorAll(".tl li time")].map((t) => t.textContent) };
+})()`;
+
+// The system card in one synchronous call.
+const SYSTEM = `(() => {
+  const card = document.querySelector(".mk-system");
+  if (!card) return null;
+  const text = (s) => card.querySelector(s)?.textContent ?? null;
+  const rows = [...card.querySelectorAll(".p-row")].map((r) => ({ id: r.getAttribute("data-row"), value: r.querySelector("[data-latency]")?.textContent ?? "",
+    bar: r.querySelector(".p-track i")?.style.width ?? "" }));
+  const f = getComputedStyle(document.querySelector(".foot") || card).fontFamily;
+  return { consumers: text('[data-row="consumers"] .row-v'), measured: text('[data-field="measured"]'), rows, font: f,
+    noLatencyNote: /does not measure processing time/.test(card.textContent) };
+})()`;
+
+// What the printed page looks like, read under print media.
+const PRINT = `(() => {
+  const shown = (s) => { const e = document.querySelector(s); if (!e) return false; const b = e.getBoundingClientRect(); return getComputedStyle(e).display !== "none" && b.width > 0 && b.height > 0; };
+  return { switch: shown(".mk-switch"), toggles: shown(".nav-right"), pause: shown(".pause-btn"), aboutButton: shown(".about-btn"),
+    depth: shown(".mk-depth"), ladder: shown(".mk-ladder"), about: shown(".about-panel"), wide: document.documentElement.scrollWidth > document.documentElement.clientWidth };
 })()`;
 
 /** The mid of two decimal strings, exactly: (bid + ask) * 5 at one more digit than the prices. */
@@ -503,6 +524,75 @@ try {
         integrity.times.every((t) => /^\d\d:\d\d:\d\d$/.test(t)),
         `${tag}: a log time is not a clock time: ${integrity.times.join(", ")}`,
       );
+    }
+
+    // the system card: the server's own counters and processing times, in words that do not claim more than was measured
+    let system = await evaluate(SYSTEM);
+    if (requireSystem) {
+      for (let i = 0; i < 16 && !(system && Number((system.consumers ?? "0").replaceAll(",", "")) >= 1); i++) {
+        await sleep(500); // the first poll can land before this page's own stream is counted
+        system = await evaluate(SYSTEM);
+      }
+    }
+    if (!system) {
+      check(!requireSystem, `${tag}: no system card on the page`);
+    } else if (requireSystem) {
+      check(
+        Number((system.consumers ?? "0").replaceAll(",", "")) >= 1,
+        `${tag}: the system card counts no open connection (${system.consumers})`,
+      );
+      check(
+        system.rows.length === 4,
+        `${tag}: the system card has ${system.rows.length} processing-time rows, wanted 4`,
+      );
+      for (const r of system.rows) {
+        check(/^(<1 µs|\d+\.\d (µs|ms|s))$/.test(r.value), `${tag}: processing time ${r.id} reads "${r.value}"`);
+        check(
+          r.bar === "" || (/^\d{1,3}%$/.test(r.bar) && Number.parseInt(r.bar, 10) <= 100),
+          `${tag}: bar ${r.id} is ${r.bar}`,
+        );
+      }
+      check(
+        Number((system.measured ?? "0").replaceAll(",", "")) > 0,
+        `${tag}: the card has measured no updates (${system.measured})`,
+      );
+      check(
+        !/mono|menlo|consolas|courier/i.test(system.font),
+        `${tag}: the footer is set in a monospace font: ${system.font}`,
+      );
+      // About opens and closes, and its text is in the page only when open
+      const aboutState = `(() => ({ expanded: document.querySelector(".about-btn")?.getAttribute("aria-expanded"), shown: (() => { const e = document.querySelector(".about-panel"); return !!e && e.getBoundingClientRect().height > 0; })() }))()`;
+      const closed = await evaluate(aboutState);
+      check(closed.expanded === "false" && !closed.shown, `${tag}: About does not start closed`);
+      await evaluate(`document.querySelector(".about-btn").click()`);
+      await sleep(150);
+      const opened = await evaluate(aboutState);
+      check(opened.expanded === "true" && opened.shown, `${tag}: About does not open`);
+      await evaluate(`document.querySelector(".about-btn").click()`);
+      await sleep(150);
+      const closedAgain = await evaluate(aboutState);
+      check(closedAgain.expanded === "false" && !closedAgain.shown, `${tag}: About does not close again`);
+      // printing: both market cards and the About text, none of the controls, nothing sideways
+      await send("Emulation.setEmulatedMedia", {
+        media: "print",
+        features: [{ name: "prefers-color-scheme", value: "light" }],
+      });
+      await sleep(200);
+      const printed = await evaluate(PRINT);
+      await send("Emulation.setEmulatedMedia", {
+        media: "",
+        features: [{ name: "prefers-color-scheme", value: "light" }],
+      });
+      await sleep(200);
+      check(
+        !printed.switch && !printed.toggles && !printed.pause && !printed.aboutButton,
+        `${tag}: a control shows when printed: ${JSON.stringify(printed)}`,
+      );
+      check(
+        printed.depth && printed.ladder && printed.about,
+        `${tag}: a market card or the About text is missing when printed: ${JSON.stringify(printed)}`,
+      );
+      check(!printed.wide, `${tag}: the printed page is wider than its window`);
     }
 
     // dark scheme: the same text and overflow rules

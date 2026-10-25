@@ -52,13 +52,9 @@ describe("System", () => {
     expect(screen.getByText("Checking the server…")).toBeInTheDocument();
   });
 
-  it("names the source, the instrument and the server version, and when it started", () => {
+  it("names the source and the instrument, and when the server started", () => {
     render(<System poll={ok()} edgeURL="http://edge" />);
-    expect(
-      screen.getByText(
-        "Synthetic source · synthetic · DEMO · Server version v1.0.1-0.20261025165459-fa812e180c7c+dirty",
-      ),
-    ).toBeInTheDocument();
+    expect(screen.getByText("Synthetic source · synthetic · DEMO")).toBeInTheDocument();
     expect(value("started")).toBe("2 Jan 03:04:05");
   });
 
@@ -115,8 +111,21 @@ describe("System", () => {
     it("scales every bar to the largest of the four values and says so", () => {
       render(<System poll={ok()} edgeURL="http://edge" />);
       const widths = [...document.querySelectorAll<HTMLElement>(".p-track i")].map((i) => i.style.width);
-      expect(widths).toEqual(["0%", "67%", "100%", "67%"]); // 500, 50118, 74400, 50000 of 74400
+      expect(widths).toEqual(["0%", "67%", "100%", "67%"]); // 500 (under 1 µs, no bar), 50118, 74400, 50000 of 74400
       expect(screen.getByText(/Bars share one scale, up to the largest value: 74\.4 µs\./)).toBeInTheDocument();
+    });
+
+    it("draws no bar and names no scale when every value is under a microsecond", () => {
+      render(
+        <System poll={ok({ latency: { count: 5, p50Ns: 1, p99Ns: 1, p999Ns: 1, maxNs: 0 } })} edgeURL="http://edge" />,
+      );
+      expect([...document.querySelectorAll<HTMLElement>(".p-track i")].map((i) => i.style.width)).toEqual([
+        "0%",
+        "0%",
+        "0%",
+        "0%",
+      ]);
+      expect(screen.queryByText(/Bars share one scale/)).not.toBeInTheDocument();
     });
 
     it("keeps the bars out of the accessibility tree, since the values are text", () => {

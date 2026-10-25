@@ -32,19 +32,25 @@ export function systemState(poll: PollState): SystemState {
 
 export type Latency = NonNullable<Status["latency"]>;
 
+/** The shortest time the card tells apart from nothing, in nanoseconds. */
+export const resolution = 1_000;
+
+const resolved = (ns: number): number => (ns < resolution ? 0 : ns);
+
 export type LatencyBars = { p50: number; p99: number; p999: number; max: number };
 
 /**
  * latencyBars gives each value's bar as a whole percent of the largest of the four. The quantiles are estimates from histogram buckets
  * and can sit a little above the exact maximum, so the scale is the largest value, not the maximum: the longest bar is 100 and none
- * is above it. All four are 0 when every value is 0.
+ * is above it. A value under a microsecond has no bar, and all four are 0 when none reaches one.
  */
 export function latencyBars(l: Latency): LatencyBars {
-  const values = [l.p50Ns, l.p99Ns, l.p999Ns, l.maxNs];
+  // Under a microsecond the measurement cannot tell one value from another (they read <1 µs), so it gets no bar at all.
+  const values = [l.p50Ns, l.p99Ns, l.p999Ns, l.maxNs].map(resolved);
   const largest = values.reduce((a, b) => (b > a ? b : a), 0);
   const bar = (v: number): number =>
     largest === 0 ? 0 : Math.min(100, Math.max(0, barPct(String(v), String(largest))));
-  return { p50: bar(l.p50Ns), p99: bar(l.p99Ns), p999: bar(l.p999Ns), max: bar(l.maxNs) };
+  return { p50: bar(values[0]!), p99: bar(values[1]!), p999: bar(values[2]!), max: bar(values[3]!) };
 }
 
 /** The largest of the four values, for the sentence that names the scale. */
