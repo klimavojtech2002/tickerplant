@@ -64,6 +64,7 @@ describe("System", () => {
   });
 
   it.each([
+    [0, "0 ms before the last check"],
     [56, "56 ms before the last check"],
     [1500, "1.5 s before the last check"],
     [-1, "No event yet"],

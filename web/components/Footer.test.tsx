@@ -78,7 +78,7 @@ describe("the stylesheet", () => {
     const print = css.slice(css.indexOf("@media print"));
     expect(print).toMatch(/\.about-panel\[hidden\][^}]*display:\s*block\s*!important/);
     for (const hidden of [".mk-switch", ".nav-right", ".pause-btn", ".log-toggle", ".about-btn", ".chart-tip"]) {
-      expect(print).toContain(hidden);
+      expect(print).toMatch(new RegExp(`${hidden.replace(".", "\.")}\s*[,{]`));
     }
     expect(print).toMatch(/\.mk-grid\[data-shown\] \.mk-card\s*\{\s*display:\s*flex\s*!important/);
   });
