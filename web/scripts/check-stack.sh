@@ -46,7 +46,7 @@ until curl -fsS http://127.0.0.1:8080/readyz >/dev/null 2>&1; do
   sleep 1
 done
 
-if ! BROWSER_CHECK=1 REQUIRE_BOOK=1 REQUIRE_HERO=1 REQUIRE_MARKET=1 sh scripts/check-image.sh; then
+if ! BROWSER_CHECK=1 REQUIRE_BOOK=1 REQUIRE_HERO=1 REQUIRE_MARKET=1 REQUIRE_INTEGRITY=1 sh scripts/check-image.sh; then
   echo "--- edge log ---" >&2
   tail -n 40 "$TMP/edge.log" >&2
   exit 1

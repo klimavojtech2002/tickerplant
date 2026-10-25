@@ -16,6 +16,7 @@
 //   STRICT_INITIAL_SHIFT  1 = also gate the shift while the first book arrives
 //   REQUIRE_TEXT_SCALING  1 = fail if the page does not follow the browser's text size setting
 //   REQUIRE_BOOK          1 = fail if no book appears (an edge must be running)
+//   REQUIRE_INTEGRITY     1 = on a run with faults injected, the integrity card and the log must show at least one repaired fault, consistent with each other
 //   REQUIRE_MARKET        1 = the depth chart must be drawn across its plot, with its mid marker inside it, and start inside the first screen
 //   REQUIRE_HERO          1 = the hero must show a mid price that equals the one worked out from the order book's best prices
 //   MIN_ROWS              order book rows (both sides) that mean "the book arrived" (default 10)
@@ -39,6 +40,7 @@ const requireTextScaling = process.env.REQUIRE_TEXT_SCALING === "1";
 const requireBook = process.env.REQUIRE_BOOK === "1";
 const requireHero = process.env.REQUIRE_HERO === "1";
 const requireMarket = process.env.REQUIRE_MARKET === "1";
+const requireIntegrity = process.env.REQUIRE_INTEGRITY === "1";
 const shiftLimit = Number(process.env.SHIFT_LIMIT ?? "0.001");
 const minRows = Number(process.env.MIN_ROWS ?? "10");
 const base = pageURL.replace(/\/$/, "");
@@ -127,6 +129,16 @@ const MARKET = `(() => {
   return { plot: { left: p.left, right: p.right, top: p.top, bottom: p.bottom }, bids: box("path.chart-line-bid"), asks: box("path.chart-line-ask"),
     bidSteps: (d("path.chart-line-bid").match(/ L /g) || []).length, askSteps: (d("path.chart-line-ask").match(/ L /g) || []).length,
     chip: c ? { left: c.left, right: c.right } : null, cardTop: card.getBoundingClientRect().top, viewport: innerHeight };
+})()`;
+
+// The integrity card and the fault log in one synchronous call, so the headline and the counter row come from the same render.
+const INTEGRITY = `(() => {
+  const head = document.querySelector('[data-field="repaired"]');
+  const row = document.querySelector('[data-row="resyncs"] .row-v');
+  const check = document.querySelector('[data-field="check"]');
+  return { repaired: head ? head.getAttribute("data-repaired") : null, headline: head ? head.textContent : null,
+    resyncs: row ? row.textContent : null, check: check ? check.textContent : null,
+    entries: document.querySelectorAll(".tl li").length, times: [...document.querySelectorAll(".tl li time")].map((t) => t.textContent) };
 })()`;
 
 /** The mid of two decimal strings, exactly: (bid + ask) * 5 at one more digit than the prices. */
@@ -456,6 +468,40 @@ try {
       check(
         (await evaluate(`document.querySelector(".chart-tip") === null`)) === true,
         `${tag}: the tooltip stays after the pointer leaves`,
+      );
+    }
+
+    // integrity and the log: on a run with faults injected a repaired fault shows up (polled: the first one lands some seconds after the
+    // server starts, and the schedule has quiet stretches), and what the card says agrees with itself
+    let integrity = await evaluate(INTEGRITY);
+    if (requireIntegrity) {
+      for (let i = 0; i < 24 && !(integrity && Number(integrity.repaired) >= 1 && integrity.entries >= 1); i++) {
+        await sleep(500);
+        integrity = await evaluate(INTEGRITY);
+      }
+    }
+    if (!integrity || integrity.headline === null) {
+      check(!requireIntegrity, `${tag}: no integrity card on the page`);
+    } else if (requireIntegrity) {
+      const repaired = Number(integrity.repaired);
+      const resyncs = Number((integrity.resyncs ?? "").replaceAll(",", ""));
+      check(repaired >= 1, `${tag}: no fault was repaired within the wait ("${integrity.headline}")`);
+      check(
+        integrity.entries >= 1 && integrity.entries <= 5,
+        `${tag}: the log shows ${integrity.entries} entries, wanted 1 to 5`,
+      );
+      // the headline leaves out at most the one rebuild that is running, and both come from the same frame
+      check(
+        resyncs - repaired === 0 || resyncs - repaired === 1,
+        `${tag}: headline ${repaired} and the rebuilds row ${resyncs} disagree`,
+      );
+      check(
+        /none crossed/.test(integrity.check ?? ""),
+        `${tag}: the page's own check does not say none crossed: ${integrity.check}`,
+      );
+      check(
+        integrity.times.every((t) => /^\d\d:\d\d:\d\d$/.test(t)),
+        `${tag}: a log time is not a clock time: ${integrity.times.join(", ")}`,
       );
     }
 
