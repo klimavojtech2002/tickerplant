@@ -225,6 +225,26 @@ describe("DepthChart", () => {
       expect(container.querySelector(".chart-tip b")).toHaveTextContent("62721.9");
     });
 
+    it("measures the pointer from the left edge of the plot, wherever the plot is on the page", () => {
+      const { container } = render(<DepthChart view={view} />);
+      const el = container.querySelector<HTMLElement>(".chart-plot")!;
+      el.getBoundingClientRect = () => ({
+        left: 200,
+        top: 0,
+        width: 100,
+        height: 100,
+        right: 300,
+        bottom: 100,
+        x: 200,
+        y: 0,
+        toJSON: () => ({}),
+      });
+      move(el, 205); // 5 % across: the lowest bid
+      expect(container.querySelector(".chart-tip b")).toHaveTextContent("62718.5");
+      move(el, 295); // 95 % across: the highest ask
+      expect(container.querySelector(".chart-tip b")).toHaveTextContent("62725.5");
+    });
+
     it("does nothing for a plot with no width", () => {
       const { container } = render(<DepthChart view={view} />);
       const el = container.querySelector<HTMLElement>(".chart-plot")!;

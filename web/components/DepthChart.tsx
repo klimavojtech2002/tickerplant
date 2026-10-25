@@ -51,7 +51,7 @@ export const DepthChart = memo(function DepthChart({ view }: { view: ViewEvent }
     }
     const box = e.currentTarget.getBoundingClientRect();
     if (box.width > 0) {
-      setPointer(Math.min(1, Math.max(0, (e.clientX - box.left) / box.width)));
+      setPointer((e.clientX - box.left) / box.width); // outside the plot is fine: the nearest level is still the edge one
     }
   };
   const ends = priceEnds(view);

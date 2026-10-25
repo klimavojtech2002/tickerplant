@@ -260,6 +260,23 @@ describe("depthShape points and nearestPoint", () => {
     expect(nearestPoint(points, 0.5)!.price).toBe("100.0");
   });
 
+  it("breaks a tie between levels of different rank toward the one nearer the best price", () => {
+    const { points } = depthShape(
+      book(
+        [
+          ["100.0", "1.0"],
+          ["98.0", "1.0"],
+        ],
+        [
+          ["102.0", "1.0"],
+          ["106.0", "1.0"],
+        ],
+      ),
+    )!;
+    // 98 is at 0, 100 at .25: .125 is equally far from the second bid and the best bid
+    expect(nearestPoint(points, 0.125)!.price).toBe("100.0");
+  });
+
   it("is null for no levels", () => {
     expect(nearestPoint([], 0.5)).toBeNull();
   });
