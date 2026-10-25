@@ -48,8 +48,7 @@ export function latencyBars(l: Latency): LatencyBars {
   // Under a microsecond the measurement cannot tell one value from another (they read <1 µs), so it gets no bar at all.
   const values = [l.p50Ns, l.p99Ns, l.p999Ns, l.maxNs].map(resolved);
   const largest = values.reduce((a, b) => (b > a ? b : a), 0);
-  const bar = (v: number): number =>
-    largest === 0 ? 0 : Math.min(100, Math.max(0, barPct(String(v), String(largest))));
+  const bar = (v: number): number => (largest === 0 ? 0 : barPct(String(v), String(largest)));
   return { p50: bar(values[0]!), p99: bar(values[1]!), p999: bar(values[2]!), max: bar(values[3]!) };
 }
 
