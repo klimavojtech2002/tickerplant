@@ -83,6 +83,12 @@ describe("FaultLog", () => {
     expect(item.textContent).not.toMatch(/\b9999\b|\b0\b/);
   });
 
+  it("shows the five newest when there are more, not the five oldest", () => {
+    render(<FaultLog {...props({ events: events(8), eventBaseline: 8 })} />);
+    const times = screen.getAllByRole("listitem").map((li) => li.querySelector("time")!.textContent);
+    expect(times).toEqual(["12:00:08", "12:00:07", "12:00:06", "12:00:05", "12:00:04"]);
+  });
+
   it("says no faults yet when the server has recorded none", () => {
     render(<FaultLog {...props({ events: [], eventBaseline: 0 })} />);
     expect(screen.getByText("No faults yet.")).toBeInTheDocument();

@@ -311,6 +311,8 @@ describe("StreamStore", () => {
       expect(store.getSnapshot().missedEvents).toBe(0);
       store.pushTelemetry(frame({ t: 102, resyncs: 6, events: [ev(7), ev(8)] })); // 4, 5 and 6 were never seen
       expect(store.getSnapshot().missedEvents).toBe(3);
+      store.pushTelemetry(frame({ t: 103, resyncs: 7, events: [ev(7), ev(8), ev(9)] })); // an ordinary overlapping frame
+      expect(store.getSnapshot().missedEvents).toBe(3); // the count is kept, not reset
     });
 
     it("starts over when the server restarts: an empty ring after a full one", () => {
