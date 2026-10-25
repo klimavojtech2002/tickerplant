@@ -108,14 +108,13 @@ export const System = memo(function System({ poll, edgeURL }: { poll: PollState;
       </h2>
       {status ? (
         <p className="mk-lede">{`${c.modes[status.mode] ?? c.modes.unknown} · ${status.venue} · ${status.symbol}`}</p>
-      ) : state.kind === "gone" ? (
-        <p className="mk-lede">{c.goneBody(edgeURL)}</p>
-      ) : (
+      ) : state.kind === "gone" ? null : (
         <p className="mk-lede">{c.checking}</p>
       )}
-      {/* The region stays in the page so that a change in it is announced, and keeps room for its two lines. */}
+      {/* The region is always in the page, empty when there is nothing to say, so that what appears in it is announced. */}
       <div role="status" className="sys-status">
         {state.kind === "stale" ? <p className="stale-line">{c.staleLine(formatClock(state.lastOkAt))}</p> : null}
+        {state.kind === "gone" ? <p className="mk-lede">{c.goneBody(edgeURL)}</p> : null}
       </div>
       {status ? (
         <>

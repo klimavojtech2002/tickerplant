@@ -885,6 +885,29 @@ body {
   .about-panel[hidden] {
     display: block !important;
   }
+  /* The light colours, whatever theme the visitor chose: the tokens are set again here, at a higher specificity than either dark block. */
+  :root:root:root {
+    --bg: #fff;
+    --card: #fff;
+    --fill: rgba(120, 120, 128, 0.12);
+    --fill-2: rgba(120, 120, 128, 0.08);
+    --hairline: rgba(60, 60, 67, 0.3);
+    --label: #000;
+    --label-2: #333;
+    --label-3: #555;
+    --green: #127a3c;
+    --green-ink: #0c6430;
+    --green-soft: rgba(52, 199, 89, 0.16);
+    --green-fill: rgba(52, 199, 89, 0.36);
+    --red: #cf2a22;
+    --red-fill: rgba(255, 59, 48, 0.28);
+    --orange: #a85d00;
+    --orange-soft: rgba(255, 149, 0, 0.16);
+    --blue: #0066cc;
+    --blue-ink: #0a5cb8;
+    --blue-soft: rgba(0, 122, 255, 0.12);
+    color-scheme: light;
+  }
   :root,
   body {
     background: #fff !important;
@@ -1191,11 +1214,6 @@ body {
 /* The system card and the foot ---------------------------------------------------------------------------------------------- */
 .mk-system {
   margin-bottom: 1.5rem;
-  min-height: 24rem;
-}
-
-.sys-status:empty {
-  display: none;
 }
 
 .sys-status .stale-line {
@@ -1324,9 +1342,6 @@ body {
   .sys2 {
     grid-template-columns: minmax(0, 1fr);
     gap: 1rem;
-  }
-  .mk-system {
-    min-height: 0;
   }
 }
 

@@ -91,7 +91,7 @@ export const copy = {
       consumers: ["Open connections", "Viewers reading the stream now"],
       published: ["Published", "Books the engine has published"],
       delivered: ["Delivered", "Placed in a viewer's slot while it was empty, summed over viewers"],
-      dropped: ["Dropped", "Replaced before a viewer took the previous one, summed over viewers"],
+      dropped: ["Dropped", "Counted when a viewer had not yet taken the previous book, summed over viewers"],
     } as Record<string, [string, string]>,
     processing: "Processing time",
     latencyRows: [
@@ -104,19 +104,19 @@ export const copy = {
     scale: (slowest: string) =>
       `Bars share one scale, up to the largest value: ${slowest}. Slowest is the single slowest update; the others are estimates, so it can read slightly below the 99.9th percentile.`,
     caption:
-      "From the adapter handing a frame over to the book being stored for readers, before it is sent to anyone. Network time is not included. Counted over every update applied since the server started, not a recent window. Quantiles are estimates within 2 %. Values under 1 µs are shown as <1 µs: the clock and the histogram cannot resolve them reliably.",
+      "From the adapter taking a frame in (decoding it is included) to the book being stored for readers, before it is sent to anyone. Network time and the time a frame waited before the adapter took it are not included. Counted over every update applied since the server started, not a recent window. Quantiles are estimates within 2 %. Values under 1 µs are shown as <1 µs: the clock and the histogram cannot resolve them reliably.",
     noLatency: "This server does not measure processing time.",
   },
   footer: {
     exact: "Prices and sizes are the exchange's exact decimals, never rounded.",
-    connected: (url: string) => `Connected to ${url}`,
+    connected: (url: string) => `Server address: ${url}`,
     about: "About this page",
     aboutTitle: "About this page",
     aboutBody: [
       "tickerplant rebuilds an exchange's order book from its live feed and checks it as it goes. This page is the pipeline's own view of itself.",
       "The mid price is the middle of the best bid and the best ask, not the price of a trade. The order book prints the exchange's text exactly.",
       "\"None crossed\" is this page's own check of every update it received. The faults come from the engine's log, and a fault counts as repaired once the book was rebuilt from a snapshot.",
-      "The numbers under System are measured inside the server and leave out the network between the exchange, the server and this page.",
+      "The numbers under System are measured inside the server and leave out the network between the exchange, the server and this page, and the time a frame waited before the server took it.",
     ],
     version: (v: string) => `Server version ${v}`,
   },

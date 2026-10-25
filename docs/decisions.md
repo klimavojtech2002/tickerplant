@@ -980,7 +980,8 @@ would claim a speed the system did not measure, and a bar for it would compare n
   seconds by itself, so there is no button that would suggest otherwise.
 
 **Consequences.**
-- A fast machine and a slow one both show "<1 µs" for sub-microsecond medians; the figure cannot rank them.
+- A fast machine and a slow one both show "<1 µs" for sub-microsecond medians; the figure cannot rank them, and a true
+  1.0 µs can read "<1 µs" when its estimate falls a little below.
 - The page cannot tell a server with no latency measurement from one that does not report it; both say the server does not
   measure processing time.
 

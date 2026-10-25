@@ -10,7 +10,7 @@ describe("Footer", () => {
   it("says prices and sizes are the exchange's exact decimals, and where the page is connected", () => {
     render(<Footer edgeURL="http://127.0.0.1:8080" version="v1" />);
     expect(screen.getByText("Prices and sizes are the exchange's exact decimals, never rounded.")).toBeInTheDocument();
-    expect(screen.getByText("Connected to http://127.0.0.1:8080")).toBeInTheDocument();
+    expect(screen.getByText("Server address: http://127.0.0.1:8080")).toBeInTheDocument();
     expect(screen.getByText("Server version v1")).toBeInTheDocument();
   });
 
@@ -74,12 +74,35 @@ describe("the stylesheet", () => {
     expect(css).toMatch(/\.boundary-failed\s*\{/);
   });
 
+  /** The text between the braces of the first `@media print` block. */
+  function printBlock(): string {
+    const start = css.indexOf("@media print");
+    let depth = 0;
+    for (let i = css.indexOf("{", start); i < css.length; i++) {
+      if (css[i] === "{") depth++;
+      if (css[i] === "}" && --depth === 0) {
+        return css.slice(css.indexOf("{", start) + 1, i);
+      }
+    }
+    throw new Error("unterminated print block");
+  }
+  const escape = (selector: string) => selector.replace(/[.[\]]/g, (c) => "\\" + c);
+
   it("opens the About text and hides what only works on a screen when printed", () => {
-    const print = css.slice(css.indexOf("@media print"));
-    expect(print).toMatch(/\.about-panel\[hidden\][^}]*display:\s*block\s*!important/);
+    const print = printBlock();
+    expect(print).toMatch(/\.about-panel\[hidden\]\s*\{[^}]*display:\s*block\s*!important/);
     for (const hidden of [".mk-switch", ".nav-right", ".pause-btn", ".log-toggle", ".about-btn", ".chart-tip"]) {
-      expect(print).toMatch(new RegExp(`${hidden.replace(".", "\.")}\s*[,{]`));
+      expect(print, hidden).toMatch(new RegExp(`${escape(hidden)}\s*[,{]`));
     }
     expect(print).toMatch(/\.mk-grid\[data-shown\] \.mk-card\s*\{\s*display:\s*flex\s*!important/);
+  });
+
+  it("prints in the light colours whatever theme was chosen, by setting the tokens again above both dark blocks", () => {
+    const print = printBlock();
+    const block = /:root:root:root\s*\{([^}]*)\}/.exec(print);
+    expect(block, "a :root:root:root block in print").not.toBeNull();
+    for (const token of ["--bg: #fff", "--card: #fff", "--label: #000"]) {
+      expect(block![1]).toContain(token);
+    }
   });
 });

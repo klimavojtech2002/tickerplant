@@ -7,7 +7,7 @@
 //
 // The page re-renders whenever the store changes (telemetry once a second, and each
 // view). The book panel is memoised and skips telemetry-only changes; the clocks live in
-// the connection pill, the hero and the health section, so nothing here ticks.
+// the connection pill, the hero and the integrity card, so nothing here ticks.
 
 import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
 

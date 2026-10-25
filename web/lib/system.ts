@@ -62,7 +62,7 @@ const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "
 
 /**
  * describeStart words the time the server started in the visitor's zone: the time of day for today, with the date before it for any
- * other day. A start time of 0 (the edge was built without one) or one in the future (the clocks disagree) has nothing honest to
+ * other day (and the year, when it is not this one). A start time of 0 (the edge was built without one) or one in the future (the clocks disagree) has nothing honest to
  * say, so it gives null.
  */
 export function describeStart(startedAtUnixMs: number, now: Date = new Date()): string | null {
@@ -71,7 +71,9 @@ export function describeStart(startedAtUnixMs: number, now: Date = new Date()): 
   }
   const d = new Date(startedAtUnixMs);
   const clock = `${two(d.getHours())}:${two(d.getMinutes())}:${two(d.getSeconds())}`;
-  const today =
-    d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth() && d.getDate() === now.getDate();
-  return today ? clock : `${d.getDate()} ${months[d.getMonth()]} ${clock}`;
+  const sameYear = d.getFullYear() === now.getFullYear();
+  if (sameYear && d.getMonth() === now.getMonth() && d.getDate() === now.getDate()) {
+    return clock;
+  }
+  return `${d.getDate()} ${months[d.getMonth()]}${sameYear ? "" : ` ${d.getFullYear()}`} ${clock}`;
 }

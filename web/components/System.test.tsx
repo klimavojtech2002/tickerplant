@@ -55,7 +55,7 @@ describe("System", () => {
   it("names the source and the instrument, and when the server started", () => {
     render(<System poll={ok()} edgeURL="http://edge" />);
     expect(screen.getByText("Synthetic source · synthetic · DEMO")).toBeInTheDocument();
-    expect(value("started")).toBe("2 Jan 03:04:05");
+    expect(value("started")).toBe("2 Jan 2020 03:04:05");
   });
 
   it("leaves the start out when the server did not give one", () => {
@@ -79,7 +79,9 @@ describe("System", () => {
     expect(value("published")).toBe("9,876,543");
     expect(value("delivered")).toBe("12,345");
     expect(value("dropped")).toBe("7");
-    expect(screen.getByText("Replaced before a viewer took the previous one, summed over viewers")).toBeInTheDocument();
+    expect(
+      screen.getByText("Counted when a viewer had not yet taken the previous book, summed over viewers"),
+    ).toBeInTheDocument();
     expect(screen.getByText("Placed in a viewer's slot while it was empty, summed over viewers")).toBeInTheDocument();
     expect(document.querySelector(".sys2")!.textContent).not.toMatch(/\b(total|in all|sum of)\b/i);
   });

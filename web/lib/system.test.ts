@@ -106,7 +106,7 @@ describe("describeStart", () => {
 
   it("puts the date before the time for any other day", () => {
     expect(describeStart(new Date(2026, 9, 24, 23, 59, 1).getTime(), now)).toBe("24 Oct 23:59:01");
-    expect(describeStart(new Date(2025, 9, 25, 9, 5, 7).getTime(), now)).toBe("25 Oct 09:05:07");
+    expect(describeStart(new Date(2025, 9, 25, 9, 5, 7).getTime(), now)).toBe("25 Oct 2025 09:05:07");
   });
 
   it.each([
