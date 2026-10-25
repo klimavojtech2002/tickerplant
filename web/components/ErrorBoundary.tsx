@@ -37,7 +37,7 @@ export class ErrorBoundary extends Component<Props, State> {
       return this.props.children;
     }
     return (
-      <div role="alert" className="panel-failed">
+      <div role="alert" className="boundary-failed">
         <p>This panel failed to render.</p>
         <button type="button" onClick={() => this.setState({ failed: false })}>
           Retry

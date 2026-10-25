@@ -123,11 +123,39 @@ describe("Page under React Strict Mode", () => {
     const html = renderToString(<Page />);
     expect(html).toContain("Connecting…");
     expect(html).toContain("Waiting for the first book…");
-    expect(html).toContain("loading status…");
+    expect(html).toContain("Checking the server…");
     expect(html).not.toContain("Live");
   });
 
-  it("shows the health tiles once the status poll answers", async () => {
+  it("says the server cannot be reached after three failed polls, and recovers when it answers again", async () => {
+    let up = false;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        if (!up) {
+          throw new Error("down");
+        }
+        return new Response(statusBody, { status: 200 });
+      }),
+    );
+    render(<Page />);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10);
+    });
+    expect(screen.getByText("Checking the server…")).toBeInTheDocument(); // one miss is not yet a failure
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5000); // the second and third misses
+    });
+    expect(screen.getByRole("heading", { name: "Can't reach the server" })).toBeInTheDocument();
+    up = true;
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2500);
+    });
+    expect(screen.getByRole("heading", { name: "System" })).toBeInTheDocument();
+    expect(document.querySelector('[data-row="delivered"] .row-v')?.textContent).toBe("10");
+  });
+
+  it("shows the system card once the status poll answers", async () => {
     render(
       <StrictMode>
         <Page />
@@ -136,7 +164,7 @@ describe("Page under React Strict Mode", () => {
     await act(async () => {
       await vi.advanceTimersByTimeAsync(10);
     });
-    expect(screen.getByTestId("tile-delivered").textContent).toContain("10");
+    expect(document.querySelector('[data-row="delivered"] .row-v')?.textContent).toBe("10");
   });
 
   it("closes the connection and leaves no timer behind when it unmounts", async () => {

@@ -1,12 +1,13 @@
 import { describe, expect, it } from "vitest";
 
-import { formatAgeMs, formatNs } from "./format";
+import { formatAgeMs, formatLatency } from "./format";
 
-describe("formatNs", () => {
+describe("formatLatency", () => {
   // Literal expectations: the rule is truncation, so 1050 is "1.0 µs", never "1.1 µs".
   const rows: [number, string][] = [
-    [0, "0 ns"],
-    [999, "999 ns"],
+    [0, "<1 µs"],
+    [1, "<1 µs"],
+    [999, "<1 µs"],
     [1000, "1.0 µs"],
     [1050, "1.0 µs"],
     [1099, "1.0 µs"],
@@ -22,11 +23,11 @@ describe("formatNs", () => {
     [9_007_198_999_999_999, "9007198.9 s"],
   ];
   it.each(rows)("%d ns -> %s", (n, want) => {
-    expect(formatNs(n)).toBe(want);
+    expect(formatLatency(n)).toBe(want);
   });
 
   it.each([-1, 1.5, Number.NaN, Number.POSITIVE_INFINITY, Number.MAX_SAFE_INTEGER + 1])("refuses %d", (n) => {
-    expect(formatNs(n)).toBe("n/a");
+    expect(formatLatency(n)).toBe("n/a");
   });
 });
 

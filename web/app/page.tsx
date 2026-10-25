@@ -12,12 +12,13 @@
 import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
 
 import { ErrorBoundary } from "@/components/ErrorBoundary";
-import { HealthSection } from "@/components/HealthPanel";
 import { FaultLog } from "@/components/FaultLog";
+import { Footer } from "@/components/Footer";
 import { Hero } from "@/components/Hero";
 import { Integrity } from "@/components/Integrity";
 import { Market } from "@/components/Market";
 import { NavBar } from "@/components/NavBar";
+import { System } from "@/components/System";
 import type { History } from "@/lib/history";
 import { initialPollState, pollStatus, type PollState } from "@/lib/status";
 import { initialSnapshot, StreamStore } from "@/lib/store";
@@ -87,16 +88,10 @@ export default function Page() {
             />
           </div>
         </ErrorBoundary>
-        <div className="legacy">
-          <ErrorBoundary resetKey={poll.kind}>
-            <HealthSection state={poll} />
-          </ErrorBoundary>
-          <footer>
-            <p>
-              {`edge: ${edgeURL} — prices and sizes are the venue's decimal strings end to end; this page never parses them into floats.`}
-            </p>
-          </footer>
-        </div>
+        <ErrorBoundary resetKey={poll.kind}>
+          <System poll={poll} edgeURL={edgeURL} />
+        </ErrorBoundary>
+        <Footer edgeURL={edgeURL} version={poll.kind === "loading" ? null : poll.status ? poll.status.version : null} />
       </main>
     </>
   );
