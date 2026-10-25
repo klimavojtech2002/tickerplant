@@ -918,6 +918,39 @@ prices and sizes are never floats, so the chart needs a clear line between the e
   one that is not chosen is not displayed, so on a phone the order book (the chart's text alternative) is reached with the Ladder
   button. The switch is not displayed at wider sizes, so it is not in the accessibility tree there.
 
+## ADR-0028 — What the integrity card may claim
+
+**Status:** Accepted
+
+**Context.** The dashboard says in one headline how many faults were repaired, and next to it what this page itself found when it
+checked the updates it received. A counter can support some sentences and not others, and the telemetry frame is not a snapshot
+taken at one instant.
+
+**Decision.**
+- A "fault" on the card is one that made the engine rebuild the book: a sequence gap, a delta that would cross the book, checksum
+  drift or a disconnect. That is exactly what `resyncs` counts, and it counts a rebuild when it starts. Snapshot problems are in the
+  log but are not rebuilds and are not in the headline. With no rebuild yet the card says "No rebuilds yet", not "0 faults repaired".
+- A rebuild that fails returns an error out of the engine's step and the server stops, so on a server that is still publishing every
+  counted rebuild has finished except one that is running now. That one is the newest event of a rebuild kind whose duration is
+  still -1 (the newest event overall can be a snapshot problem recorded while it retries). The headline is `resyncs` minus that
+  one, never below zero.
+- The server writes the event ring first and the counters after, so one frame can show a running rebuild that `resyncs` has not
+  counted yet (the headline one too low) or the reverse. That lasts one frame, and the next, a second later, corrects it. Nothing on
+  the page claims exactness across the fields of different frames; the headline and the rebuilds row come from the same frame.
+  If the running rebuild's event has already left the ring, the headline is one too high until it finishes.
+- What this page found is a separate sentence from the server's. The page counts the views that reached it with both sides present
+  and refuses a crossed one; only the top of the book is tested, and the server may merge updates, so the count is not the number the
+  exchange sent. "None crossed" is shown only while the connection is open, and the line makes no claim otherwise.
+- The counters are separate rows, not parts of a whole: a checksum venue adds checksum drift to rebuilds, so they do not sum.
+- The log merges the engine's ring by event id across frames (the engine resends all 16 every second) and shows absolute local
+  times, never ages, because the server's clock and the browser's can differ. A frame whose newest id, clock or any counter went
+  backwards comes from a server that started again, and the page drops what it kept of the old one.
+
+**Consequences.**
+- The headline can be wrong by one for the length of one frame, and the log never shows more than the engine's last 16 plus
+  what the page saw while it was open.
+- A server that fails to rebuild is gone, so the card cannot show a rebuild that failed; it shows the connection state instead.
+
 ## Verified against
 
 - Go language specification — `internal` package import rule (ADR-0002).
