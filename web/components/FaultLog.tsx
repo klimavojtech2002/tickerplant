@@ -22,6 +22,12 @@ export type FaultLogProps = {
 
 const shownFirst = 5;
 
+/** isoTime is the machine-readable time of an event, or nothing for a value that is not a date (toISOString would throw). */
+function isoTime(ms: number): string | undefined {
+  const d = new Date(ms);
+  return Number.isFinite(d.getTime()) ? d.toISOString() : undefined;
+}
+
 function Icon({ kind }: { kind: string }) {
   if (kind === "disconnect") {
     return (
@@ -78,7 +84,7 @@ export const FaultLog = memo(function FaultLog({ events, eventBaseline, missedEv
                     <div className="what">{said.title}</div>
                     <div className="why">{said.detail}</div>
                   </div>
-                  <time dateTime={new Date(e.atUnixMs).toISOString()}>{formatClock(e.atUnixMs)}</time>
+                  <time dateTime={isoTime(e.atUnixMs)}>{formatClock(e.atUnixMs)}</time>
                 </li>
               );
             })}

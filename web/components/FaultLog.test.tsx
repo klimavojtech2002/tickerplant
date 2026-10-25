@@ -79,7 +79,7 @@ describe("FaultLog", () => {
   it("shows a crossing update without any price, and never a sequence number of zero", () => {
     render(<FaultLog {...props({ events: [ev(1, { kind: "cross", expectedSeq: 0, gotSeq: 9999 })] })} />);
     const item = screen.getByRole("listitem");
-    expect(item).toHaveTextContent("It would have put a bid above the ask. Discarded.");
+    expect(item).toHaveTextContent("It would have put a bid at or above the ask. Discarded.");
     expect(item.textContent).not.toMatch(/\b9999\b|\b0\b/);
   });
 
@@ -87,6 +87,11 @@ describe("FaultLog", () => {
     render(<FaultLog {...props({ events: events(8), eventBaseline: 8 })} />);
     const times = screen.getAllByRole("listitem").map((li) => li.querySelector("time")!.textContent);
     expect(times).toEqual(["12:00:08", "12:00:07", "12:00:06", "12:00:05", "12:00:04"]);
+  });
+
+  it("still lists an entry whose time is not a date, without a machine-readable time", () => {
+    render(<FaultLog {...props({ events: [ev(1, { atUnixMs: 9e15 })] })} />);
+    expect(screen.getByRole("listitem").querySelector("time")).not.toHaveAttribute("datetime");
   });
 
   it("says no faults yet when the server has recorded none", () => {

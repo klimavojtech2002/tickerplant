@@ -145,8 +145,8 @@ describe("restarted", () => {
       true,
     );
   });
-  it("is true when the clock goes back", () => {
-    expect(restarted(telemetry(), 2, telemetry({ t: 99 }))).toBe(true);
+  it("is false when only the server's clock goes back, since the wall clock can step without a restart", () => {
+    expect(restarted(telemetry(), 2, telemetry({ t: 99 }))).toBe(false);
   });
   it.each([
     "resyncs",
@@ -256,7 +256,7 @@ describe("describeFault", () => {
   });
 
   it.each([
-    ["cross", "Crossing update rejected", "It would have put a bid above the ask. Discarded."],
+    ["cross", "Crossing update rejected", "It would have put a bid at or above the ask. Discarded."],
     ["checksum", "Checksum mismatch", "The book no longer matched the exchange's checksum after an update."],
     ["disconnect", "Feed disconnected", "The connection to the exchange dropped."],
   ])("words a %s", (kind, title, sentence) => {

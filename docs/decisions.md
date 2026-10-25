@@ -943,13 +943,17 @@ taken at one instant.
   exchange sent. "None crossed" is shown only while the connection is open, and the line makes no claim otherwise.
 - The counters are separate rows, not parts of a whole: a checksum venue adds checksum drift to rebuilds, so they do not sum.
 - The log merges the engine's ring by event id across frames (the engine resends all 16 every second) and shows absolute local
-  times, never ages, because the server's clock and the browser's can differ. A frame whose newest id, clock or any counter went
-  backwards comes from a server that started again, and the page drops what it kept of the old one.
+  times, never ages, because the server's clock and the browser's can differ. A frame whose newest id or any counter went
+  backwards comes from a server that started again, and the page drops what it kept of the old one. The frame's own clock is not
+  used for this: it is the server's wall clock, which can step back without a restart.
 
 **Consequences.**
-- The headline can be wrong by one for the length of one frame, and the log never shows more than the engine's last 16 plus
-  what the page saw while it was open.
+- The headline can be wrong by one for the length of one frame, and the log never shows more than the engine's last 16.
 - A server that fails to rebuild is gone, so the card cannot show a rebuild that failed; it shows the connection state instead.
+  The engine writes a rebuild's duration even when the rebuild fails, so for the moment before the server stops publishing, that
+  rebuild can read as finished.
+- One rebuild can record enough snapshot problems to push every rebuild event out of the 16-entry ring. The headline still counts
+  them from `resyncs`, and the line under it then says the newest rebuild is no longer in the server's log.
 
 ## Verified against
 

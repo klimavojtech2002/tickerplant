@@ -57,14 +57,15 @@ const counters = [
 
 /**
  * restarted tells whether a frame must come from a server that started again, so that what the page remembers of the old one is
- * dropped: its event ids or its clock went back, or any counter that only ever rises fell.
+ * dropped: its newest event id went back, or any counter that only ever rises fell. The frame's own clock is not used: it is the
+ * server's wall clock, which can step back without a restart.
  */
 export function restarted(previous: Telemetry | null, knownNewestId: number, next: Telemetry): boolean {
   if (previous === null) {
     return false;
   }
   const newestId = next.events.reduce((m, e) => Math.max(m, e.id), 0);
-  if (newestId < knownNewestId || next.t < previous.t) {
+  if (newestId < knownNewestId) {
     return true;
   }
   return counters.some((c) => next[c] < previous[c]);

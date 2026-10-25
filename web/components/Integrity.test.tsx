@@ -75,6 +75,14 @@ describe("Integrity", () => {
       expect(screen.queryByText(/0 faults repaired/)).not.toBeInTheDocument();
     });
 
+    it("says the newest rebuild has left the server's log when snapshot problems pushed every rebuild out of it", () => {
+      const events = [ev(30, { kind: "snapshot-error", durationMs: 0, reason: "snapshot failed" })];
+      render(<Integrity {...props({ events })} />);
+      expect(screen.getByRole("heading", { name: "18 faults repaired" })).toBeInTheDocument();
+      expect(screen.getByText("The newest rebuild is no longer in the server's log.")).toBeInTheDocument();
+      expect(screen.queryByText(/has not had to rebuild/)).not.toBeInTheDocument();
+    });
+
     it("leaves a rebuild that is running out of the count and says so", () => {
       render(<Integrity {...props({ events: [ev(18, { durationMs: -1 })] })} />);
       expect(screen.getByRole("heading", { name: "17 faults repaired" })).toBeInTheDocument();
@@ -137,6 +145,17 @@ describe("Integrity", () => {
       expect(
         screen.getByText("The server rejected 4 crossing updates before publishing any of them."),
       ).toBeInTheDocument();
+    });
+
+    it("moves the checked and the refused counts together, so the line never shows two moments at once", () => {
+      const { rerender } = render(<Integrity {...props({ viewsChecked: 10 })} />);
+      rerender(<Integrity {...props({ viewsChecked: 11 })} />); // shown at once
+      rerender(<Integrity {...props({ viewsChecked: 12, viewsRefused: 1 })} />); // held
+      expect(document.querySelector('[data-field="check"]')).toHaveTextContent("11 updates checked, none crossed");
+      act(() => vi.advanceTimersByTime(250));
+      expect(document.querySelector('[data-field="check"]')).toHaveTextContent(
+        "12 updates checked; 1 crossed and refused",
+      );
     });
 
     it("shows the count a few times a second at most, and the latest at the end", () => {

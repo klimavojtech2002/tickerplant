@@ -5,7 +5,7 @@
 // two sentences on purpose: they are measured in different places and never merged into one claim. The counters are separate rows,
 // because they do not add up (a checksum venue adds drift to rebuilds).
 
-import { memo } from "react";
+import { memo, useMemo } from "react";
 
 import { connectionPill, type ConnectionState } from "@/lib/connection";
 import { copy } from "@/lib/copy";
@@ -54,8 +54,11 @@ export const Integrity = memo(function Integrity({
   const kind = connectionPill(conn, now).kind;
   const stale = kind === "no-data" || kind === "reconnecting" || kind === "transient";
   // the page's own counters move with every update; they reach the screen a few times a second
-  const checked = useThrottled(viewsChecked, 250);
-  const refused = useThrottled(viewsRefused, 250);
+  const counts = useThrottled(
+    useMemo(() => ({ checked: viewsChecked, refused: viewsRefused }), [viewsChecked, viewsRefused]),
+    250,
+  );
+  const { checked, refused } = counts; // together, so the two numbers always belong to the same moment
   const c = copy.integrity;
 
   if (telemetry === null) {
@@ -75,7 +78,11 @@ export const Integrity = memo(function Integrity({
   const headline = repaired > 0 ? c.repaired(count(repaired), repaired) : inProgress ? c.firstInProgress : c.noRebuilds;
   const said = latest ? describeFault(latest, latest.id) : null;
   const latestLine =
-    latest && said ? c.latest(said.title, formatClock(latest.atUnixMs), said.rebuild ?? "") : c.untouched;
+    latest && said
+      ? c.latest(said.title, formatClock(latest.atUnixMs), said.rebuild ?? "")
+      : telemetry.resyncs === 0
+        ? c.untouched
+        : c.latestGone;
 
   let check: { state: "ok" | "refused" | "idle"; text: string };
   if (refused > 0) {
