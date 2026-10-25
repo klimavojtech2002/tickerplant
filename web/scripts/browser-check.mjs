@@ -593,27 +593,38 @@ try {
         `${tag}: a market card or the About text is missing when printed: ${JSON.stringify(printed)}`,
       );
       check(!printed.wide, `${tag}: the printed page is wider than its window`);
-      // a visitor who chose the dark theme still gets dark text on white paper
-      await evaluate(`document.documentElement.dataset.theme = "dark"`);
-      await send("Emulation.setEmulatedMedia", {
-        media: "print",
-        features: [{ name: "prefers-color-scheme", value: "dark" }],
-      });
-      await sleep(200);
-      const ink = await evaluate(`(() => {
-        const lum = (c) => { const m = c.match(/[0-9.]+/g).map(parseFloat); return (0.2126 * m[0] + 0.7152 * m[1] + 0.0722 * m[2]) / 255; };
-        const card = getComputedStyle(document.querySelector(".mk-card"));
-        return { text: lum(card.color), card: lum(card.backgroundColor), page: lum(getComputedStyle(document.body).backgroundColor) };
-      })()`);
-      await evaluate(`delete document.documentElement.dataset.theme`);
-      await send("Emulation.setEmulatedMedia", {
-        media: "",
-        features: [{ name: "prefers-color-scheme", value: "light" }],
-      });
-      await sleep(200);
+      // a visitor who chose the dark theme still gets dark text on white paper, and the bar at the top does not keep a dark background
+      let ink;
+      try {
+        await evaluate(`document.documentElement.dataset.theme = "dark"`);
+        await send("Emulation.setEmulatedMedia", {
+          media: "print",
+          features: [{ name: "prefers-color-scheme", value: "dark" }],
+        });
+        await sleep(200);
+        ink = await evaluate(`(() => {
+          const lum = (c) => { const m = c.match(/[0-9.]+/g).map(parseFloat); return (0.2126 * m[0] + 0.7152 * m[1] + 0.0722 * m[2]) / 255; };
+          const alpha = (c) => { const m = c.match(/[0-9.]+/g).map(parseFloat); return m.length > 3 ? m[3] : 1; };
+          const card = getComputedStyle(document.querySelector(".mk-card"));
+          const nav = getComputedStyle(document.querySelector(".nav"));
+          return { text: lum(card.color), card: lum(card.backgroundColor), page: lum(getComputedStyle(document.body).backgroundColor),
+            navText: lum(getComputedStyle(document.querySelector(".wordmark")).color), navBg: lum(nav.backgroundColor), navAlpha: alpha(nav.backgroundColor) };
+        })()`);
+      } finally {
+        await evaluate(`delete document.documentElement.dataset.theme`);
+        await send("Emulation.setEmulatedMedia", {
+          media: "",
+          features: [{ name: "prefers-color-scheme", value: "light" }],
+        });
+        await sleep(200);
+      }
       check(
         ink.text < 0.35 && ink.card > 0.9 && ink.page > 0.9,
         `${tag}: printed from the dark theme, the ink is not dark on white: ${JSON.stringify(ink)}`,
+      );
+      check(
+        ink.navAlpha < 0.5 || ink.navBg > 0.9 || ink.navText > 0.5,
+        `${tag}: printed from the dark theme, the top bar is dark text on a dark background: ${JSON.stringify(ink)}`,
       );
     }
 

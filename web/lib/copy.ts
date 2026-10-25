@@ -104,7 +104,7 @@ export const copy = {
     scale: (slowest: string) =>
       `Bars share one scale, up to the largest value: ${slowest}. Slowest is the single slowest update; the others are estimates, so it can read slightly below the 99.9th percentile.`,
     caption:
-      "From the adapter taking a frame in (decoding it is included) to the book being stored for readers, before it is sent to anyone. Network time and the time a frame waited before the adapter took it are not included. Counted over every update applied since the server started, not a recent window. Quantiles are estimates within 2 %. Values under 1 µs are shown as <1 µs: the clock and the histogram cannot resolve them reliably.",
+      "From the adapter taking a frame in (decoding it is included; for the demo feed, from when the update is generated) to the book being stored for readers, before it is sent to anyone. Network time and the time a frame waited before the adapter took it are not included. Counted over every update applied since the server started, not a recent window. Quantiles are estimates within 2 %. Values under 1 µs are shown as <1 µs: the clock and the histogram cannot resolve them reliably.",
     noLatency: "This server does not measure processing time.",
   },
   footer: {

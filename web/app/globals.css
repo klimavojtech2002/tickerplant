@@ -906,6 +906,9 @@ body {
     --blue: #0066cc;
     --blue-ink: #0a5cb8;
     --blue-soft: rgba(0, 122, 255, 0.12);
+    --bar-bg: #fff;
+    --shadow-card: none;
+    --focus: #0071e3;
     color-scheme: light;
   }
   :root,

@@ -69,6 +69,7 @@ describe("Footer", () => {
 
 describe("the stylesheet", () => {
   const css = readFileSync(join(__dirname, "..", "app", "globals.css"), "utf8");
+  const tokens = readFileSync(join(__dirname, "..", "app", "tokens.css"), "utf8");
 
   it("styles the failed-panel fallback of the error boundary, which sits outside any older scope", () => {
     expect(css).toMatch(/\.boundary-failed\s*\{/);
@@ -86,22 +87,33 @@ describe("the stylesheet", () => {
     }
     throw new Error("unterminated print block");
   }
-  const escape = (selector: string) => selector.replace(/[.[\]]/g, (c) => "\\" + c);
 
   it("opens the About text and hides what only works on a screen when printed", () => {
     const print = printBlock();
     expect(print).toMatch(/\.about-panel\[hidden\]\s*\{[^}]*display:\s*block\s*!important/);
+    // the first rule of the block names what is hidden, and hides it
+    const first = /^\s*([^{}]*)\{([^}]*)\}/.exec(print);
+    expect(first, "a first rule in the print block").not.toBeNull();
+    const selectors = first![1]!.split(",").map((x) => x.trim());
     for (const hidden of [".mk-switch", ".nav-right", ".pause-btn", ".log-toggle", ".about-btn", ".chart-tip"]) {
-      expect(print, hidden).toMatch(new RegExp(`${escape(hidden)}\s*[,{]`));
+      expect(selectors, hidden).toContain(hidden);
     }
+    expect(first![2]).toMatch(/display:\s*none\s*!important/);
     expect(print).toMatch(/\.mk-grid\[data-shown\] \.mk-card\s*\{\s*display:\s*flex\s*!important/);
   });
 
-  it("prints in the light colours whatever theme was chosen, by setting the tokens again above both dark blocks", () => {
+  it("prints in the light colours whatever theme was chosen, setting again every token the dark theme sets", () => {
     const print = printBlock();
     const block = /:root:root:root\s*\{([^}]*)\}/.exec(print);
     expect(block, "a :root:root:root block in print").not.toBeNull();
-    for (const token of ["--bg: #fff", "--card: #fff", "--label: #000"]) {
+    const dark = /:root\[data-theme="dark"\]\s*\{([^}]*)\}/.exec(tokens);
+    expect(dark, "the dark block of tokens.css").not.toBeNull();
+    const names = [...dark![1]!.matchAll(/(--[a-z0-9-]+)\s*:/g)].map((m) => m[1]!);
+    expect(names.length).toBeGreaterThan(15);
+    for (const name of names) {
+      expect(block![1], name).toContain(`${name}:`);
+    }
+    for (const token of ["--bg: #fff", "--card: #fff", "--label: #000", "--bar-bg: #fff"]) {
       expect(block![1]).toContain(token);
     }
   });

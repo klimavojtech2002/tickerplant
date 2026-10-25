@@ -969,11 +969,12 @@ would claim a speed the system did not measure, and a bar for it would compare n
   cut and never rounded up.
 - All four bars share one linear scale, up to the largest of the four values. The quantiles are histogram bucket midpoints and
   can sit a little above the exact slowest value, so the longest bar is not always the slowest one, and the card says so.
-- The card says what the span is (the adapter handing a frame over, to the book being stored for readers; before delivery to
-  anyone, network time not included), that it counts every applied update since the server started and not a recent window, and
+- The card says what the span is (from the adapter taking a frame in, decoding included, to the book being stored for readers,
+  before delivery to anyone; for the demo feed, from when the update is generated; network time and the time a frame waited before
+  the adapter took it are not included), that it counts every applied update since the server started and not a recent window, and
   that the quantiles are estimates within 2 %.
 - The delivery counters are per viewer and summed over viewers, so they are not compared with each other. The start time is the
-  server's start shown in the visitor's zone (with the date when it was not today); there is no uptime, because the browser's
+  server's start shown in the visitor's zone (with the date when it was not today, and the year when it is not this one); there is no uptime, because the browser's
   clock and the server's can differ.
 - When the server stops answering, the card keeps its last numbers at full strength and says when they were received, rather than
   dimming them; with nothing received it says it cannot reach the server and names the address. The page retries every two
