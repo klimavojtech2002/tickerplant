@@ -50,8 +50,13 @@ export const DepthChart = memo(function DepthChart({ view }: { view: ViewEvent }
       return; // a finger would leave the tooltip stuck; the order book is the way to read exact numbers
     }
     const box = e.currentTarget.getBoundingClientRect();
-    if (box.width > 0) {
-      setPointer((e.clientX - box.left) / box.width); // outside the plot is fine: the nearest level is still the edge one
+    if (shape && box.width > 0) {
+      const fraction = (e.clientX - box.left) / box.width; // outside the plot is fine: the nearest level is still the edge one
+      const next = nearestPoint(shape.points, fraction);
+      // moving within one level changes nothing on screen, so it does not render again
+      if (next?.side !== active?.side || next?.index !== active?.index) {
+        setPointer(fraction);
+      }
     }
   };
   const ends = priceEnds(view);
@@ -153,13 +158,7 @@ export const DepthChart = memo(function DepthChart({ view }: { view: ViewEvent }
                   className={`chart-dot chart-dot-${active.side}`}
                   style={{ left: `${active.left}%`, top: `${active.top}%` }}
                 />
-                <div
-                  className="chart-tip"
-                  style={{
-                    left: `clamp(5rem, ${active.left}%, calc(100% - 5rem))`,
-                    top: `max(3.5rem, ${active.top}%)`,
-                  }}
-                >
+                <div className={`chart-tip chart-tip-${active.left < 50 ? "right" : "left"}`}>
                   <b>{active.price}</b>
                   <span>
                     {(active.side === "bid" ? copy.market.tipBid : copy.market.tipAsk)(

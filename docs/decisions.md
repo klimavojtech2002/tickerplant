@@ -914,8 +914,9 @@ prices and sizes are never floats, so the chart needs a clear line between the e
   not presented as a venue string.
 - The tooltip follows a mouse or pen only (a finger would leave it stuck) and names the level under the pointer with its exact price
   and the exact size resting up to it. There is no keyboard crosshair: a keyboard user reads the order book.
-- On a phone the two cards share the screen through a two-button switch (`aria-pressed`, Depth first); both cards stay in the page and
-  the switch is not displayed at wider sizes, so it is not in the accessibility tree there.
+- On a phone the two cards share the screen through a two-button switch (`aria-pressed`, Depth first); both cards stay in the page, but the
+  one that is not chosen is not displayed, so on a phone the order book (the chart's text alternative) is reached with the Ladder
+  button. The switch is not displayed at wider sizes, so it is not in the accessibility tree there.
 
 ## Verified against
 

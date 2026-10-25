@@ -783,8 +783,10 @@ body {
   box-shadow: 0 0 0 2px var(--red);
 }
 
+/* The tip sits in the top corner on the side away from the pointer, so it is always inside the plot and never under the pointer. */
 .chart-tip {
   position: absolute;
+  top: 0.5rem;
   z-index: 2;
   padding: 0.5625rem 0.75rem;
   border-radius: 0.75rem;
@@ -794,9 +796,16 @@ body {
     0 8px 28px rgba(0, 0, 0, 0.2);
   font-size: 0.8125rem;
   line-height: 1.0625rem;
-  white-space: nowrap;
-  transform: translate(-50%, calc(-100% - 0.625rem));
+  max-width: min(18rem, 100%);
   pointer-events: none;
+}
+
+.chart-tip-left {
+  left: 0.5rem;
+}
+
+.chart-tip-right {
+  right: 0.5rem;
 }
 
 .chart-tip b {

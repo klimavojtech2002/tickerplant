@@ -190,6 +190,26 @@ describe("DepthChart", () => {
       expect(container.querySelector(".chart-tip")).toHaveTextContent("2.0 BTC in bids down to here");
     });
 
+    it("puts the tip in the corner away from the pointer, so it stays inside the plot", () => {
+      const { container } = render(<DepthChart view={view} />);
+      move(plot(container), 100);
+      expect(container.querySelector(".chart-tip")).toHaveClass("chart-tip-left");
+      move(plot(container), 0);
+      expect(container.querySelector(".chart-tip")).toHaveClass("chart-tip-right");
+    });
+
+    it("does not render again while the pointer stays on one level", () => {
+      const { container } = render(<DepthChart view={view} />);
+      const el = plot(container);
+      move(el, 100);
+      const renders = vi.mocked(mid).mock.calls.length; // mid is worked out once per render
+      move(el, 99);
+      move(el, 98);
+      expect(vi.mocked(mid).mock.calls.length).toBe(renders);
+      move(el, 0); // another level: one more render
+      expect(vi.mocked(mid).mock.calls.length).toBe(renders + 1);
+    });
+
     it("leaves the currency out when the symbol has none", () => {
       const { container } = render(<DepthChart view={{ ...view, symbol: "DEMO" }} />);
       move(plot(container), 100);
@@ -220,6 +240,8 @@ describe("DepthChart", () => {
     it("keeps pointing at a level that is still there when a new book arrives, and never at one that is gone", () => {
       const { container, rerender } = render(<DepthChart view={view} />);
       move(plot(container), 100);
+      expect(container.querySelector(".chart-tip b")).toHaveTextContent("62725.5");
+      rerender(<DepthChart view={{ ...view, seq: 2 }} />); // a new book with the same levels
       expect(container.querySelector(".chart-tip b")).toHaveTextContent("62725.5");
       rerender(<DepthChart view={{ ...view, asks: [["62721.9", "2.0"]] }} />); // the far ask is gone
       expect(container.querySelector(".chart-tip b")).toHaveTextContent("62721.9");

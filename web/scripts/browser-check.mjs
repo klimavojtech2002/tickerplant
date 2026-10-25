@@ -393,7 +393,9 @@ try {
       return { switch: on(".mk-switch"), depth: on(".mk-depth"), ladder: on(".mk-ladder"), table: on("table.ladder"),
         pressed: [...document.querySelectorAll(".mk-switch button")].map((b) => b.getAttribute("aria-pressed")) }; })()`;
     const cards = await evaluate(visible);
-    if (cards && (cards.depth || cards.ladder)) {
+    if (!cards || !(cards.depth || cards.ladder)) {
+      check(false, `${tag}: neither the depth chart nor the order book has a size on screen`);
+    } else {
       if (cards.switch) {
         check(
           cards.depth && !cards.ladder && cards.pressed.join() === "true,false",
@@ -424,7 +426,9 @@ try {
     const plotBox = await evaluate(
       `(() => { const e = document.querySelector(".chart-plot"); if (!e) return null; const r = e.getBoundingClientRect(); return r.width > 0 ? { left: r.left, right: r.right, top: r.top, bottom: r.bottom } : null; })()`,
     );
-    if (plotBox) {
+    if (!plotBox) {
+      check(!requireMarket, `${tag}: no depth chart plot to hover`);
+    } else {
       for (const [side, x] of [
         ["left", plotBox.left + 1],
         ["right", plotBox.right - 1],
