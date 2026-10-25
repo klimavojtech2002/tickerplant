@@ -168,6 +168,84 @@ describe("Page under React Strict Mode", () => {
     expect(FakeEventSource.instances.length).toBe(before + 1);
   });
 
+  describe("integrity and the fault log", () => {
+    const frame = (over: object) => JSON.stringify({ ...JSON.parse(telemetry), ...over });
+    const gap = {
+      id: 1,
+      kind: "gap",
+      atUnixMs: 1_000,
+      expectedSeq: 5,
+      gotSeq: 8,
+      reason: "sequence gap",
+      durationMs: 12,
+    };
+    const goodView = JSON.stringify({
+      venue: "kraken",
+      symbol: "BTC/USD",
+      seq: 1,
+      bids: [["100.0", "1"]],
+      asks: [["100.2", "1"]],
+    });
+    const crossedView = JSON.stringify({
+      venue: "kraken",
+      symbol: "BTC/USD",
+      seq: 2,
+      bids: [["100.5", "1"]],
+      asks: [["100.2", "1"]],
+    });
+
+    it("shows the waiting card before the first telemetry frame, then the headline and the entry", async () => {
+      render(<Page />);
+      expect(screen.getByText("Waiting for the first update from the server…")).toBeInTheDocument();
+      const es = FakeEventSource.last();
+      await act(async () => {
+        es.open();
+        es.emit("telemetry", frame({ resyncs: 1, gaps: 1, events: [gap] }));
+        await vi.advanceTimersByTimeAsync(10);
+      });
+      expect(screen.getByRole("heading", { name: "1 fault repaired" })).toBeInTheDocument();
+      expect(screen.getByText("Expected 5, got 8. Rebuilt from a snapshot in 12 ms.")).toBeInTheDocument();
+    });
+
+    it("counts the updates it checked, and turns the line amber when a crossed one is refused", async () => {
+      render(<Page />);
+      const es = FakeEventSource.last();
+      await act(async () => {
+        es.open();
+        es.emit("telemetry", telemetry);
+        es.emit("view", goodView);
+        await vi.advanceTimersByTimeAsync(300);
+      });
+      expect(document.querySelector('[data-field="check"]')).toHaveTextContent(
+        "On this page: 1 updates checked, none crossed.",
+      );
+      await act(async () => {
+        es.emit("view", crossedView);
+        await vi.advanceTimersByTimeAsync(300);
+      });
+      expect(document.querySelector('[data-field="check"]')).toHaveTextContent(
+        "2 updates checked; 1 crossed and refused.",
+      );
+    });
+
+    it("forgets the old server's faults when the counters start again", async () => {
+      render(<Page />);
+      const es = FakeEventSource.last();
+      await act(async () => {
+        es.open();
+        es.emit("telemetry", frame({ resyncs: 1, events: [gap] }));
+        await vi.advanceTimersByTimeAsync(10);
+      });
+      expect(screen.getByText("Sequence gap")).toBeInTheDocument();
+      await act(async () => {
+        es.emit("telemetry", frame({ t: 0, resyncs: 0, events: [] })); // a server that started again
+        await vi.advanceTimersByTimeAsync(10);
+      });
+      expect(screen.queryByText("Sequence gap")).not.toBeInTheDocument();
+      expect(screen.getByText("No faults yet.")).toBeInTheDocument();
+    });
+  });
+
   describe("Pause", () => {
     const viewAt = (bid: string, ask: string, seq: number) =>
       JSON.stringify({ venue: "kraken", symbol: "BTC/USD", seq, bids: [[bid, "1"]], asks: [[ask, "1"]] });

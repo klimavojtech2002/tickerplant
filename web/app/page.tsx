@@ -13,7 +13,9 @@ import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 
 
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { HealthSection } from "@/components/HealthPanel";
+import { FaultLog } from "@/components/FaultLog";
 import { Hero } from "@/components/Hero";
+import { Integrity } from "@/components/Integrity";
 import { Market } from "@/components/Market";
 import { NavBar } from "@/components/NavBar";
 import type { History } from "@/lib/history";
@@ -67,6 +69,23 @@ export default function Page() {
         />
         <ErrorBoundary resetKey={view}>
           <Market view={view} />
+        </ErrorBoundary>
+        <ErrorBoundary resetKey={snap.telemetry}>
+          <div className="row2">
+            <Integrity
+              telemetry={snap.telemetry}
+              events={snap.events}
+              viewsChecked={snap.viewsChecked}
+              viewsRefused={snap.viewsRefused}
+              conn={snap.conn}
+            />
+            <FaultLog
+              events={snap.events}
+              eventBaseline={snap.eventBaseline}
+              missedEvents={snap.missedEvents}
+              known={snap.telemetry !== null}
+            />
+          </div>
         </ErrorBoundary>
         <div className="legacy">
           <ErrorBoundary resetKey={poll.kind}>
