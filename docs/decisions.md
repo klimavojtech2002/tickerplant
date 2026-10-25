@@ -955,6 +955,37 @@ taken at one instant.
 - One rebuild can record enough snapshot problems to push every rebuild event out of the 16-entry ring. The headline still counts
   them from `resyncs`, and the line under it then says the newest rebuild is no longer in the server's log.
 
+## ADR-0029 — Processing time is shown as it was measured
+
+**Status:** Accepted
+
+**Context.** The status page reports four processing times (median, 99th and 99.9th percentile, slowest) in whole nanoseconds
+from a histogram. On a coarse clock many updates measure 0 ns, and the lowest bucket reads about 1 ns. Printing that as "1 ns"
+would claim a speed the system did not measure, and a bar for it would compare noise with noise.
+
+**Decision.**
+- Anything under 1 µs reads "<1 µs" and gets no bar. The floor is a choice about what to display, not a claim about the timer: the
+  clock and the histogram cannot resolve those values reliably. From 1 µs the figure is shown in µs, ms or s with one digit,
+  cut and never rounded up.
+- All four bars share one linear scale, up to the largest of the four values. The quantiles are histogram bucket midpoints and
+  can sit a little above the exact slowest value, so the longest bar is not always the slowest one, and the card says so.
+- The card says what the span is (from the adapter taking a frame in, decoding included, to the book being stored for readers,
+  before delivery to anyone; for the demo feed, from when the update is generated; network time and the time a frame waited before
+  the adapter took it are not included), that it counts every applied update since the server started and not a recent window, and
+  that the quantiles are estimates within 2 %.
+- The delivery counters are per viewer and summed over viewers, so they are not compared with each other. The start time is the
+  server's start shown in the visitor's zone (with the date when it was not today, and the year when it is not this one); there is no uptime, because the browser's
+  clock and the server's can differ.
+- When the server stops answering, the card keeps its last numbers at full strength and says when they were received, rather than
+  dimming them; with nothing received it says it cannot reach the server and names the address. The page retries every two
+  seconds by itself, so there is no button that would suggest otherwise.
+
+**Consequences.**
+- A fast machine and a slow one both show "<1 µs" for sub-microsecond medians; the figure cannot rank them, and a true
+  1.0 µs can read "<1 µs" when its estimate falls a little below.
+- The page cannot tell a server with no latency measurement from one that does not report it; both say the server does not
+  measure processing time.
+
 ## Verified against
 
 - Go language specification — `internal` package import rule (ADR-0002).

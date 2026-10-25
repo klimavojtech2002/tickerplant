@@ -4,7 +4,6 @@ import { themeScript } from "@/lib/theme";
 
 import "./tokens.css";
 import "./globals.css";
-import "./legacy.css";
 
 // System fonts only: a font download would make the build depend on the network.
 

@@ -1,4 +1,4 @@
-// The page wraps the market and the health section in separate error boundaries, keyed on the
+// The page wraps the market and the system card in separate error boundaries, keyed on the
 // current view and the poll state's kind. These tests replace the two panels with ones that
 // throw on demand, so they check the wiring of those keys and not the panels themselves.
 
@@ -21,12 +21,12 @@ vi.mock("@/components/Market", () => ({
   },
 }));
 
-vi.mock("@/components/HealthPanel", () => ({
-  HealthSection: ({ state }: { state: { kind: string } }) => {
-    if (state.kind === "loading") {
+vi.mock("@/components/System", () => ({
+  System: ({ poll }: { poll: { kind: string } }) => {
+    if (poll.kind === "loading") {
       throw new Error("health failed");
     }
-    return <p>health {state.kind}</p>;
+    return <p>health {poll.kind}</p>;
   },
 }));
 
