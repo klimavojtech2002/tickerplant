@@ -19,7 +19,7 @@ RUN pnpm build \
 
 # Pinned by digest, so a moved tag cannot change what ships. Dependabot proposes new digests; each one
 # is merged only after the image check in CI has run against it.
-FROM nginx:1.29-alpine@sha256:5616878291a2eed594aee8db4dade5878cf7edcb475e59193904b198d9b830de AS final
+FROM nginx:1.31-alpine@sha256:713fc2ebfd92e8217db451477182ee91944b123d2b1ee9fd5a8c6e91ca6c3a11 AS final
 COPY nginx.conf /etc/nginx/nginx.conf
 COPY --from=builder /app/security-headers.conf /etc/nginx/security-headers.conf
 COPY --from=builder /app/out /usr/share/nginx/html
