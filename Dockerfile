@@ -2,7 +2,7 @@
 
 # The image tag fixes the Go that builds the binary; keep it equal to the toolchain line in
 # go.mod. GOTOOLCHAIN=local only stops the build from downloading another Go.
-FROM golang:1.26.10-alpine@sha256:9ce231b28998b32e116927c61aa5c406183061d4f3f2d61b292c88e7f6bdf7ca AS builder
+FROM golang:1.26.11-alpine@sha256:ecb67f987aa1a57794c91d19ade7ae0209f2f0f5496aaef9e6ae85ddf92d02ab AS builder
 ENV GOTOOLCHAIN=local
 # The version the binary reports (-version). Pass --build-arg VERSION=v1.2.3 to set it.
 ARG VERSION=dev
