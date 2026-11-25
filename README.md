@@ -230,7 +230,7 @@ Without Docker: `go run ./cmd/tickerplant -http :8080 -steps 100000000` for the 
 `cd web && pnpm install && pnpm dev` for the dashboard.
 
 The Go build needs Go 1.21 or newer: with the default `GOTOOLCHAIN=auto` the `go` command fetches the
-1.26.10 that `go.mod` asks for.
+1.26.11 that `go.mod` asks for.
 
 ## Status
 

@@ -13,7 +13,7 @@
 # It writes bench/results/bench.txt; rename it to <date>-<cpu>.txt. RUN_ID changes the cache key so the
 # benchmark runs again instead of being served from the build cache. The build has no .git, so the commit
 # and the clean/dirty flag come in as arguments.
-FROM golang:1.26.10-alpine@sha256:9ce231b28998b32e116927c61aa5c406183061d4f3f2d61b292c88e7f6bdf7ca AS run
+FROM golang:1.26.11-alpine@sha256:ecb67f987aa1a57794c91d19ade7ae0209f2f0f5496aaef9e6ae85ddf92d02ab AS run
 ENV GOTOOLCHAIN=local CGO_ENABLED=0
 ARG BENCH_COMMIT=unknown
 ARG BENCH_DIRTY=true
